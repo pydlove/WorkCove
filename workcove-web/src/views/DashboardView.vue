@@ -38,6 +38,7 @@ import { useRouter } from 'vue-router'
 import AppTitlebar from '@/components/business/AppTitlebar.vue'
 import ProfileEditor from '@/components/business/ProfileEditor.vue'
 import TaskRow from '@/components/business/TaskRow.vue'
+import WorkbenchHome from '@/components/business/workbench/WorkbenchHome.vue'
 import BrandMark from '@/components/ui/BrandMark.vue'
 import { useAuthStore } from '@/stores/useAuthStore'
 import {
@@ -241,8 +242,8 @@ const viewMeta: Record<
 > = {
   overview: {
     label: '工作台',
-    eyebrow: 'TODAY',
-    description: '把注意力留给真正重要的事情。',
+    eyebrow: 'WORKBENCH',
+    description: '时间、常用网址和本地软件集中在这里。',
   },
   tasks: {
     label: '任务',
@@ -310,26 +311,16 @@ const pageTitle = computed(() =>
 )
 const pageDescription = computed(() =>
   activeView.value === 'overview'
-    ? `今天是 ${dateLabel.value}，${openTaskCount.value} 项任务等待处理。`
+    ? `今天是 ${dateLabel.value}，从这里开始今天的工作。`
     : currentView.value.description,
 )
 const pageEyebrow = computed(() =>
-  activeView.value === 'overview' ? 'MY DAY' : currentView.value.eyebrow,
+  activeView.value === 'overview' ? 'WORKBENCH' : currentView.value.eyebrow,
 )
 
 const openTaskCount = computed(
   () => tasks.value.filter((task) => !task.done).length,
 )
-const completedTaskCount = computed(
-  () => tasks.value.filter((task) => task.done).length,
-)
-const taskCompletion = computed(() =>
-  tasks.value.length
-    ? Math.round((completedTaskCount.value / tasks.value.length) * 100)
-    : 0,
-)
-const overviewTasks = computed(() => tasks.value.slice(0, 4))
-const notePreview = computed(() => notes.value.slice(0, 2))
 const filteredTasks = computed(() => {
   if (taskFilter.value === 'open') {
     return tasks.value.filter((task) => !task.done)
@@ -403,22 +394,6 @@ const searchResults = computed(() => {
   return [...taskHits, ...noteHits].slice(0, 6)
 })
 
-const focusDuration = 25 * 60
-const focusSeconds = ref(focusDuration)
-const focusRunning = ref(false)
-const focusPercent = computed(
-  () => (focusSeconds.value / focusDuration) * 100,
-)
-const focusRingStyle = computed(() => ({
-  background: `conic-gradient(var(--accent) ${focusPercent.value}%, rgba(255, 255, 255, 0.13) 0)`,
-}))
-const focusTime = computed(() => {
-  const minutes = Math.floor(focusSeconds.value / 60)
-  const seconds = focusSeconds.value % 60
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-})
-
-let focusTimer: number | null = null
 let toastTimer: number | null = null
 
 function notify(message: string) {
@@ -427,38 +402,6 @@ function notify(message: string) {
   toastTimer = window.setTimeout(() => {
     toastMessage.value = ''
   }, 2200)
-}
-
-function stopFocusTimer() {
-  if (focusTimer) {
-    window.clearInterval(focusTimer)
-    focusTimer = null
-  }
-  focusRunning.value = false
-}
-
-function toggleFocusTimer() {
-  if (focusRunning.value) {
-    stopFocusTimer()
-    return
-  }
-
-  focusRunning.value = true
-  focusTimer = window.setInterval(() => {
-    if (focusSeconds.value <= 1) {
-      focusSeconds.value = 0
-      stopFocusTimer()
-      notify('本轮专注已完成')
-      return
-    }
-
-    focusSeconds.value -= 1
-  }, 1000)
-}
-
-function resetFocusTimer() {
-  stopFocusTimer()
-  focusSeconds.value = focusDuration
 }
 
 function toggleTask(id: number) {
@@ -539,9 +482,11 @@ function handleGlobalShortcut(event: KeyboardEvent) {
 }
 
 async function handleSignOut() {
-  stopFocusTimer()
-  session.signOut()
-  await router.push({ name: 'login' })
+  try {
+    await session.logout()
+  } finally {
+    await router.push({ name: 'login' })
+  }
 }
 
 onMounted(() => {
@@ -550,7 +495,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleGlobalShortcut)
-  stopFocusTimer()
   if (toastTimer) window.clearTimeout(toastTimer)
 })
 </script>
@@ -754,7 +698,11 @@ onBeforeUnmount(() => {
                   <p>{{ pageDescription }}</p>
                 </div>
                 <div
-                  v-if="activeView !== 'profile' && activeView !== 'settings'"
+                  v-if="
+                    activeView !== 'overview' &&
+                    activeView !== 'profile' &&
+                    activeView !== 'settings'
+                  "
                   class="page-heading__actions"
                 >
                   <button
@@ -776,257 +724,10 @@ onBeforeUnmount(() => {
                 </div>
               </header>
 
-              <section v-if="activeView === 'overview'" class="overview">
-                <div class="day-summary">
-                  <div class="summary-metric">
-                    <strong>{{ openTaskCount }}</strong>
-                    <span>待完成</span>
-                  </div>
-                  <div class="summary-metric">
-                    <strong>{{ schedule.length }}</strong>
-                    <span>今日日程</span>
-                  </div>
-                  <div class="summary-metric">
-                    <strong>{{ projects.length }}</strong>
-                    <span>进行中项目</span>
-                  </div>
-                  <div class="task-progress">
-                    <div class="task-progress__copy">
-                      <span>今日进度</span>
-                      <strong>{{ taskCompletion }}%</strong>
-                    </div>
-                    <div class="task-progress__track">
-                      <span :style="{ width: `${taskCompletion}%` }" />
-                    </div>
-                  </div>
-                </div>
-
-                <div class="overview-layout">
-                  <div class="overview-primary">
-                    <section class="dashboard-section">
-                      <header class="section-heading">
-                        <div>
-                          <p class="section-eyebrow">PRIORITIES</p>
-                          <h2>今天要做</h2>
-                        </div>
-                        <button
-                          class="section-link"
-                          type="button"
-                          @click="selectView('tasks')"
-                        >
-                          全部任务
-                          <ArrowUpRight :size="13" />
-                        </button>
-                      </header>
-
-                      <div class="task-list">
-                        <TaskRow
-                          v-for="task in overviewTasks"
-                          :key="task.id"
-                          :task="task"
-                          @toggle="toggleTask"
-                        />
-                      </div>
-
-                      <form class="task-composer" @submit.prevent="addTask">
-                        <Plus :size="15" />
-                        <input
-                          ref="taskComposer"
-                          v-model="newTaskTitle"
-                          type="text"
-                          aria-label="新任务名称"
-                          placeholder="添加一项任务"
-                        />
-                        <kbd>↵</kbd>
-                      </form>
-                    </section>
-
-                    <section class="dashboard-section notes-section">
-                      <header class="section-heading">
-                        <div>
-                          <p class="section-eyebrow">RECENT NOTES</p>
-                          <h2>最近记录</h2>
-                        </div>
-                        <button
-                          class="section-link"
-                          type="button"
-                          @click="selectView('notes')"
-                        >
-                          打开笔记
-                          <ArrowUpRight :size="13" />
-                        </button>
-                      </header>
-
-                      <div class="recent-notes">
-                        <article
-                          v-for="note in notePreview"
-                          :key="note.id"
-                          class="recent-note"
-                        >
-                          <span
-                            class="note-tone"
-                            :class="`note-tone--${note.tone}`"
-                          />
-                          <div>
-                            <h3>{{ note.title }}</h3>
-                            <p>{{ note.excerpt }}</p>
-                          </div>
-                          <time>{{ note.updatedAt }}</time>
-                        </article>
-                      </div>
-
-                      <form
-                        class="note-composer"
-                        @submit.prevent="addNote"
-                      >
-                        <textarea
-                          v-model="noteDraft"
-                          rows="2"
-                          aria-label="快速记录"
-                          placeholder="随手记下此刻的想法…"
-                        />
-                        <button type="submit" :disabled="!noteDraft.trim()">
-                          保存记录
-                        </button>
-                      </form>
-                    </section>
-                  </div>
-
-                  <aside class="overview-rail">
-                    <section class="focus-card">
-                      <div class="focus-card__header">
-                        <span>专注计时</span>
-                        <span class="focus-card__state">
-                          <span />
-                          {{ focusRunning ? '进行中' : '待开始' }}
-                        </span>
-                      </div>
-
-                      <div class="focus-clock">
-                        <div class="focus-dial" :style="focusRingStyle">
-                          <div class="focus-dial__inner">
-                            <strong>{{ focusTime }}</strong>
-                            <span>25 分钟专注</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div class="focus-controls">
-                        <button
-                          type="button"
-                          aria-label="重置计时"
-                          title="重置"
-                          @click="resetFocusTimer"
-                        >
-                          <RotateCcw :size="14" />
-                        </button>
-                        <button
-                          class="focus-controls__primary"
-                          type="button"
-                          :aria-label="focusRunning ? '暂停专注' : '开始专注'"
-                          @click="toggleFocusTimer"
-                        >
-                          <Pause v-if="focusRunning" :size="16" />
-                          <Play v-else :size="16" fill="currentColor" />
-                        </button>
-                      </div>
-                      <p>当前专注：搭建工作台骨架</p>
-                    </section>
-
-                    <section class="rail-section">
-                      <header class="rail-heading">
-                        <div>
-                          <p>{{ monthTitle }}</p>
-                          <h2>本周</h2>
-                        </div>
-                        <CalendarDays :size="15" />
-                      </header>
-                      <div class="week-strip">
-                        <button
-                          v-for="day in calendarWeek"
-                          :key="day.key"
-                          type="button"
-                          :class="{ 'week-day--today': day.isToday }"
-                        >
-                          <span>{{ day.weekday }}</span>
-                          <strong>{{ day.day }}</strong>
-                        </button>
-                      </div>
-                    </section>
-
-                    <section class="rail-section">
-                      <header class="rail-heading">
-                        <div>
-                          <p>SCHEDULE</p>
-                          <h2>今日日程</h2>
-                        </div>
-                        <button
-                          class="rail-icon"
-                          type="button"
-                          aria-label="打开日历"
-                          @click="selectView('calendar')"
-                        >
-                          <ArrowUpRight :size="14" />
-                        </button>
-                      </header>
-                      <div class="agenda-list">
-                        <article
-                          v-for="item in schedule"
-                          :key="item.time"
-                          class="agenda-item"
-                        >
-                          <time>{{ item.time }}</time>
-                          <span
-                            class="agenda-item__line"
-                            :class="`agenda-item__line--${item.tone}`"
-                          />
-                          <div>
-                            <h3>{{ item.title }}</h3>
-                            <p>{{ item.detail }}</p>
-                          </div>
-                        </article>
-                      </div>
-                    </section>
-
-                    <section class="rail-section rail-section--projects">
-                      <header class="rail-heading">
-                        <div>
-                          <p>PROJECTS</p>
-                          <h2>项目进展</h2>
-                        </div>
-                        <button
-                          class="rail-icon"
-                          type="button"
-                          aria-label="查看全部项目"
-                          @click="selectView('projects')"
-                        >
-                          <ArrowUpRight :size="14" />
-                        </button>
-                      </header>
-                      <div class="project-mini-list">
-                        <div
-                          v-for="project in projects.slice(0, 2)"
-                          :key="project.id"
-                        >
-                          <span
-                            class="project-color"
-                            :class="`project-color--${project.color}`"
-                          />
-                          <div>
-                            <span>{{ project.name }}</span>
-                            <div class="mini-progress">
-                              <span
-                                :style="{ width: `${project.progress}%` }"
-                              />
-                            </div>
-                          </div>
-                          <strong>{{ project.progress }}%</strong>
-                        </div>
-                      </div>
-                    </section>
-                  </aside>
-                </div>
-              </section>
+              <WorkbenchHome
+                v-if="activeView === 'overview'"
+                @notify="notify"
+              />
 
               <section v-else-if="activeView === 'tasks'" class="content-section">
                 <header class="section-heading section-heading--bordered">

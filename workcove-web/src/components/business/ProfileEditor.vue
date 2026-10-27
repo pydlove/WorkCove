@@ -11,8 +11,8 @@ import {
 } from '@lucide/vue'
 import { computed, reactive, ref, watch } from 'vue'
 
-import { compressAvatar } from '@/services/localProfile'
 import { useAuthStore } from '@/stores/useAuthStore'
+import { fileToSquareWebp } from '@/utils/image'
 
 const emit = defineEmits<{
   saved: []
@@ -87,7 +87,11 @@ async function handleAvatar(event: Event) {
 
   errorMessage.value = ''
   try {
-    form.avatarDataUrl = await compressAvatar(file)
+    form.avatarDataUrl = await fileToSquareWebp(file, {
+      maxBytes: 8 * 1024 * 1024,
+      dimension: 512,
+      sizeLabel: '8MB',
+    })
   } catch (error) {
     avatarError.value =
       error instanceof Error ? error.message : '头像处理失败，请重新选择'
