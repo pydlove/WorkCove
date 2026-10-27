@@ -254,13 +254,16 @@ function removeShortcut(id: string) {
   min-height: 250px;
   padding: 17px;
   flex-direction: column;
-  background: rgb(246 248 250 / 84%);
-  border: 1px solid var(--line-soft);
+  background: rgb(252 253 254 / 92%);
+  border: 1px solid var(--line);
   border-radius: 10px;
+  box-shadow:
+    0 1px 2px rgb(31 35 40 / 4%),
+    inset 0 1px 0 rgb(255 255 255 / 72%);
 }
 
 .shortcut-section + .shortcut-section {
-  border-left: 1px solid var(--line-soft);
+  border-left: 1px solid var(--line);
 }
 
 .shortcut-section__header {
@@ -276,15 +279,16 @@ function removeShortcut(id: string) {
   display: grid;
   width: 32px;
   height: 32px;
-  color: var(--accent);
-  background: var(--accent-soft);
+  color: #3f4851;
+  background: #f0f2f4;
+  box-shadow: inset 0 0 0 1px rgb(31 35 40 / 5%);
   border-radius: 7px;
   place-items: center;
 }
 
 .shortcut-section__icon--app {
-  color: var(--success);
-  background: rgb(26 127 55 / 9%);
+  color: #3f4851;
+  background: #f0f2f4;
 }
 
 .shortcut-section__header p {
@@ -311,7 +315,7 @@ function removeShortcut(id: string) {
   color: var(--text-subtle);
   font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
   font-size: 8px;
-  background: rgb(31 35 40 / 5%);
+  background: #f0f2f4;
   border-radius: 5px;
   place-items: center;
 }
@@ -322,10 +326,10 @@ function removeShortcut(id: string) {
   align-items: center;
   gap: 5px;
   padding: 0 8px;
-  color: var(--text-muted);
+  color: #58636d;
   font-size: 8px;
   font-weight: 600;
-  background: transparent;
+  background: #ffffff;
   border: 1px solid var(--line);
   border-radius: 6px;
 }
@@ -333,7 +337,7 @@ function removeShortcut(id: string) {
 .shortcut-section__add:hover {
   color: var(--accent);
   border-color: rgb(9 105 218 / 28%);
-  background: var(--accent-soft);
+  background: #f7fbff;
 }
 
 .shortcut-grid {
@@ -353,14 +357,14 @@ function removeShortcut(id: string) {
   color: var(--text-subtle);
   font-size: 9px;
   background: transparent;
-  border: 1px dashed var(--line);
+  border: 1px solid var(--line-soft);
   border-radius: 8px;
 }
 
 .shortcut-add-tile:hover {
   color: var(--accent);
   background: rgb(9 105 218 / 3%);
-  border-color: rgb(9 105 218 / 32%);
+  border-color: rgb(9 105 218 / 24%);
 }
 
 .application-empty {
@@ -374,29 +378,30 @@ function removeShortcut(id: string) {
   margin-top: 12px;
   color: var(--text-muted);
   text-align: left;
-  background: rgb(255 255 255 / 55%);
-  border: 1px dashed var(--line);
+  background: #fbfbfc;
+  border: 1px solid var(--line-soft);
   border-radius: 8px;
 }
 
 .application-empty:hover {
-  border-color: rgb(26 127 55 / 32%);
-  background: rgb(255 255 255 / 82%);
+  border-color: rgb(9 105 218 / 24%);
+  background: #ffffff;
 }
 
 .application-empty__icon {
   display: grid;
   width: 40px;
   height: 40px;
-  color: var(--success);
-  background: rgb(26 127 55 / 9%);
+  color: #3f4851;
+  background: #f0f2f4;
+  box-shadow: inset 0 0 0 1px rgb(31 35 40 / 5%);
   border-radius: 8px;
   place-items: center;
 }
 
 .application-empty__icon--website {
-  color: var(--accent);
-  background: var(--accent-soft);
+  color: #3f4851;
+  background: #f0f2f4;
 }
 
 .application-empty > span:nth-child(2) {
@@ -419,27 +424,36 @@ function removeShortcut(id: string) {
 
 html[data-theme="dark"] {
   .shortcut-section {
-    background: rgb(22 27 34 / 76%);
+    background: rgb(22 27 34 / 86%);
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 22%),
+      inset 0 1px 0 rgb(255 255 255 / 4%);
   }
 
   .shortcut-section__count {
-    background: rgb(240 246 252 / 6%);
+    background: #21262d;
   }
 
   .shortcut-section__icon {
-    color: #79c0ff;
-    background: rgb(56 139 253 / 14%);
+    color: #c9d1d9;
+    background: #21262d;
+    box-shadow: inset 0 0 0 1px rgb(240 246 252 / 6%);
   }
 
   .shortcut-section__icon--app,
   .application-empty__icon {
-    color: #7ee787;
-    background: rgb(63 185 80 / 12%);
+    color: #c9d1d9;
+    background: #21262d;
   }
 
   .application-empty__icon--website {
-    color: #79c0ff;
-    background: rgb(56 139 253 / 14%);
+    color: #c9d1d9;
+    background: #21262d;
+  }
+
+  .shortcut-section__add {
+    color: #8b949e;
+    background: #0d1117;
   }
 
   .shortcut-section__add:hover {
@@ -455,12 +469,12 @@ html[data-theme="dark"] {
   }
 
   .application-empty {
-    background: rgb(13 17 23 / 54%);
+    background: #0d1117;
   }
 
   .application-empty:hover {
     background: rgb(22 27 34 / 88%);
-    border-color: rgb(63 185 80 / 24%);
+    border-color: rgb(88 166 255 / 24%);
   }
 }
 

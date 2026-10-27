@@ -110,17 +110,17 @@ watch(
   width: 34px;
   height: 34px;
   overflow: hidden;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border: 1px solid rgb(9 105 218 / 7%);
+  color: #4a545e;
+  background: #f0f2f4;
+  border: 1px solid rgb(31 35 40 / 6%);
   border-radius: 8px;
   place-items: center;
 }
 
 .shortcut-icon--application {
-  color: var(--success);
-  background: rgb(26 127 55 / 9%);
-  border-color: rgb(26 127 55 / 8%);
+  color: #4a545e;
+  background: #f0f2f4;
+  border-color: rgb(31 35 40 / 6%);
 }
 
 .shortcut-icon__fallback {
@@ -221,15 +221,15 @@ html[data-theme="dark"] {
   }
 
   .shortcut-icon {
-    color: #79c0ff;
-    background: rgb(56 139 253 / 14%);
-    border-color: rgb(88 166 255 / 8%);
+    color: #c9d1d9;
+    background: #21262d;
+    border-color: rgb(240 246 252 / 6%);
   }
 
   .shortcut-icon--application {
-    color: #7ee787;
-    background: rgb(63 185 80 / 12%);
-    border-color: rgb(63 185 80 / 8%);
+    color: #c9d1d9;
+    background: #21262d;
+    border-color: rgb(240 246 252 / 6%);
   }
 
   .shortcut-edit:hover {
