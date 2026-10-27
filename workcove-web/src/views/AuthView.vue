@@ -44,17 +44,7 @@ const emailInput = ref<HTMLInputElement | null>(null)
 const passwordInput = ref<HTMLInputElement | null>(null)
 
 let countdownTimer: number | null = null
-const now = new Date()
 const isRegisterMode = computed(() => authMode.value === 'register')
-const dayNumber = computed(() =>
-  new Intl.DateTimeFormat('zh-CN', { day: '2-digit' }).format(now),
-)
-const monthAndWeek = computed(() =>
-  new Intl.DateTimeFormat('zh-CN', {
-    month: 'long',
-    weekday: 'long',
-  }).format(now),
-)
 const codeButtonLabel = computed(() => {
   if (resendSeconds.value > 0) return `${resendSeconds.value}s 后重发`
   return sendingCode.value ? '发送中…' : '获取验证码'
@@ -216,8 +206,6 @@ onBeforeUnmount(stopCountdown)
 
       <div class="login-window__body">
         <aside class="login-story">
-          <div class="story-grid" aria-hidden="true" />
-
           <div class="story-brand">
             <BrandMark :size="36" />
             <div>
@@ -227,19 +215,26 @@ onBeforeUnmount(stopCountdown)
           </div>
 
           <div class="story-copy">
-            <p class="story-kicker">YOUR DAY, IN ONE PLACE</p>
-            <h1>把今天，<br />放在一张桌上。</h1>
+            <p class="story-kicker">PERSONAL WORKBENCH</p>
+            <h1>把工作，<br />放回自己的节奏。</h1>
             <p class="story-intro">
-              任务、笔记与日程，回到同一个安静的工作空间。
+              时间、常用网址与本地软件，在一个安静的工作台里触手可及。
             </p>
           </div>
 
-          <div class="story-date">
-            <span class="story-date__number">{{ dayNumber }}</span>
-            <span class="story-date__copy">
-              {{ monthAndWeek }}
-              <small>本地工作台</small>
-            </span>
+          <div class="story-features">
+            <div>
+              <strong>时间节奏</strong>
+              <span>把握每一天</span>
+            </div>
+            <div>
+              <strong>快捷入口</strong>
+              <span>常用网址一处打开</span>
+            </div>
+            <div>
+              <strong>本地工具</strong>
+              <span>工作应用随手可达</span>
+            </div>
           </div>
         </aside>
 
@@ -278,13 +273,13 @@ onBeforeUnmount(stopCountdown)
                 </div>
               </div>
               <h2 id="login-title">
-                {{ isRegisterMode ? '创建账号' : '登录到工作台' }}
+                {{ isRegisterMode ? '创建账号' : '欢迎回来' }}
               </h2>
               <p>
                 {{
                   isRegisterMode
                     ? '使用邮箱验证码创建 WorkCove 账号。'
-                    : '继续今天的任务与记录。'
+                    : '登录后继续处理今天的工作。'
                 }}
               </p>
             </div>
@@ -464,26 +459,14 @@ onBeforeUnmount(stopCountdown)
   padding: 42px;
   place-items: center;
   background:
-    linear-gradient(124deg, #eef2f5 0%, #f6f8fa 48%, #e9edf2 100%);
-}
-
-.login-stage::before {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  content: "";
-  background-image:
-    linear-gradient(rgb(31 35 40 / 4%) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(31 35 40 / 4%) 1px, transparent 1px);
-  background-size: 56px 56px;
-  mask-image: linear-gradient(to bottom, rgb(0 0 0 / 2%), #000 60%, rgb(0 0 0 / 10%));
+    linear-gradient(128deg, #edf1f5 0%, #f7f8fa 50%, #e7ebf0 100%);
 }
 
 .login-window {
   position: relative;
   display: flex;
-  width: min(100%, 1000px);
-  min-height: 630px;
+  width: min(100%, 1120px);
+  min-height: 680px;
   overflow: hidden;
   flex-direction: column;
   background: var(--canvas-raised);
@@ -498,9 +481,9 @@ onBeforeUnmount(stopCountdown)
 
 .login-window__body {
   display: grid;
-  min-height: 584px;
+  min-height: 634px;
   flex: 1;
-  grid-template-columns: minmax(340px, 0.94fr) minmax(400px, 1.06fr);
+  grid-template-columns: minmax(0, 1.06fr) minmax(380px, 0.94fr);
 }
 
 .login-story {
@@ -509,45 +492,22 @@ onBeforeUnmount(stopCountdown)
   overflow: hidden;
   flex-direction: column;
   justify-content: space-between;
-  padding: 44px 46px 40px;
-  background: #f6f8fa;
-  border-right: 1px solid var(--line-soft);
-}
-
-.login-story::after {
-  position: absolute;
-  top: 110px;
-  right: 34px;
-  bottom: 142px;
-  width: 1px;
-  pointer-events: none;
-  content: "";
+  padding: 42px 44px 34px;
   background: linear-gradient(
-    to bottom,
-    transparent,
-    rgb(88 166 255 / 32%) 28%,
-    rgb(126 231 135 / 24%) 72%,
-    transparent
-  );
-}
-
-.story-grid {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image: linear-gradient(
-    90deg,
-    transparent 0,
-    transparent calc(100% - 1px),
-    rgb(31 35 40 / 6%) calc(100% - 1px)
-  );
-  background-size: 116px 100%;
-  opacity: 0.42;
+      180deg,
+      rgb(3 12 22 / 34%) 0%,
+      rgb(3 12 22 / 10%) 38%,
+      rgb(3 12 22 / 78%) 100%
+    ),
+    url("@/assets/auth/workcove-login-glass.webp") center / cover no-repeat,
+    #07111c;
+  border-right: 1px solid rgb(255 255 255 / 7%);
+  isolation: isolate;
 }
 
 .story-brand,
 .story-copy,
-.story-date {
+.story-features {
   position: relative;
   z-index: 1;
 }
@@ -563,7 +523,7 @@ onBeforeUnmount(stopCountdown)
 }
 
 .story-brand__name {
-  color: var(--text);
+  color: #ffffff;
   font-size: 14px;
   font-weight: 700;
   letter-spacing: 0;
@@ -571,7 +531,7 @@ onBeforeUnmount(stopCountdown)
 
 .story-brand__meta {
   margin-top: 2px !important;
-  color: var(--text-subtle);
+  color: rgb(255 255 255 / 52%);
   font-size: 9px;
   font-weight: 650;
   letter-spacing: 0.12em;
@@ -581,67 +541,77 @@ onBeforeUnmount(stopCountdown)
 
 .story-copy {
   max-width: 390px;
-  margin-top: 56px;
+  margin-top: auto;
+  padding-top: 48px;
 }
 
 .story-kicker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin: 0 0 20px;
-  color: var(--success);
+  color: rgb(255 255 255 / 62%);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.13em;
   font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
 }
 
+.story-kicker::before {
+  width: 28px;
+  height: 1px;
+  content: "";
+  background: rgb(255 255 255 / 34%);
+}
+
 .story-copy h1 {
   margin: 0;
-  color: var(--text);
+  color: #ffffff;
   font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
-  font-size: clamp(32px, 3.8vw, 47px);
+  font-size: clamp(36px, 4vw, 50px);
   font-weight: 630;
   letter-spacing: 0;
-  line-height: 1.12;
+  line-height: 1.16;
   white-space: nowrap;
+  text-shadow: 0 2px 24px rgb(0 0 0 / 18%);
 }
 
 .story-intro {
-  max-width: 290px;
+  max-width: 330px;
   margin: 23px 0 0;
-  color: var(--text-muted);
+  color: rgb(255 255 255 / 66%);
   font-size: 14px;
   line-height: 1.75;
 }
 
-.story-date {
-  display: flex;
-  align-items: center;
-  gap: 17px;
-  padding-top: 24px;
-  border-top: 1px solid var(--line-soft);
+.story-features {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  padding-top: 20px;
+  margin-top: 34px;
+  border-top: 1px solid rgb(255 255 255 / 14%);
 }
 
-.story-date__number {
-  color: var(--accent-strong);
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
-  font-size: 43px;
-  font-weight: 550;
-  letter-spacing: 0;
-  line-height: 0.9;
-}
-
-.story-date__copy {
+.story-features > div {
   display: flex;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 550;
-  line-height: 1.6;
+  min-width: 0;
   flex-direction: column;
+  gap: 4px;
 }
 
-.story-date__copy small {
-  color: var(--text-subtle);
+.story-features strong {
+  color: rgb(255 255 255 / 88%);
   font-size: 10px;
-  font-weight: 500;
+  font-weight: 620;
+}
+
+.story-features span {
+  overflow: hidden;
+  color: rgb(255 255 255 / 42%);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .login-panel {
@@ -656,7 +626,7 @@ onBeforeUnmount(stopCountdown)
 }
 
 .login-panel__inner {
-  width: min(100%, 342px);
+  width: min(100%, 352px);
   margin: auto;
 }
 
@@ -715,7 +685,7 @@ onBeforeUnmount(stopCountdown)
   margin: 0;
   color: var(--text);
   font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
-  font-size: 28px;
+  font-size: 32px;
   font-weight: 630;
   letter-spacing: 0;
   line-height: 1.2;
@@ -1039,7 +1009,7 @@ onBeforeUnmount(stopCountdown)
   }
 
   .story-copy h1 {
-    font-size: 38px;
+    font-size: 33px;
   }
 
   .login-panel {
@@ -1072,19 +1042,20 @@ onBeforeUnmount(stopCountdown)
   }
 
   .login-story {
-    min-height: 214px;
+    min-height: 280px;
     padding: 30px 28px;
     border-right: 0;
     border-bottom: 1px solid var(--line-soft);
   }
 
   .story-copy {
-    margin-top: 30px;
+    margin-top: 42px;
+    padding-top: 0;
   }
 
   .story-kicker,
   .story-intro,
-  .story-date {
+  .story-features {
     display: none;
   }
 
@@ -1105,14 +1076,7 @@ onBeforeUnmount(stopCountdown)
 html[data-theme="dark"] {
   .login-stage {
     background:
-      linear-gradient(124deg, #080c11 0%, #101720 48%, #0a0f15 100%);
-  }
-
-  .login-stage::before {
-    background-image:
-      linear-gradient(rgb(240 246 252 / 4%) 1px, transparent 1px),
-      linear-gradient(90deg, rgb(240 246 252 / 4%) 1px, transparent 1px);
-    mask-image: linear-gradient(to bottom, rgb(0 0 0 / 12%), #000 60%, rgb(0 0 0 / 24%));
+      linear-gradient(128deg, #080c11 0%, #111820 50%, #090e14 100%);
   }
 
   .login-window {
@@ -1123,26 +1087,12 @@ html[data-theme="dark"] {
       inset 0 0 0 1px rgb(255 255 255 / 5%);
   }
 
-  .login-story {
-    background: #0f141a;
-  }
-
-  .story-grid {
-    background-image: linear-gradient(
-      90deg,
-      transparent 0,
-      transparent calc(100% - 1px),
-      rgb(240 246 252 / 6%) calc(100% - 1px)
-    );
-  }
-
-  .story-brand__meta,
-  .story-date__copy small {
-    color: #6e7681;
+  .story-brand__meta {
+    color: rgb(255 255 255 / 52%);
   }
 
   .story-kicker {
-    color: #7ee787;
+    color: #b9ddff;
   }
 
   .story-copy h1,
@@ -1152,11 +1102,7 @@ html[data-theme="dark"] {
 
   .story-intro,
   .form-field__label {
-    color: #8b949e;
-  }
-
-  .story-date__copy {
-    color: #c9d1d9;
+    color: rgb(255 255 255 / 60%);
   }
 
   .login-panel {
