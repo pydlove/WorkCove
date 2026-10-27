@@ -11,11 +11,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.mail.MailException;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Properties;
 
 @Component
 @ConditionalOnProperty(name = "workcove.mail.mode", havingValue = "smtp")
@@ -29,9 +33,23 @@ public class SmtpVerificationEmailSender implements VerificationEmailSender {
 
     public SmtpVerificationEmailSender(
             JavaMailSender mailSender,
-            @Value("${spring.mail.username:}") String from) {
+            @Value("${spring.mail.username:}") String from,
+            @Value("${workcove.mail.trust-store:${user.home}/.workcove/mail-truststore.p12}")
+            String trustStorePath,
+            @Value("${workcove.mail.trust-store-password:workcove-mail-trust}")
+            String trustStorePassword) {
         this.mailSender = mailSender;
         this.from = from;
+        if (mailSender instanceof JavaMailSenderImpl javaMailSender
+                && trustStorePath != null
+                && !trustStorePath.isBlank()
+                && Files.isRegularFile(Path.of(trustStorePath))) {
+            Properties properties = javaMailSender.getJavaMailProperties();
+            properties.put(
+                    "mail.smtp.ssl.socketFactory",
+                    WorkCoveMailTls.socketFactory(trustStorePath, trustStorePassword));
+            properties.put("mail.smtp.ssl.checkserveridentity", "true");
+        }
     }
 
     @Override

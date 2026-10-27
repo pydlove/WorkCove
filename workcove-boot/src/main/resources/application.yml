@@ -51,6 +51,8 @@ management:
 workcove:
   mail:
     mode: ${WORKCOVE_MAIL_MODE:log}
+    trust-store: ${WORKCOVE_MAIL_TRUST_STORE:${user.home}/.workcove/mail-truststore.p12}
+    trust-store-password: ${WORKCOVE_MAIL_TRUST_STORE_PASSWORD:workcove-mail-trust}
   auth:
     cookie-name: workcove_session
     cookie-secure: ${WORKCOVE_AUTH_COOKIE_SECURE:false}

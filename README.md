@@ -55,6 +55,23 @@ export WORKCOVE_MAIL_PASSWORD=your-smtp-password
 
 SMTP 密码只放在本机环境或未入库的本地配置中，不提交到 Git。
 
+### 配置加密
+
+WorkCove 使用 AES-256-GCM 加密本地敏感配置，格式为 `ENC(v1:...)`。
+
+- 主密钥默认位于 `~/.workcove/config.key`，权限必须为 `600`
+- 也可通过 `WORKCOVE_CONFIG_KEY` 提供
+- 生成密文：
+
+```bash
+printf '%s' '需要加密的值' | node scripts/encrypt-config.mjs encrypt
+```
+
+`application-local.yml` 中的数据库密码、SMTP 账号和 SMTP 密码均使用密文保存。
+企业网络额外需要的 SMTP CA 信任库位于 `~/.workcove/mail-truststore.p12`。
+
+配置模板见 `workcove-boot/src/main/resources/application-local.yml.example`。
+
 ## 质量检查
 
 ```bash
