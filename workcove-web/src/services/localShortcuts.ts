@@ -5,40 +5,19 @@ import type {
 } from '@/types/shortcut'
 
 const SHORTCUT_STORAGE_KEY = 'workcove.workbench.shortcuts.v1'
+const LEGACY_DEFAULT_WEBSITES = new Set([
+  'GitHub|https://github.com',
+  'WorkCove Repository|https://github.com/pydlove/WorkCove',
+  'MDN Web Docs|https://developer.mozilla.org',
+])
 
 function createId() {
   return window.crypto.randomUUID()
 }
 
 function defaultShortcuts(): WorkbenchShortcuts {
-  const createdAt = new Date().toISOString()
   return {
-    websites: [
-      {
-        id: createId(),
-        name: 'GitHub',
-        url: 'https://github.com',
-        iconMode: 'auto',
-        iconDataUrl: null,
-        createdAt,
-      },
-      {
-        id: createId(),
-        name: 'WorkCove Repository',
-        url: 'https://github.com/pydlove/WorkCove',
-        iconMode: 'auto',
-        iconDataUrl: null,
-        createdAt,
-      },
-      {
-        id: createId(),
-        name: 'MDN Web Docs',
-        url: 'https://developer.mozilla.org',
-        iconMode: 'auto',
-        iconDataUrl: null,
-        createdAt,
-      },
-    ],
+    websites: [],
     applications: [],
   }
 }
@@ -65,12 +44,27 @@ export function loadLocalShortcuts(email: string): WorkbenchShortcuts {
   const map = readShortcutMap()
   const existing = map[normalizedEmail]
   if (existing) {
-    return {
-      websites: Array.isArray(existing.websites) ? existing.websites : [],
+    const websites = Array.isArray(existing.websites)
+      ? existing.websites.filter(
+          (item) =>
+            !(
+              item.iconMode === 'auto' &&
+              item.iconDataUrl === null &&
+              LEGACY_DEFAULT_WEBSITES.has(`${item.name}|${item.url}`)
+            ),
+        )
+      : []
+    const cleaned: WorkbenchShortcuts = {
+      websites,
       applications: Array.isArray(existing.applications)
         ? existing.applications
         : [],
     }
+    if (cleaned.websites.length !== existing.websites?.length) {
+      map[normalizedEmail] = cleaned
+      writeShortcutMap(map)
+    }
+    return cleaned
   }
 
   const defaults = defaultShortcuts()

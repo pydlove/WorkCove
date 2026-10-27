@@ -127,7 +127,7 @@ function removeShortcut(id: string) {
           </button>
         </header>
 
-        <div class="shortcut-grid">
+        <div v-if="websiteCount > 0" class="shortcut-grid">
           <ShortcutTile
             v-for="website in shortcuts.websites"
             :key="website.id"
@@ -143,6 +143,22 @@ function removeShortcut(id: string) {
             <span>添加常用网址</span>
           </button>
         </div>
+
+        <button
+          v-else
+          class="application-empty"
+          type="button"
+          @click="addWebsite"
+        >
+          <span class="application-empty__icon application-empty__icon--website">
+            <Globe2 :size="22" />
+          </span>
+          <span>
+            <strong>添加第一个常用网址</strong>
+            <small>不内置任何网站，完全由你自己决定</small>
+          </span>
+          <ArrowUpRight :size="16" />
+        </button>
       </section>
 
       <section
@@ -371,6 +387,11 @@ function removeShortcut(id: string) {
   place-items: center;
 }
 
+.application-empty__icon--website {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .application-empty > span:nth-child(2) {
   display: flex;
   min-width: 0;
@@ -403,6 +424,11 @@ html[data-theme="dark"] {
   .application-empty__icon {
     color: #7ee787;
     background: rgb(63 185 80 / 12%);
+  }
+
+  .application-empty__icon--website {
+    color: #79c0ff;
+    background: rgb(56 139 253 / 14%);
   }
 
   .shortcut-section__add:hover {
