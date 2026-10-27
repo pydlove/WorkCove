@@ -79,13 +79,10 @@ const workdayMessage = computed(() => {
   const start = 9 * 60
   const end = 18 * 60
   if (minutes < start) {
-    const remaining = start - minutes
-    return `距离 09:00 还有 ${formatDuration(remaining)}`
+    return `距离 09:00 还有 ${formatDuration(start - minutes)}`
   }
   if (minutes >= end) return '今天的工作时段已结束'
-
-  const remaining = end - minutes
-  return `距离 18:00 还有 ${formatDuration(remaining)}`
+  return `距离 18:00 还有 ${formatDuration(end - minutes)}`
 })
 
 function formatDuration(minutes: number) {
@@ -108,42 +105,44 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="time-panel" aria-label="当前时间">
-    <div class="clock-zone">
-      <div class="clock-zone__label">
-        <span><Clock3 :size="13" /> LOCAL TIME</span>
-        <span>UTC+8</span>
-      </div>
+  <section class="time-widget" aria-label="当前时间">
+    <div class="time-widget__glow" aria-hidden="true" />
 
-      <div class="clock-zone__time">
+    <header class="time-widget__header">
+      <span class="time-label">
+        <Clock3 :size="13" />
+        LOCAL TIME
+        <i>UTC+8</i>
+      </span>
+      <span class="date-label">
+        <CalendarDays :size="13" />
+        {{ dateText }}
+        <i>W{{ weekNumber }}</i>
+      </span>
+    </header>
+
+    <div class="time-widget__main">
+      <div class="clock-display">
         <strong>{{ timeText }}</strong>
         <span>{{ secondsText }}</span>
       </div>
 
-      <div class="clock-zone__date">
-        <CalendarDays :size="14" />
-        <span>{{ dateText }}</span>
-        <span class="week-number">W{{ weekNumber }}</span>
+      <div class="rhythm-copy">
+        <p>WORKDAY RHYTHM</p>
+        <strong>{{ workdayMessage }}</strong>
       </div>
     </div>
 
-    <div class="rhythm-zone">
-      <div class="rhythm-zone__heading">
-        <div>
-          <p>WORKDAY RHYTHM</p>
-          <h2>今天的工作节奏</h2>
+    <footer class="time-widget__footer">
+      <div class="workday-meter">
+        <div class="workday-meter__labels">
+          <span>09:00</span>
+          <span>今日工作节奏</span>
+          <span>18:00</span>
         </div>
-        <span>{{ workdayMessage }}</span>
-      </div>
-
-      <div class="workday-track">
-        <span :style="{ width: `${workdayProgress}%` }" />
-      </div>
-      <div class="workday-scale">
-        <span>09:00</span>
-        <span>12:00</span>
-        <span>15:00</span>
-        <span>18:00</span>
+        <div class="workday-meter__track">
+          <span :style="{ width: `${workdayProgress}%` }" />
+        </div>
       </div>
 
       <div class="week-days">
@@ -156,256 +155,265 @@ onBeforeUnmount(() => {
           <strong>{{ day.day }}</strong>
         </div>
       </div>
-    </div>
+    </footer>
   </section>
 </template>
 
 <style scoped>
-.time-panel {
+.time-widget {
   position: relative;
-  display: grid;
+  display: flex;
+  min-height: 276px;
   overflow: hidden;
-  grid-template-columns: minmax(300px, 0.9fr) minmax(380px, 1.1fr);
-  min-height: 260px;
-  background: #f6f8fa;
-  border: 1px solid var(--line);
+  padding: 24px 28px 20px;
+  color: #ffffff;
+  flex-direction: column;
+  background:
+    linear-gradient(
+      115deg,
+      rgb(5 13 24 / 94%) 0%,
+      rgb(8 20 34 / 84%) 48%,
+      rgb(7 17 29 / 68%) 100%
+    ),
+    url("@/assets/auth/workcove-login-glass.webp") center / cover no-repeat,
+    #07111c;
+  border: 1px solid rgb(255 255 255 / 10%);
   border-radius: 10px;
+  box-shadow:
+    0 16px 38px rgb(13 26 40 / 17%),
+    inset 0 1px 0 rgb(255 255 255 / 10%);
+  isolation: isolate;
 }
 
-.time-panel::before {
+.time-widget::after {
   position: absolute;
   inset: 0;
   pointer-events: none;
   content: "";
-  background-image:
-    linear-gradient(rgb(31 35 40 / 3%) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(31 35 40 / 3%) 1px, transparent 1px);
-  background-size: 32px 32px;
-  mask-image: linear-gradient(90deg, #000, transparent 78%);
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 4%);
 }
 
-.clock-zone,
-.rhythm-zone {
+.time-widget__glow {
+  position: absolute;
+  top: -54%;
+  right: 2%;
+  width: 54%;
+  height: 142%;
+  pointer-events: none;
+  background: linear-gradient(
+    110deg,
+    transparent 8%,
+    rgb(117 201 238 / 12%) 48%,
+    transparent 82%
+  );
+  filter: blur(24px);
+  transform: skewX(-16deg);
+}
+
+.time-widget__header,
+.time-widget__main,
+.time-widget__footer {
   position: relative;
   z-index: 1;
 }
 
-.clock-zone {
-  display: flex;
-  justify-content: center;
-  padding: 30px 34px 26px;
-  flex-direction: column;
-  border-right: 1px solid var(--line-soft);
-}
-
-.clock-zone__label {
+.time-widget__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: var(--text-subtle);
+  gap: 20px;
+  color: rgb(255 255 255 / 52%);
   font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
   font-size: 8px;
   font-weight: 650;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
 }
 
-.clock-zone__label > span:first-child {
+.time-label,
+.date-label {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-}
-
-.clock-zone__time {
-  display: flex;
-  align-items: flex-end;
-  gap: 9px;
-  margin: 14px 0 11px;
-  color: var(--text);
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
-}
-
-.clock-zone__time strong {
-  font-size: clamp(48px, 5.4vw, 68px);
-  font-weight: 500;
-  letter-spacing: 0;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-
-.clock-zone__time > span {
-  padding-bottom: 8px;
-  color: var(--accent);
-  font-size: 15px;
-  font-weight: 550;
-  font-variant-numeric: tabular-nums;
-}
-
-.clock-zone__date {
-  display: flex;
-  min-width: 0;
-  align-items: center;
   gap: 7px;
-  color: var(--text-muted);
-  font-size: 10px;
 }
 
-.week-number {
-  padding: 3px 6px;
-  margin-left: 5px;
-  color: var(--accent);
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
-  font-size: 8px;
-  background: var(--accent-soft);
+.time-label i,
+.date-label i {
+  padding: 2px 5px;
+  color: rgb(255 255 255 / 58%);
+  font-size: 7px;
+  font-style: normal;
+  background: rgb(255 255 255 / 8%);
   border-radius: 4px;
 }
 
-.rhythm-zone {
-  display: flex;
-  justify-content: center;
-  padding: 28px 32px 24px;
-  flex-direction: column;
-}
-
-.rhythm-zone__heading {
+.time-widget__main {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 16px;
+  gap: 30px;
+  margin-top: auto;
+  padding: 20px 0 24px;
 }
 
-.rhythm-zone__heading p {
-  margin: 0 0 5px;
-  color: var(--success);
+.clock-display {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
+}
+
+.clock-display strong {
+  font-size: clamp(60px, 7vw, 82px);
+  font-weight: 470;
+  letter-spacing: 0;
+  line-height: 0.92;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 3px 28px rgb(0 0 0 / 22%);
+}
+
+.clock-display span {
+  padding-bottom: 7px;
+  color: #79c0ff;
+  font-size: 16px;
+  font-weight: 560;
+  font-variant-numeric: tabular-nums;
+}
+
+.rhythm-copy {
+  display: flex;
+  align-items: flex-end;
+  padding-bottom: 4px;
+  flex-direction: column;
+}
+
+.rhythm-copy p {
+  margin: 0 0 7px;
+  color: #7ee787;
   font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
   font-size: 8px;
   font-weight: 700;
-  letter-spacing: 0.11em;
+  letter-spacing: 0.12em;
 }
 
-.rhythm-zone__heading h2 {
-  margin: 0;
-  color: var(--text);
-  font-size: 15px;
-  font-weight: 620;
+.rhythm-copy strong {
+  color: rgb(255 255 255 / 72%);
+  font-size: 10px;
+  font-weight: 540;
 }
 
-.rhythm-zone__heading > span {
-  color: var(--text-subtle);
-  font-size: 9px;
-  text-align: right;
+.time-widget__footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 30px;
+  padding-top: 17px;
+  border-top: 1px solid rgb(255 255 255 / 12%);
 }
 
-.workday-track {
-  height: 5px;
-  overflow: hidden;
-  margin-top: 22px;
-  background: rgb(31 35 40 / 8%);
-  border-radius: 999px;
-}
-
-.workday-track > span {
-  display: block;
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent), #55a6ff);
-  border-radius: inherit;
-  transition: width 300ms ease;
-}
-
-.workday-scale {
+.workday-meter__labels {
   display: flex;
   justify-content: space-between;
-  margin-top: 7px;
-  color: var(--text-subtle);
+  color: rgb(255 255 255 / 38%);
   font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
   font-size: 7px;
   font-variant-numeric: tabular-nums;
 }
 
+.workday-meter__track {
+  height: 4px;
+  overflow: hidden;
+  margin-top: 8px;
+  background: rgb(255 255 255 / 11%);
+  border-radius: 999px;
+}
+
+.workday-meter__track span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #1f6feb, #7dcfff);
+  border-radius: inherit;
+  box-shadow: 0 0 14px rgb(88 166 255 / 36%);
+  transition: width 300ms ease;
+}
+
 .week-days {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  display: flex;
   gap: 3px;
-  padding-top: 22px;
-  margin-top: 22px;
-  border-top: 1px solid var(--line-soft);
 }
 
 .week-days > div {
   display: flex;
-  height: 55px;
+  width: 35px;
+  height: 44px;
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: 5px;
-  color: var(--text-subtle);
+  gap: 3px;
+  color: rgb(255 255 255 / 42%);
   border-radius: 7px;
 }
 
 .week-days span {
-  font-size: 8px;
+  font-size: 7px;
 }
 
 .week-days strong {
-  color: var(--text-muted);
-  font-size: 11px;
+  color: rgb(255 255 255 / 72%);
+  font-size: 10px;
   font-weight: 560;
   font-variant-numeric: tabular-nums;
 }
 
 .week-days__today {
-  color: #ffffff;
-  background: var(--accent);
+  background: #0969da;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 12%);
 }
 
 .week-days__today strong {
   color: #ffffff;
 }
 
-html[data-theme="dark"] {
-  .time-panel {
-    background: #161b22;
+@media (max-width: 760px) {
+  .time-widget {
+    min-height: 300px;
+    padding: 22px 20px 18px;
   }
 
-  .time-panel::before {
-    background-image:
-      linear-gradient(rgb(240 246 252 / 4%) 1px, transparent 1px),
-      linear-gradient(90deg, rgb(240 246 252 / 4%) 1px, transparent 1px);
-  }
-
-  .workday-track {
-    background: rgb(240 246 252 / 8%);
-  }
-}
-
-@media (max-width: 900px) {
-  .time-panel {
-    grid-template-columns: 1fr;
-  }
-
-  .clock-zone {
-    border-right: 0;
-    border-bottom: 1px solid var(--line-soft);
-  }
-}
-
-@media (max-width: 560px) {
-  .clock-zone,
-  .rhythm-zone {
-    padding: 22px 20px;
-  }
-
-  .clock-zone__time strong {
-    font-size: 50px;
-  }
-
-  .rhythm-zone__heading {
+  .time-widget__header {
     align-items: flex-start;
     flex-direction: column;
-    gap: 7px;
+    gap: 8px;
   }
 
-  .rhythm-zone__heading > span {
-    text-align: left;
+  .time-widget__main {
+    align-items: flex-start;
+    padding: 28px 0 24px;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .clock-display strong {
+    font-size: 62px;
+  }
+
+  .rhythm-copy {
+    align-items: flex-start;
+  }
+
+  .time-widget__footer {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .week-days {
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 390px) {
+  .week-days > div {
+    width: 31px;
   }
 }
 </style>

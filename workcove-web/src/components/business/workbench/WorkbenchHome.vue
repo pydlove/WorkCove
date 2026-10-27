@@ -238,23 +238,29 @@ function removeShortcut(id: string) {
 .workbench-home {
   display: flex;
   flex-direction: column;
-  gap: 30px;
+  gap: 20px;
   animation: workbench-enter 240ms ease both;
 }
 
 .shortcut-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
-  gap: 34px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .shortcut-section {
+  display: flex;
   min-width: 0;
+  min-height: 250px;
+  padding: 17px;
+  flex-direction: column;
+  background: rgb(246 248 250 / 84%);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
 }
 
 .shortcut-section + .shortcut-section {
-  padding-left: 34px;
-  border-left: 1px solid var(--line);
+  border-left: 1px solid var(--line-soft);
 }
 
 .shortcut-section__header {
@@ -332,17 +338,18 @@ function removeShortcut(id: string) {
 
 .shortcut-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px;
-  padding-top: 14px;
+  grid-template-columns: 1fr;
+  gap: 3px;
+  padding-top: 9px;
 }
 
 .shortcut-add-tile {
   display: flex;
-  min-height: 70px;
+  min-height: 47px;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 7px;
+  padding: 0 10px;
   color: var(--text-subtle);
   font-size: 9px;
   background: transparent;
@@ -359,22 +366,22 @@ function removeShortcut(id: string) {
 .application-empty {
   display: grid;
   width: 100%;
-  min-height: 94px;
+  min-height: 128px;
   grid-template-columns: 42px minmax(0, 1fr) 20px;
   align-items: center;
   gap: 12px;
   padding: 16px;
-  margin-top: 14px;
+  margin-top: 12px;
   color: var(--text-muted);
   text-align: left;
-  background: #f6f8fa;
+  background: rgb(255 255 255 / 55%);
   border: 1px dashed var(--line);
   border-radius: 8px;
 }
 
 .application-empty:hover {
   border-color: rgb(26 127 55 / 32%);
-  background: rgb(26 127 55 / 3%);
+  background: rgb(255 255 255 / 82%);
 }
 
 .application-empty__icon {
@@ -411,6 +418,10 @@ function removeShortcut(id: string) {
 }
 
 html[data-theme="dark"] {
+  .shortcut-section {
+    background: rgb(22 27 34 / 76%);
+  }
+
   .shortcut-section__count {
     background: rgb(240 246 252 / 6%);
   }
@@ -444,11 +455,11 @@ html[data-theme="dark"] {
   }
 
   .application-empty {
-    background: #161b22;
+    background: rgb(13 17 23 / 54%);
   }
 
   .application-empty:hover {
-    background: rgb(63 185 80 / 4%);
+    background: rgb(22 27 34 / 88%);
     border-color: rgb(63 185 80 / 24%);
   }
 }
@@ -456,20 +467,17 @@ html[data-theme="dark"] {
 @media (max-width: 1050px) {
   .shortcut-layout {
     grid-template-columns: 1fr;
-    gap: 28px;
+    gap: 14px;
   }
 
   .shortcut-section + .shortcut-section {
-    padding-top: 28px;
-    padding-left: 0;
-    border-top: 1px solid var(--line);
     border-left: 0;
   }
 }
 
 @media (max-width: 700px) {
   .workbench-home {
-    gap: 24px;
+    gap: 16px;
   }
 
   .shortcut-grid {

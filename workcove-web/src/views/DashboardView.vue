@@ -691,7 +691,10 @@ onBeforeUnmount(() => {
 
           <div class="content-scroll">
             <div class="content-frame">
-              <header class="page-heading">
+              <header
+                class="page-heading"
+                :class="{ 'page-heading--workbench': activeView === 'overview' }"
+              >
                 <div class="page-heading__copy">
                   <p class="page-eyebrow">{{ pageEyebrow }}</p>
                   <h1>{{ pageTitle }}</h1>
@@ -1606,6 +1609,18 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 28px;
   padding-bottom: 24px;
+}
+
+.page-heading--workbench {
+  padding-bottom: 19px;
+}
+
+.page-heading--workbench h1 {
+  font-size: clamp(27px, 2.5vw, 32px);
+}
+
+.page-heading--workbench .page-heading__copy > p:last-child {
+  margin-top: 8px;
 }
 
 .page-heading__copy {

@@ -79,29 +79,26 @@ watch(
 .shortcut-tile {
   position: relative;
   min-width: 0;
-  background: #ffffff;
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
+  background: transparent;
+  border-radius: 7px;
   transition:
-    border-color 150ms ease,
-    box-shadow 150ms ease,
-    transform 150ms ease;
+    background 150ms ease,
+    box-shadow 150ms ease;
 }
 
 .shortcut-tile:hover {
-  border-color: var(--line);
-  box-shadow: 0 7px 18px rgb(31 35 40 / 7%);
-  transform: translateY(-1px);
+  background: rgb(255 255 255 / 74%);
+  box-shadow: 0 2px 8px rgb(31 35 40 / 5%);
 }
 
 .shortcut-tile__main {
   display: grid;
   width: 100%;
-  min-height: 70px;
-  grid-template-columns: 36px minmax(0, 1fr) 18px;
+  min-height: 51px;
+  grid-template-columns: 34px minmax(0, 1fr) 16px;
   align-items: center;
   gap: 10px;
-  padding: 12px 34px 12px 12px;
+  padding: 7px 32px 7px 7px;
   text-align: left;
   background: transparent;
   border-radius: inherit;
@@ -110,8 +107,8 @@ watch(
 .shortcut-icon {
   position: relative;
   display: grid;
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   overflow: hidden;
   color: var(--accent);
   background: var(--accent-soft);
@@ -215,11 +212,12 @@ watch(
 
 html[data-theme="dark"] {
   .shortcut-tile {
-    background: #161b22;
+    background: transparent;
   }
 
   .shortcut-tile:hover {
-    box-shadow: 0 7px 18px rgb(0 0 0 / 24%);
+    background: rgb(240 246 252 / 5%);
+    box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
   }
 
   .shortcut-icon {
