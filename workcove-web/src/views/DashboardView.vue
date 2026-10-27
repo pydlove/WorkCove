@@ -216,7 +216,7 @@ const schedule = [
 ] as const
 
 const navigationPrimary: NavigationItem[] = [
-  { id: 'overview', label: '概览', icon: Home },
+  { id: 'overview', label: '工作台', icon: Home },
   { id: 'tasks', label: '任务', icon: CheckSquare2 },
   { id: 'notes', label: '笔记', icon: NotebookPen },
   { id: 'calendar', label: '日历', icon: CalendarDays },
@@ -240,7 +240,7 @@ const viewMeta: Record<
   { label: string; eyebrow: string; description: string }
 > = {
   overview: {
-    label: '概览',
+    label: '工作台',
     eyebrow: 'TODAY',
     description: '把注意力留给真正重要的事情。',
   },
@@ -1332,7 +1332,7 @@ onBeforeUnmount(() => {
                   </header>
                   <label class="setting-row">
                     <div>
-                      <strong>登录后打开概览</strong>
+                      <strong>登录后打开工作台</strong>
                       <span>每次进入工作台时先显示今天的工作。</span>
                     </div>
                     <input v-model="launchOnLogin" type="checkbox" />
