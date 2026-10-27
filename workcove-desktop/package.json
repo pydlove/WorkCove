@@ -1,0 +1,13 @@
+{
+  "name": "workcove-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WorkCove 栖作 macOS desktop shell",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "44.9.0"
+  }
+}

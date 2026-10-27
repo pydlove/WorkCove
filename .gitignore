@@ -1,0 +1,16 @@
+node_modules
+dist
+.DS_Store
+.idea
+.artifacts
+.vscode
+*.iml
+out
+*.local
+.env
+.env.*
+!.env.example
+**/application-local.yml
+**/application-test.yml
+**/target
+*.log

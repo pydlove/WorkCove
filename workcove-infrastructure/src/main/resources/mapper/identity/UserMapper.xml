@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.pydlove.workcove.identity.infrastructure.persistence.UserMapper">
+
+    <resultMap id="userDataMap"
+               type="com.pydlove.workcove.identity.infrastructure.persistence.UserData">
+        <id property="id" column="id"/>
+        <result property="email" column="email"/>
+        <result property="displayName" column="display_name"/>
+        <result property="passwordHash" column="password_hash"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <sql id="userColumns">
+        id, email, display_name, password_hash, created_at, updated_at
+    </sql>
+
+    <select id="findById" resultMap="userDataMap">
+        SELECT <include refid="userColumns"/>
+        FROM app_user
+        WHERE id = #{id}
+    </select>
+
+    <select id="findByEmail" resultMap="userDataMap">
+        SELECT <include refid="userColumns"/>
+        FROM app_user
+        WHERE email = #{email}
+    </select>
+
+    <select id="countByEmail" resultType="int">
+        SELECT COUNT(*)
+        FROM app_user
+        WHERE email = #{email}
+    </select>
+
+    <insert id="insert"
+            parameterType="com.pydlove.workcove.identity.infrastructure.persistence.UserData"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO app_user (
+            email,
+            display_name,
+            password_hash,
+            created_at,
+            updated_at
+        )
+        VALUES (
+            #{email},
+            #{displayName},
+            #{passwordHash},
+            #{createdAt},
+            #{updatedAt}
+        )
+    </insert>
+
+    <update id="update"
+            parameterType="com.pydlove.workcove.identity.infrastructure.persistence.UserData">
+        UPDATE app_user
+        SET display_name = #{displayName},
+            password_hash = #{passwordHash},
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+</mapper>

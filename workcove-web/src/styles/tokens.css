@@ -1,0 +1,46 @@
+/* 语义令牌：业务组件只引用变量，不直接散落主题色。 */
+:root {
+  color: #1f2328;
+  color-scheme: light;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+    "Hiragino Sans GB", "Helvetica Neue", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --canvas: #f6f8fa;
+  --canvas-raised: #ffffff;
+  --sidebar: rgb(246 248 250 / 92%);
+  --text: #1f2328;
+  --text-muted: #59636e;
+  --text-subtle: #818b98;
+  --line: #d0d7de;
+  --line-soft: rgb(31 35 40 / 7%);
+  --accent: #0969da;
+  --accent-strong: #0550ae;
+  --accent-soft: #ddf4ff;
+  --success: #1a7f37;
+  --coral: #cf222e;
+  --amber: #9a6700;
+  --focus-ring: 0 0 0 3px rgb(9 105 218 / 16%);
+}
+
+html[data-theme="dark"] {
+  color: #e6edf3;
+  color-scheme: dark;
+  --canvas: #0d1117;
+  --canvas-raised: #161b22;
+  --sidebar: rgb(13 17 23 / 90%);
+  --text: #e6edf3;
+  --text-muted: #8b949e;
+  --text-subtle: #6e7681;
+  --line: rgb(240 246 252 / 14%);
+  --line-soft: rgb(240 246 252 / 8%);
+  --accent: #58a6ff;
+  --accent-strong: #79c0ff;
+  --accent-soft: rgb(56 139 253 / 16%);
+  --success: #3fb950;
+  --coral: #f85149;
+  --amber: #d29922;
+  --focus-ring: 0 0 0 3px rgb(88 166 255 / 20%);
+}
