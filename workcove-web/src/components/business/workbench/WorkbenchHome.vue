@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import {
   AppWindow,
-  ArrowUpRight,
   Globe2,
   Plus,
 } from '@lucide/vue'
@@ -117,17 +116,9 @@ function removeShortcut(id: string) {
             <h2 id="website-section-title">常用网址</h2>
           </div>
           <span class="shortcut-section__count">{{ websiteCount }}</span>
-          <button
-            class="shortcut-section__add"
-            type="button"
-            @click="addWebsite"
-          >
-            <Plus :size="14" />
-            添加网址
-          </button>
         </header>
 
-        <div v-if="websiteCount > 0" class="shortcut-grid">
+        <div class="shortcut-grid">
           <ShortcutTile
             v-for="website in shortcuts.websites"
             :key="website.id"
@@ -139,26 +130,12 @@ function removeShortcut(id: string) {
             @edit="editWebsite(website)"
           />
           <button class="shortcut-add-tile" type="button" @click="addWebsite">
-            <Plus :size="17" />
+            <span class="shortcut-add-tile__icon">
+              <Plus :size="18" />
+            </span>
             <span>添加常用网址</span>
           </button>
         </div>
-
-        <button
-          v-else
-          class="application-empty"
-          type="button"
-          @click="addWebsite"
-        >
-          <span class="application-empty__icon application-empty__icon--website">
-            <Globe2 :size="22" />
-          </span>
-          <span>
-            <strong>添加第一个常用网址</strong>
-            <small>不内置任何网站，完全由你自己决定</small>
-          </span>
-          <ArrowUpRight :size="16" />
-        </button>
       </section>
 
       <section
@@ -174,17 +151,9 @@ function removeShortcut(id: string) {
             <h2 id="application-section-title">常用本地软件</h2>
           </div>
           <span class="shortcut-section__count">{{ applicationCount }}</span>
-          <button
-            class="shortcut-section__add"
-            type="button"
-            @click="addApplication"
-          >
-            <Plus :size="14" />
-            添加软件
-          </button>
         </header>
 
-        <div v-if="applicationCount > 0" class="shortcut-grid">
+        <div class="shortcut-grid">
           <ShortcutTile
             v-for="application in shortcuts.applications"
             :key="application.id"
@@ -200,26 +169,12 @@ function removeShortcut(id: string) {
             type="button"
             @click="addApplication"
           >
-            <Plus :size="17" />
+            <span class="shortcut-add-tile__icon">
+              <Plus :size="18" />
+            </span>
             <span>添加本地软件</span>
           </button>
         </div>
-
-        <button
-          v-else
-          class="application-empty"
-          type="button"
-          @click="addApplication"
-        >
-          <span class="application-empty__icon">
-            <AppWindow :size="22" />
-          </span>
-          <span>
-            <strong>把常用软件放到手边</strong>
-            <small>桌面版可自动读取应用图标并直接启动</small>
-          </span>
-          <ArrowUpRight :size="16" />
-        </button>
       </section>
     </div>
 
@@ -244,14 +199,13 @@ function removeShortcut(id: string) {
 
 .shortcut-layout {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 14px;
 }
 
 .shortcut-section {
   display: flex;
   min-width: 0;
-  min-height: 250px;
   padding: 17px;
   flex-direction: column;
   background: rgb(252 253 254 / 92%);
@@ -262,13 +216,9 @@ function removeShortcut(id: string) {
     inset 0 1px 0 rgb(255 255 255 / 72%);
 }
 
-.shortcut-section + .shortcut-section {
-  border-left: 1px solid var(--line);
-}
-
 .shortcut-section__header {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   padding-bottom: 14px;
@@ -320,106 +270,54 @@ function removeShortcut(id: string) {
   place-items: center;
 }
 
-.shortcut-section__add {
-  display: inline-flex;
-  height: 27px;
-  align-items: center;
-  gap: 5px;
-  padding: 0 8px;
-  color: #58636d;
-  font-size: 8px;
-  font-weight: 600;
-  background: #ffffff;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-}
-
-.shortcut-section__add:hover {
-  color: var(--accent);
-  border-color: rgb(9 105 218 / 28%);
-  background: #f7fbff;
-}
-
 .shortcut-grid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 3px;
-  padding-top: 9px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px 6px;
+  padding-top: 15px;
 }
 
 .shortcut-add-tile {
   display: flex;
-  min-height: 47px;
+  min-width: 0;
+  min-height: 94px;
   align-items: center;
-  justify-content: flex-start;
-  gap: 7px;
-  padding: 0 10px;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 4px;
   color: var(--text-subtle);
   font-size: 9px;
   background: transparent;
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
+  border: 0;
+  border-radius: 7px;
+  flex-direction: column;
 }
 
 .shortcut-add-tile:hover {
   color: var(--accent);
   background: rgb(9 105 218 / 3%);
-  border-color: rgb(9 105 218 / 24%);
 }
 
-.application-empty {
+.shortcut-add-tile__icon {
   display: grid;
-  width: 100%;
-  min-height: 128px;
-  grid-template-columns: 42px minmax(0, 1fr) 20px;
-  align-items: center;
-  gap: 12px;
-  padding: 16px;
-  margin-top: 12px;
-  color: var(--text-muted);
-  text-align: left;
-  background: #fbfbfc;
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
-}
-
-.application-empty:hover {
-  border-color: rgb(9 105 218 / 24%);
-  background: #ffffff;
-}
-
-.application-empty__icon {
-  display: grid;
-  width: 40px;
-  height: 40px;
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
   color: #3f4851;
   background: #f0f2f4;
-  box-shadow: inset 0 0 0 1px rgb(31 35 40 / 5%);
-  border-radius: 8px;
+  border: 1px solid rgb(31 35 40 / 5%);
+  border-radius: 12px;
   place-items: center;
+  transition:
+    color 140ms ease,
+    background 140ms ease,
+    border-color 140ms ease;
 }
 
-.application-empty__icon--website {
-  color: #3f4851;
-  background: #f0f2f4;
-}
-
-.application-empty > span:nth-child(2) {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.application-empty strong {
-  color: var(--text);
-  font-size: 10px;
-  font-weight: 620;
-}
-
-.application-empty small {
-  color: var(--text-subtle);
-  font-size: 8px;
+.shortcut-add-tile:hover .shortcut-add-tile__icon {
+  color: var(--accent);
+  background: #eef6ff;
+  border-color: rgb(9 105 218 / 18%);
 }
 
 html[data-theme="dark"] {
@@ -440,52 +338,27 @@ html[data-theme="dark"] {
     box-shadow: inset 0 0 0 1px rgb(240 246 252 / 6%);
   }
 
-  .shortcut-section__icon--app,
-  .application-empty__icon {
-    color: #c9d1d9;
-    background: #21262d;
-  }
-
-  .application-empty__icon--website {
-    color: #c9d1d9;
-    background: #21262d;
-  }
-
-  .shortcut-section__add {
-    color: #8b949e;
-    background: #0d1117;
-  }
-
-  .shortcut-section__add:hover {
-    color: #79c0ff;
-    border-color: rgb(88 166 255 / 22%);
-    background: rgb(56 139 253 / 10%);
-  }
-
   .shortcut-add-tile:hover {
     color: #79c0ff;
     background: rgb(56 139 253 / 5%);
-    border-color: rgb(88 166 255 / 24%);
   }
 
-  .application-empty {
-    background: #0d1117;
+  .shortcut-add-tile__icon {
+    color: #c9d1d9;
+    background: #21262d;
+    border-color: rgb(240 246 252 / 6%);
   }
 
-  .application-empty:hover {
-    background: rgb(22 27 34 / 88%);
-    border-color: rgb(88 166 255 / 24%);
+  .shortcut-add-tile:hover .shortcut-add-tile__icon {
+    color: #79c0ff;
+    background: rgb(56 139 253 / 10%);
+    border-color: rgb(88 166 255 / 18%);
   }
 }
 
 @media (max-width: 1050px) {
-  .shortcut-layout {
-    grid-template-columns: 1fr;
-    gap: 14px;
-  }
-
-  .shortcut-section + .shortcut-section {
-    border-left: 0;
+  .shortcut-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 }
 
@@ -495,18 +368,17 @@ html[data-theme="dark"] {
   }
 
   .shortcut-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
   .shortcut-section__header {
     grid-template-columns: 34px minmax(0, 1fr) auto;
   }
+}
 
-  .shortcut-section__add {
-    grid-column: 1 / -1;
-    justify-self: stretch;
-    justify-content: center;
-    margin-top: 3px;
+@media (max-width: 520px) {
+  .shortcut-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 

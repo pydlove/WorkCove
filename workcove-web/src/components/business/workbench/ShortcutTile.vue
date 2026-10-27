@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowUpRight, MoreHorizontal } from '@lucide/vue'
+import { MoreHorizontal } from '@lucide/vue'
 
 import ShortcutVisual from '@/components/business/workbench/ShortcutVisual.vue'
 import type { ShortcutMode } from '@/types/shortcut'
@@ -25,12 +25,16 @@ const emit = defineEmits<{
       :aria-label="mode === 'website' ? `打开 ${name}` : `启动 ${name}`"
       @click="emit('open')"
     >
-      <ShortcutVisual :sources="iconUrls" :mode="mode" :name="name" />
+      <ShortcutVisual
+        :sources="iconUrls"
+        :mode="mode"
+        :name="name"
+        :size="54"
+      />
       <span class="shortcut-copy">
         <strong>{{ name }}</strong>
         <small :title="detail">{{ detail }}</small>
       </span>
-      <ArrowUpRight class="shortcut-arrow" :size="14" />
     </button>
     <button
       class="shortcut-edit"
@@ -48,50 +52,55 @@ const emit = defineEmits<{
   position: relative;
   min-width: 0;
   background: transparent;
-  border-radius: 7px;
+  border-radius: 9px;
   transition:
     background 150ms ease,
-    box-shadow 150ms ease;
+    transform 150ms ease;
 }
 
 .shortcut-tile:hover {
-  background: rgb(255 255 255 / 74%);
-  box-shadow: 0 2px 8px rgb(31 35 40 / 5%);
+  background: rgb(255 255 255 / 58%);
+  transform: translateY(-1px);
 }
 
 .shortcut-tile__main {
-  display: grid;
+  display: flex;
   width: 100%;
-  min-height: 51px;
-  grid-template-columns: 34px minmax(0, 1fr) 16px;
+  min-height: 94px;
   align-items: center;
-  gap: 10px;
-  padding: 7px 32px 7px 7px;
-  text-align: left;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 7px 4px;
+  flex-direction: column;
+  text-align: center;
   background: transparent;
   border-radius: inherit;
 }
 
 .shortcut-copy {
   display: flex;
+  width: 100%;
   min-width: 0;
+  align-items: center;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .shortcut-copy strong {
-  display: -webkit-box;
+  display: block;
+  width: 100%;
   overflow: hidden;
   color: var(--text);
   font-size: 10px;
   font-weight: 620;
   line-height: 1.35;
   text-overflow: ellipsis;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  white-space: nowrap;
 }
 
 .shortcut-copy small {
+  display: block;
+  width: 100%;
   overflow: hidden;
   color: var(--text-subtle);
   font-size: 8px;
@@ -100,25 +109,10 @@ const emit = defineEmits<{
   white-space: nowrap;
 }
 
-.shortcut-arrow {
-  color: var(--text-subtle);
-  opacity: 0;
-  transform: translate(-2px, 2px);
-  transition:
-    opacity 140ms ease,
-    transform 140ms ease;
-}
-
-.shortcut-tile:hover .shortcut-arrow,
-.shortcut-tile__main:focus-visible .shortcut-arrow {
-  opacity: 1;
-  transform: translate(0, 0);
-}
-
 .shortcut-edit {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 3px;
+  right: 3px;
   display: grid;
   width: 25px;
   height: 25px;
@@ -151,7 +145,6 @@ html[data-theme="dark"] {
 
   .shortcut-tile:hover {
     background: rgb(240 246 252 / 5%);
-    box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
   }
 
   .shortcut-edit:hover {
@@ -160,14 +153,6 @@ html[data-theme="dark"] {
 }
 
 @media (max-width: 560px) {
-  .shortcut-tile__main {
-    grid-template-columns: 36px minmax(0, 1fr);
-  }
-
-  .shortcut-arrow {
-    display: none;
-  }
-
   .shortcut-edit {
     opacity: 1;
   }
