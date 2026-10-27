@@ -41,3 +41,15 @@ pnpm dev
 mvn clean verify
 cd workcove-web && pnpm typecheck && pnpm build
 ```
+
+## 分支管理
+
+项目使用 Git Flow。`main` 保存稳定版本，`develop` 用于日常集成。
+
+```bash
+brew install git-flow-next
+git flow feature start WCV-123-example
+git flow feature finish WCV-123-example
+```
+
+完整规范见 [Git 分支规范](doc/开发规范/Git分支规范.md)。
