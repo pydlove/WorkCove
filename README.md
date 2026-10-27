@@ -20,6 +20,25 @@ WorkCove/
 MySQL 需要 `workcove` schema 和受限账号 `workcove_app`。本地密码只放在
 `workcove-boot/src/main/resources/application-local.yml`，该文件不进入版本库。
 
+推荐使用本地启停脚本，前后端日志统一写入 `log/`：
+
+```bash
+./deploy/local/start-all.sh
+./deploy/local/status.sh
+./deploy/local/stop-all.sh
+```
+
+日志文件：
+
+```text
+log/backend.log
+log/frontend.log
+log/backend-build.log
+log/frontend-install.log
+```
+
+也可以手动启动。
+
 ```bash
 mvn clean package
 java -jar workcove-boot/target/workcove-boot-0.1.0-SNAPSHOT.jar
