@@ -21,9 +21,10 @@ import {
 import {
   applicationDisplayName,
   normalizeWebsiteUrl,
-  websiteFaviconUrl,
+  websiteFaviconUrls,
   websiteHostname,
 } from '@/services/localShortcuts'
+import ShortcutVisual from '@/components/business/workbench/ShortcutVisual.vue'
 import type {
   ApplicationShortcut,
   ShortcutIconMode,
@@ -59,13 +60,17 @@ const form = reactive({
   iconMode: 'auto' as ShortcutIconMode,
 })
 
-const autoIconUrl = computed(() => {
-  if (isWebsite.value) return websiteFaviconUrl(form.target)
-  return nativeIconDataUrl.value
+const autoIconUrls = computed(() => {
+  if (isWebsite.value) return websiteFaviconUrls(form.target)
+  return nativeIconDataUrl.value ? [nativeIconDataUrl.value] : []
 })
 
-const activeIconUrl = computed(() =>
-  form.iconMode === 'custom' ? customIconDataUrl.value : autoIconUrl.value,
+const activeIconUrls = computed(() =>
+  form.iconMode === 'custom'
+    ? customIconDataUrl.value
+      ? [customIconDataUrl.value]
+      : []
+    : autoIconUrls.value,
 )
 
 function syncForm() {
@@ -257,11 +262,12 @@ function removeShortcut() {
 
         <form class="shortcut-dialog__form" @submit.prevent="submit">
           <div class="shortcut-icon-editor">
-            <div class="shortcut-icon-preview">
-              <img v-if="activeIconUrl" :src="activeIconUrl" alt="" />
-              <Globe2 v-else-if="isWebsite" :size="24" />
-              <AppWindow v-else :size="24" />
-            </div>
+            <ShortcutVisual
+              :sources="activeIconUrls"
+              :mode="mode"
+              :name="form.name || (isWebsite ? 'W' : '应用')"
+              :size="54"
+            />
             <div class="shortcut-icon-editor__copy">
               <strong>图标</strong>
               <span>
@@ -489,24 +495,6 @@ function removeShortcut() {
   gap: 12px;
 }
 
-.shortcut-icon-preview {
-  display: grid;
-  width: 54px;
-  height: 54px;
-  overflow: hidden;
-  color: var(--accent);
-  background: #f6f8fa;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  place-items: center;
-}
-
-.shortcut-icon-preview img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
 .shortcut-icon-editor__copy {
   display: flex;
   min-width: 0;
@@ -706,7 +694,6 @@ html[data-theme="dark"] {
   }
 
   .shortcut-dialog__header,
-  .shortcut-icon-preview,
   .icon-source-options button,
   .choose-application {
     background: #0d1117;

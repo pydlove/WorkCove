@@ -102,11 +102,17 @@ export function normalizeWebsiteUrl(rawUrl: string) {
   return parsed.toString()
 }
 
-export function websiteFaviconUrl(url: string) {
+export function websiteFaviconUrls(url: string) {
   try {
-    return `${new URL(url).origin}/favicon.ico`
+    const parsed = new URL(url)
+    const host = encodeURIComponent(parsed.hostname)
+    return [
+      `${parsed.origin}/favicon.ico`,
+      `https://favicon.im/${host}?larger=true`,
+      `https://www.google.com/s2/favicons?domain=${host}&sz=64`,
+    ]
   } catch {
-    return null
+    return []
   }
 }
 
@@ -124,12 +130,12 @@ export function applicationDisplayName(applicationPath: string) {
   return name.replace(/\.(app|exe)$/i, '')
 }
 
-export function shortcutIconUrl(
+export function shortcutIconUrls(
   shortcut: WebsiteShortcut | ApplicationShortcut,
 ) {
-  if (shortcut.iconDataUrl) return shortcut.iconDataUrl
+  if (shortcut.iconDataUrl) return [shortcut.iconDataUrl]
   if ('url' in shortcut && shortcut.iconMode === 'auto') {
-    return websiteFaviconUrl(shortcut.url)
+    return websiteFaviconUrls(shortcut.url)
   }
-  return null
+  return []
 }

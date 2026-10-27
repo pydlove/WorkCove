@@ -11,7 +11,7 @@ import ShortcutDialog from '@/components/business/workbench/ShortcutDialog.vue'
 import ShortcutTile from '@/components/business/workbench/ShortcutTile.vue'
 import WorkbenchTimePanel from '@/components/business/workbench/WorkbenchTimePanel.vue'
 import {
-  shortcutIconUrl,
+  shortcutIconUrls,
   websiteHostname,
 } from '@/services/localShortcuts'
 import { useAuthStore } from '@/stores/useAuthStore'
@@ -133,7 +133,7 @@ function removeShortcut(id: string) {
             :key="website.id"
             :name="website.name"
             :detail="websiteHostname(website.url)"
-            :icon-url="shortcutIconUrl(website)"
+            :icon-urls="shortcutIconUrls(website)"
             mode="website"
             @open="openWebsite(website)"
             @edit="editWebsite(website)"
@@ -190,7 +190,7 @@ function removeShortcut(id: string) {
             :key="application.id"
             :name="application.name"
             :detail="application.path"
-            :icon-url="shortcutIconUrl(application)"
+            :icon-urls="shortcutIconUrls(application)"
             mode="application"
             @open="openApplication(application)"
             @edit="editApplication(application)"

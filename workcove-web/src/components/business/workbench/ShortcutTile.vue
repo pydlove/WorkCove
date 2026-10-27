@@ -1,17 +1,13 @@
 <script setup lang="ts">
-import {
-  AppWindow,
-  ArrowUpRight,
-  MoreHorizontal,
-} from '@lucide/vue'
-import { computed, ref, watch } from 'vue'
+import { ArrowUpRight, MoreHorizontal } from '@lucide/vue'
 
+import ShortcutVisual from '@/components/business/workbench/ShortcutVisual.vue'
 import type { ShortcutMode } from '@/types/shortcut'
 
-const props = defineProps<{
+defineProps<{
   name: string
   detail: string
-  iconUrl: string | null
+  iconUrls: string[]
   mode: ShortcutMode
 }>()
 
@@ -19,18 +15,6 @@ const emit = defineEmits<{
   open: []
   edit: []
 }>()
-
-const imageFailed = ref(false)
-const initial = computed(
-  () => props.name.trim().charAt(0).toLocaleUpperCase() || 'W',
-)
-
-watch(
-  () => props.iconUrl,
-  () => {
-    imageFailed.value = false
-  },
-)
 </script>
 
 <template>
@@ -41,23 +25,7 @@ watch(
       :aria-label="mode === 'website' ? `打开 ${name}` : `启动 ${name}`"
       @click="emit('open')"
     >
-      <span
-        class="shortcut-icon"
-        :class="`shortcut-icon--${mode}`"
-        aria-hidden="true"
-      >
-        <span class="shortcut-icon__fallback">
-          <template v-if="mode === 'website'">{{ initial }}</template>
-          <AppWindow v-else :size="17" />
-        </span>
-        <img
-          v-if="iconUrl && !imageFailed"
-          class="shortcut-icon__image"
-          :src="iconUrl"
-          alt=""
-          @error="imageFailed = true"
-        />
-      </span>
+      <ShortcutVisual :sources="iconUrls" :mode="mode" :name="name" />
       <span class="shortcut-copy">
         <strong>{{ name }}</strong>
         <small :title="detail">{{ detail }}</small>
@@ -102,40 +70,6 @@ watch(
   text-align: left;
   background: transparent;
   border-radius: inherit;
-}
-
-.shortcut-icon {
-  position: relative;
-  display: grid;
-  width: 34px;
-  height: 34px;
-  overflow: hidden;
-  color: #4a545e;
-  background: #f0f2f4;
-  border: 1px solid rgb(31 35 40 / 6%);
-  border-radius: 8px;
-  place-items: center;
-}
-
-.shortcut-icon--application {
-  color: #4a545e;
-  background: #f0f2f4;
-  border-color: rgb(31 35 40 / 6%);
-}
-
-.shortcut-icon__fallback {
-  display: grid;
-  font-size: 12px;
-  font-weight: 650;
-  place-items: center;
-}
-
-.shortcut-icon__image {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 
 .shortcut-copy {
@@ -218,18 +152,6 @@ html[data-theme="dark"] {
   .shortcut-tile:hover {
     background: rgb(240 246 252 / 5%);
     box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
-  }
-
-  .shortcut-icon {
-    color: #c9d1d9;
-    background: #21262d;
-    border-color: rgb(240 246 252 / 6%);
-  }
-
-  .shortcut-icon--application {
-    color: #c9d1d9;
-    background: #21262d;
-    border-color: rgb(240 246 252 / 6%);
   }
 
   .shortcut-edit:hover {
