@@ -35,6 +35,26 @@ pnpm dev
 
 前端默认监听 `127.0.0.1:32581`，并将 `/api` 代理到后端。
 
+### 邮箱验证码
+
+本地默认使用 `log` 模式，验证码会写入后端日志：
+
+```text
+WorkCove development email code: email=..., code=...
+```
+
+真实发送邮件时设置 SMTP 环境变量：
+
+```bash
+export WORKCOVE_MAIL_MODE=smtp
+export WORKCOVE_MAIL_HOST=smtp.126.com
+export WORKCOVE_MAIL_PORT=465
+export WORKCOVE_MAIL_USERNAME=your-account@126.com
+export WORKCOVE_MAIL_PASSWORD=your-smtp-password
+```
+
+SMTP 密码只放在本机环境或未入库的本地配置中，不提交到 Git。
+
 ## 质量检查
 
 ```bash

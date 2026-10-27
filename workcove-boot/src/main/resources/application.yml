@@ -49,6 +49,8 @@ management:
       show-details: never
 
 workcove:
+  mail:
+    mode: ${WORKCOVE_MAIL_MODE:log}
   auth:
     cookie-name: workcove_session
     cookie-secure: ${WORKCOVE_AUTH_COOKIE_SECURE:false}

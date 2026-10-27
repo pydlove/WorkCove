@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.pydlove.workcove.identity.infrastructure.persistence.AuthSessionMapper">
+
+    <resultMap id="authSessionDataMap"
+               type="com.pydlove.workcove.identity.infrastructure.persistence.AuthSessionData">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="tokenHash" column="token_hash"/>
+        <result property="expiresAt" column="expires_at"/>
+        <result property="remembered" column="remembered"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <select id="findActive" resultMap="authSessionDataMap">
+        SELECT id,
+               user_id,
+               token_hash,
+               expires_at,
+               remembered,
+               created_at
+        FROM auth_session
+        WHERE token_hash = #{tokenHash}
+          AND expires_at > #{now}
+        LIMIT 1
+    </select>
+
+    <insert id="insert"
+            parameterType="com.pydlove.workcove.identity.infrastructure.persistence.AuthSessionData"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO auth_session (
+            user_id,
+            token_hash,
+            remembered,
+            expires_at,
+            created_at
+        )
+        VALUES (
+            #{userId},
+            #{tokenHash},
+            #{remembered},
+            #{expiresAt},
+            #{createdAt}
+        )
+    </insert>
+
+    <delete id="deleteByTokenHash">
+        DELETE FROM auth_session
+        WHERE token_hash = #{tokenHash}
+    </delete>
+</mapper>

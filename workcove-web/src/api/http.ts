@@ -33,6 +33,7 @@ async function request(
   try {
     const response = await fetch(apiUrl(path), {
       ...init,
+      credentials: 'include',
       signal: controller.signal,
       headers: {
         Accept: 'application/json',

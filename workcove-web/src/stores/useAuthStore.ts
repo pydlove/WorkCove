@@ -1,74 +1,113 @@
 import { defineStore } from 'pinia'
 
 import {
+  getCurrentUser,
+  login as loginRequest,
+  logout as logoutRequest,
+  register as registerRequest,
+  sendRegistrationCode,
+} from '@/api/auth'
+import { ApiError } from '@/api/http'
+import {
   loadLocalProfile,
   saveLocalProfile,
 } from '@/services/localProfile'
+import type { AuthUser, RegisterInput } from '@/types/auth'
 import type { ProfileUpdate, UserProfile } from '@/types/profile'
 
-const LOCAL_SESSION_KEY = 'workcove.session'
-const TEMP_SESSION_KEY = 'workcove.temp-session'
+const PREVIEW_SESSION_KEY = 'workcove.preview-session'
 
-interface StoredSession {
-  userName: string
-  email?: string
+interface PreviewSession {
+  email: string
+  displayName: string
 }
 
-function readSession(): StoredSession | null {
-  const raw =
-    window.localStorage.getItem(LOCAL_SESSION_KEY) ??
-    window.sessionStorage.getItem(TEMP_SESSION_KEY)
-
+function readPreviewSession(): PreviewSession | null {
+  const raw = window.sessionStorage.getItem(PREVIEW_SESSION_KEY)
   if (!raw) return null
 
   try {
-    const parsed = JSON.parse(raw) as StoredSession
-    return parsed.userName ? parsed : null
+    const parsed = JSON.parse(raw) as PreviewSession
+    return parsed.email && parsed.displayName ? parsed : null
   } catch {
     return null
   }
 }
 
 export const useAuthStore = defineStore('auth', {
-  state: () => {
-    const stored = readSession()
-    const profile = stored?.email
-      ? loadLocalProfile(stored.email, stored.userName)
-      : null
-
-    return {
-      authenticated: Boolean(stored),
-      userName: profile?.displayName ?? stored?.userName ?? 'Yong',
-      email: stored?.email ?? '',
-      profile: profile as UserProfile | null,
-    }
-  },
+  state: () => ({
+    authenticated: false,
+    initialized: false,
+    user: null as AuthUser | null,
+    userName: 'Yong',
+    email: '',
+    profile: null as UserProfile | null,
+  }),
   actions: {
-    signIn(userName: string, remember: boolean, email = '') {
-      const normalizedName = userName.trim() || 'Yong'
-      const normalizedEmail = email.trim().toLocaleLowerCase('en-US')
-      const profile = normalizedEmail
-        ? loadLocalProfile(normalizedEmail, normalizedName)
-        : null
-      const canonicalName = profile?.displayName ?? normalizedName
-      const session = JSON.stringify({
-        userName: canonicalName,
-        email: normalizedEmail,
-      })
+    async initialize() {
+      if (this.initialized) return this.authenticated
 
-      window.localStorage.removeItem(LOCAL_SESSION_KEY)
-      window.sessionStorage.removeItem(TEMP_SESSION_KEY)
-
-      if (remember) {
-        window.localStorage.setItem(LOCAL_SESSION_KEY, session)
-      } else {
-        window.sessionStorage.setItem(TEMP_SESSION_KEY, session)
+      const preview = readPreviewSession()
+      if (preview) {
+        this.applyLocalUser(preview.email, preview.displayName)
+        this.initialized = true
+        return true
       }
 
+      try {
+        this.applyUser(await getCurrentUser())
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 401) {
+          this.clearAuth()
+        }
+      } finally {
+        this.initialized = true
+      }
+      return this.authenticated
+    },
+    async login(email: string, password: string, rememberMe: boolean) {
+      const user = await loginRequest({ email, password, rememberMe })
+      this.applyUser(user)
+      this.initialized = true
+    },
+    async register(input: RegisterInput) {
+      return registerRequest(input)
+    },
+    async sendRegistrationCode(email: string) {
+      await sendRegistrationCode(email)
+    },
+    async logout() {
+      try {
+        await logoutRequest()
+      } finally {
+        window.sessionStorage.removeItem(PREVIEW_SESSION_KEY)
+        this.clearAuth()
+      }
+    },
+    startPreview() {
+      const preview: PreviewSession = {
+        email: 'preview@workcove.local',
+        displayName: 'Yong',
+      }
+      window.sessionStorage.setItem(PREVIEW_SESSION_KEY, JSON.stringify(preview))
+      this.applyLocalUser(preview.email, preview.displayName)
+      this.initialized = true
+    },
+    applyUser(user: AuthUser) {
       this.authenticated = true
-      this.userName = canonicalName
-      this.email = normalizedEmail
+      this.user = user
+      this.email = user.email
+      const profile = loadLocalProfile(user.email, user.displayName)
       this.profile = profile
+      this.userName = profile.displayName
+    },
+    applyLocalUser(email: string, displayName: string) {
+      this.authenticated = true
+      this.user = null
+      this.email = email
+      const profile = loadLocalProfile(email, displayName)
+      this.profile = profile
+      this.userName = profile.displayName
     },
     updateProfile(update: ProfileUpdate) {
       if (!this.profile) return
@@ -86,10 +125,10 @@ export const useAuthStore = defineStore('auth', {
       this.profile = nextProfile
       this.userName = nextProfile.displayName
     },
-    signOut() {
-      window.localStorage.removeItem(LOCAL_SESSION_KEY)
-      window.sessionStorage.removeItem(TEMP_SESSION_KEY)
+    clearAuth() {
       this.authenticated = false
+      this.user = null
+      this.userName = 'Yong'
       this.email = ''
       this.profile = null
     },

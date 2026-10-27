@@ -1,37 +1,49 @@
 <script setup lang="ts">
-import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail } from '@lucide/vue'
-import { computed, nextTick, onMounted, ref } from 'vue'
+import {
+  ArrowRight,
+  Eye,
+  EyeOff,
+  LockKeyhole,
+  Mail,
+  ShieldCheck,
+} from '@lucide/vue'
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+} from 'vue'
 import { useRouter } from 'vue-router'
 
+import { ApiError } from '@/api/http'
 import AppTitlebar from '@/components/business/AppTitlebar.vue'
 import BrandMark from '@/components/ui/BrandMark.vue'
-import {
-  authenticateLocalAccount,
-  emailToDisplayName,
-  LocalAuthError,
-  normalizeEmail,
-  registerLocalAccount,
-} from '@/services/localAuth'
 import { useAuthStore } from '@/stores/useAuthStore'
 
 type AuthMode = 'login' | 'register'
 
 const LAST_EMAIL_KEY = 'workcove.last-email'
-
 const router = useRouter()
-const session = useAuthStore()
+const auth = useAuthStore()
 
 const authMode = ref<AuthMode>('login')
 const email = ref(window.localStorage.getItem(LAST_EMAIL_KEY) ?? '')
+const emailCode = ref('')
 const password = ref('')
 const confirmPassword = ref('')
 const remember = ref(true)
 const passwordVisible = ref(false)
 const confirmPasswordVisible = ref(false)
 const submitting = ref(false)
+const sendingCode = ref(false)
+const resendSeconds = ref(0)
 const errorMessage = ref('')
+const noticeMessage = ref('')
 const emailInput = ref<HTMLInputElement | null>(null)
+const passwordInput = ref<HTMLInputElement | null>(null)
 
+let countdownTimer: number | null = null
 const now = new Date()
 const isRegisterMode = computed(() => authMode.value === 'register')
 const dayNumber = computed(() =>
@@ -43,31 +55,44 @@ const monthAndWeek = computed(() =>
     weekday: 'long',
   }).format(now),
 )
+const codeButtonLabel = computed(() => {
+  if (resendSeconds.value > 0) return `${resendSeconds.value}s 后重发`
+  return sendingCode.value ? '发送中…' : '获取验证码'
+})
+
+function normalizeEmail(value: string) {
+  return value.trim().toLocaleLowerCase('en-US')
+}
 
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
 
-async function completeSignIn(accountEmail: string, useRemember: boolean) {
-  const normalizedEmail = normalizeEmail(accountEmail)
-  window.localStorage.setItem(LAST_EMAIL_KEY, normalizedEmail)
-  session.signIn(
-    emailToDisplayName(normalizedEmail),
-    useRemember,
-    normalizedEmail,
-  )
-  await router.push({ name: 'dashboard' })
+function errorText(error: unknown) {
+  if (error instanceof ApiError) return error.message
+  return '无法连接账号服务，请确认后端已启动'
 }
 
-async function handleSubmit() {
-  const normalizedEmail = normalizeEmail(email.value)
-
-  if (!normalizedEmail) {
-    errorMessage.value = '请输入邮箱'
-    await nextTick()
-    emailInput.value?.focus()
-    return
+function stopCountdown() {
+  if (countdownTimer !== null) {
+    window.clearInterval(countdownTimer)
+    countdownTimer = null
   }
+}
+
+function startCountdown() {
+  stopCountdown()
+  resendSeconds.value = 60
+  countdownTimer = window.setInterval(() => {
+    resendSeconds.value -= 1
+    if (resendSeconds.value <= 0) stopCountdown()
+  }, 1000)
+}
+
+async function sendCode() {
+  const normalizedEmail = normalizeEmail(email.value)
+  errorMessage.value = ''
+  noticeMessage.value = ''
 
   if (!isValidEmail(normalizedEmail)) {
     errorMessage.value = '请输入有效的邮箱地址'
@@ -76,58 +101,103 @@ async function handleSubmit() {
     return
   }
 
+  sendingCode.value = true
+  try {
+    await auth.sendRegistrationCode(normalizedEmail)
+    window.localStorage.setItem(LAST_EMAIL_KEY, normalizedEmail)
+    startCountdown()
+    noticeMessage.value = `验证码已发送至 ${normalizedEmail}，5 分钟内有效。`
+  } catch (error) {
+    errorMessage.value = errorText(error)
+  } finally {
+    sendingCode.value = false
+  }
+}
+
+async function handleSubmit() {
+  const normalizedEmail = normalizeEmail(email.value)
+  errorMessage.value = ''
+  noticeMessage.value = ''
+
+  if (!normalizedEmail) {
+    errorMessage.value = '请输入邮箱'
+    await nextTick()
+    emailInput.value?.focus()
+    return
+  }
+  if (!isValidEmail(normalizedEmail)) {
+    errorMessage.value = '请输入有效的邮箱地址'
+    await nextTick()
+    emailInput.value?.focus()
+    return
+  }
   if (!password.value) {
     errorMessage.value = '请输入密码'
     return
   }
-
+  if (isRegisterMode.value && !/^\d{6}$/.test(emailCode.value.trim())) {
+    errorMessage.value = '请输入 6 位邮箱验证码'
+    return
+  }
   if (isRegisterMode.value && password.value.length < 8) {
     errorMessage.value = '密码至少需要 8 个字符'
     return
   }
-
   if (isRegisterMode.value && password.value !== confirmPassword.value) {
     errorMessage.value = '两次输入的密码不一致'
     return
   }
 
   submitting.value = true
-  errorMessage.value = ''
-
   try {
     if (isRegisterMode.value) {
-      await registerLocalAccount(normalizedEmail, password.value)
-    } else {
-      await authenticateLocalAccount(normalizedEmail, password.value)
+      await auth.register({
+        email: normalizedEmail,
+        emailCode: emailCode.value.trim(),
+        password: password.value,
+        confirmPassword: confirmPassword.value,
+      })
+      window.localStorage.setItem(LAST_EMAIL_KEY, normalizedEmail)
+      stopCountdown()
+      resendSeconds.value = 0
+      emailCode.value = ''
+      password.value = ''
+      confirmPassword.value = ''
+      passwordVisible.value = false
+      confirmPasswordVisible.value = false
+      authMode.value = 'login'
+      noticeMessage.value = '账号已创建，请使用邮箱和密码登录。'
+      await nextTick()
+      passwordInput.value?.focus()
+      return
     }
 
-    await completeSignIn(normalizedEmail, remember.value)
+    await auth.login(normalizedEmail, password.value, remember.value)
+    window.localStorage.setItem(LAST_EMAIL_KEY, normalizedEmail)
+    await router.push({ name: 'dashboard' })
   } catch (error) {
-    if (error instanceof LocalAuthError) {
-      errorMessage.value =
-        error.code === 'EMAIL_EXISTS'
-          ? '该邮箱已经注册，请直接登录'
-          : '邮箱或密码不正确'
-    } else {
-      errorMessage.value = '账号操作失败，请稍后重试'
-    }
+    errorMessage.value = errorText(error)
   } finally {
     submitting.value = false
   }
 }
 
 async function previewWorkbench() {
-  session.signIn('Yong', false, 'preview@workcove.local')
+  auth.startPreview()
   await router.push({ name: 'dashboard' })
 }
 
 async function switchMode(mode: AuthMode) {
+  stopCountdown()
   authMode.value = mode
+  emailCode.value = ''
   password.value = ''
   confirmPassword.value = ''
   passwordVisible.value = false
   confirmPasswordVisible.value = false
+  resendSeconds.value = 0
   errorMessage.value = ''
+  noticeMessage.value = ''
   await nextTick()
   emailInput.value?.focus()
 }
@@ -135,6 +205,8 @@ async function switchMode(mode: AuthMode) {
 onMounted(() => {
   emailInput.value?.focus()
 })
+
+onBeforeUnmount(stopCountdown)
 </script>
 
 <template>
@@ -206,18 +278,23 @@ onMounted(() => {
                 </div>
               </div>
               <h2 id="login-title">
-                {{ isRegisterMode ? '创建本地账号' : '登录到工作台' }}
+                {{ isRegisterMode ? '创建账号' : '登录到工作台' }}
               </h2>
               <p>
                 {{
                   isRegisterMode
-                    ? '使用邮箱创建你的本地工作台账号。'
+                    ? '使用邮箱验证码创建 WorkCove 账号。'
                     : '继续今天的任务与记录。'
                 }}
               </p>
             </div>
 
-            <form class="login-form" novalidate @submit.prevent="handleSubmit">
+            <form
+              class="login-form"
+              :class="{ 'login-form--register': isRegisterMode }"
+              novalidate
+              @submit.prevent="handleSubmit"
+            >
               <label class="form-field">
                 <span class="form-field__label">邮箱</span>
                 <span class="form-field__control">
@@ -236,11 +313,39 @@ onMounted(() => {
                 </span>
               </label>
 
+              <label v-if="isRegisterMode" class="form-field">
+                <span class="form-field__label">邮箱验证码</span>
+                <span class="form-field__control form-field__control--code">
+                  <ShieldCheck :size="16" aria-hidden="true" />
+                  <input
+                    v-model="emailCode"
+                    type="text"
+                    name="email-code"
+                    inputmode="numeric"
+                    maxlength="6"
+                    autocomplete="one-time-code"
+                    aria-label="邮箱验证码"
+                    placeholder="6 位数字"
+                  />
+                  <button
+                    class="code-send"
+                    type="button"
+                    :disabled="
+                      sendingCode || resendSeconds > 0 || submitting
+                    "
+                    @click="sendCode"
+                  >
+                    {{ codeButtonLabel }}
+                  </button>
+                </span>
+              </label>
+
               <label class="form-field">
                 <span class="form-field__label">密码</span>
                 <span class="form-field__control">
                   <LockKeyhole :size="16" aria-hidden="true" />
                   <input
+                    ref="passwordInput"
                     v-model="password"
                     :type="passwordVisible ? 'text' : 'password'"
                     name="password"
@@ -294,7 +399,7 @@ onMounted(() => {
                 </span>
               </label>
 
-              <div class="form-options">
+              <div v-if="!isRegisterMode" class="form-options">
                 <label class="remember-control">
                   <input v-model="remember" type="checkbox" />
                   <span class="remember-control__box">
@@ -302,11 +407,15 @@ onMounted(() => {
                   </span>
                   <span>保持登录</span>
                 </label>
-                <span class="secure-hint">仅保存在此 Mac</span>
+                <span class="secure-hint">安全会话</span>
               </div>
 
               <p v-if="isRegisterMode" class="local-account-note">
-                账号和密码摘要保存在当前 Mac，不会发送验证邮件。
+                验证码 5 分钟内有效，同一邮箱 60 秒后可重发。
+              </p>
+
+              <p v-if="noticeMessage" class="form-notice" role="status">
+                {{ noticeMessage }}
               </p>
 
               <p v-if="errorMessage" class="form-error" role="alert">
@@ -625,6 +734,11 @@ onMounted(() => {
   flex-direction: column;
 }
 
+.login-form--register {
+  margin-top: 26px;
+  gap: 14px;
+}
+
 .form-field {
   display: flex;
   gap: 8px;
@@ -676,6 +790,32 @@ onMounted(() => {
 
 .form-field__control input:focus-visible {
   outline: none;
+}
+
+.form-field__control--code {
+  padding-right: 5px;
+}
+
+.code-send {
+  height: 29px;
+  flex: 0 0 auto;
+  padding: 0 9px;
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--accent-soft);
+  border-radius: 5px;
+}
+
+.code-send:hover:not(:disabled) {
+  color: #ffffff;
+  background: var(--accent);
+}
+
+.code-send:disabled {
+  color: var(--text-subtle);
+  background: rgb(31 35 40 / 5%);
 }
 
 .password-toggle {
@@ -762,6 +902,16 @@ onMounted(() => {
   margin: -5px 0;
   color: var(--coral);
   font-size: 11px;
+}
+
+.form-notice {
+  padding: 8px 10px;
+  margin: -5px 0;
+  color: #1a7f37;
+  font-size: 9px;
+  line-height: 1.5;
+  background: rgb(26 127 55 / 7%);
+  border-radius: 6px;
 }
 
 .local-account-note {
@@ -1044,6 +1194,26 @@ html[data-theme="dark"] {
     box-shadow:
       0 1px 3px rgb(0 0 0 / 30%),
       inset 0 0 0 1px rgb(240 246 252 / 7%);
+  }
+
+  .code-send {
+    color: #79c0ff;
+    background: rgb(56 139 253 / 12%);
+  }
+
+  .code-send:hover:not(:disabled) {
+    color: #ffffff;
+    background: #1f6feb;
+  }
+
+  .code-send:disabled {
+    color: #6e7681;
+    background: rgb(240 246 252 / 6%);
+  }
+
+  .form-notice {
+    color: #7ee787;
+    background: rgb(63 185 80 / 10%);
   }
 
   .password-toggle {

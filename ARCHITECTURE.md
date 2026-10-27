@@ -27,21 +27,23 @@ workcove-boot
 ```text
 identity/
 ├── domain/
-│   ├── model/          User、Email、PasswordHash、UserId
-│   ├── port/           PasswordHasher
-│   └── repository/     UserRepository
+│   ├── model/          User、AuthSession、EmailVerificationCode 等
+│   ├── port/           密码、验证码、会话令牌与邮件发送端口
+│   └── repository/     User、AuthSession、EmailVerificationCode 仓储
 ├── application/
-│   ├── command/        LoginCommand、RegisterEmailCommand
-│   └── query/          AuthenticatedUser
+│   ├── command/        AuthService、EmailVerificationService
+│   └── query/          登录用户与会话凭证
 ├── infrastructure/
-│   ├── persistence/    MyBatisUserRepository、UserMapper、UserData
-│   └── security/       Pbkdf2PasswordHasher
+│   ├── persistence/    MyBatis 用户、会话、验证码仓储
+│   ├── security/       PBKDF2、SHA-256 验证码与会话令牌
+│   └── mail/           SMTP 发送器与本地日志发送器
 └── interfaces/
-    └── dto/            RegisterRequest、LoginRequest、AuthUserResponse
+    ├── dto/            注册、登录与用户响应
+    └── rest/           AuthController 与会话 Cookie 逻辑
 ```
 
-后续邮箱验证码、会话令牌、邮件发送分别进入同上下文的 `domain/port`、
-`infrastructure/mail` 和 `interfaces/rest`。
+验证码默认使用 `workcove.mail.mode=log` 输出到后端日志；配置 SMTP 后切换为
+`workcove.mail.mode=smtp`。数据库只保存验证码和会话令牌的 SHA-256 摘要。
 
 ## 3. 数据库
 
