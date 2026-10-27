@@ -603,6 +603,10 @@ function removeShortcut() {
   box-shadow: var(--focus-ring);
 }
 
+.shortcut-field input:focus-visible {
+  outline: none;
+}
+
 .shortcut-field__row {
   display: flex;
   gap: 7px;

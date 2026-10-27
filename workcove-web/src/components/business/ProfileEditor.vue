@@ -608,6 +608,12 @@ async function saveProfile() {
   box-shadow: var(--focus-ring);
 }
 
+.profile-field > input:focus-visible,
+.profile-field__control input:focus-visible,
+.profile-field__control textarea:focus-visible {
+  outline: none;
+}
+
 .profile-field__control {
   display: flex;
   height: 39px;

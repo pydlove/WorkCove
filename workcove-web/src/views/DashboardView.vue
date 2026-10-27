@@ -1319,6 +1319,12 @@ onBeforeUnmount(() => {
   box-shadow: 0 4px 18px rgb(31 41 38 / 7%);
 }
 
+.global-search input:focus-visible,
+.task-composer input:focus-visible,
+.note-composer textarea:focus-visible {
+  outline: none;
+}
+
 .global-search input {
   width: 100%;
   min-width: 0;
