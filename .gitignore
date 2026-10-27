@@ -5,6 +5,7 @@ dist
 .artifacts
 .vscode
 *.iml
+*.iconset
 out
 *.local
 .env
