@@ -438,11 +438,6 @@ onBeforeUnmount(stopCountdown)
             </div>
           </div>
 
-          <footer class="login-footer">
-            <span class="login-footer__dot" />
-            <span>macOS 本地应用 · 原型</span>
-            <span class="login-footer__version">v0.1</span>
-          </footer>
         </section>
       </div>
     </section>
@@ -958,27 +953,6 @@ onBeforeUnmount(stopCountdown)
   text-underline-offset: 3px;
 }
 
-.login-footer {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 28px;
-  color: var(--text-subtle);
-  font-size: 9px;
-}
-
-.login-footer__dot {
-  width: 5px;
-  height: 5px;
-  background: var(--success);
-  border-radius: 50%;
-}
-
-.login-footer__version {
-  margin-left: auto;
-  font-variant-numeric: tabular-nums;
-}
-
 @keyframes login-window-in {
   from {
     opacity: 0;
@@ -1182,7 +1156,6 @@ html[data-theme="dark"] {
 
   .secure-hint,
   .login-secondary,
-  .login-footer,
   .local-account-note {
     color: #6e7681;
   }
