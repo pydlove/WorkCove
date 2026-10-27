@@ -22,6 +22,7 @@ import {
   Search,
   Settings,
   Star,
+  UserRound,
   X,
 } from '@lucide/vue'
 import type { Component } from 'vue'
@@ -35,6 +36,7 @@ import {
 import { useRouter } from 'vue-router'
 
 import AppTitlebar from '@/components/business/AppTitlebar.vue'
+import ProfileEditor from '@/components/business/ProfileEditor.vue'
 import TaskRow from '@/components/business/TaskRow.vue'
 import BrandMark from '@/components/ui/BrandMark.vue'
 import { useAuthStore } from '@/stores/useAuthStore'
@@ -56,6 +58,7 @@ type ViewId =
   | 'calendar'
   | 'projects'
   | 'favorites'
+  | 'profile'
   | 'settings'
 
 type TaskFilter = 'all' | 'open' | 'done'
@@ -222,6 +225,7 @@ const navigationPrimary: NavigationItem[] = [
 
 const navigationUtility: NavigationItem[] = [
   { id: 'favorites', label: '收藏', icon: Star },
+  { id: 'profile', label: '个人资料', icon: UserRound },
   { id: 'settings', label: '设置', icon: Settings },
 ]
 
@@ -264,6 +268,11 @@ const viewMeta: Record<
     label: '收藏',
     eyebrow: 'FAVORITES',
     description: '常用资料与工具集中在这里。',
+  },
+  profile: {
+    label: '个人资料',
+    eyebrow: 'PROFILE',
+    description: '管理头像、昵称和只属于你的工作台信息。',
   },
   settings: {
     label: '设置',
@@ -681,7 +690,14 @@ onBeforeUnmount(() => {
                   :aria-expanded="profileMenuOpen"
                   @click="profileMenuOpen = !profileMenuOpen"
                 >
-                  <span class="profile-avatar">{{ displayInitial }}</span>
+                  <span class="profile-avatar">
+                    <img
+                      v-if="session.profile?.avatarDataUrl"
+                      :src="session.profile.avatarDataUrl"
+                      alt=""
+                    />
+                    <template v-else>{{ displayInitial }}</template>
+                  </span>
                   <span class="profile-trigger__copy">
                     <strong>{{ displayName }}</strong>
                     <small :title="accountLabel">{{ accountLabel }}</small>
@@ -696,13 +712,26 @@ onBeforeUnmount(() => {
                 >
                   <div class="profile-popover__heading">
                     <span class="profile-avatar profile-avatar--large">
-                      {{ displayInitial }}
+                      <img
+                        v-if="session.profile?.avatarDataUrl"
+                        :src="session.profile.avatarDataUrl"
+                        alt=""
+                      />
+                      <template v-else>{{ displayInitial }}</template>
                     </span>
                     <div>
                       <strong>{{ displayName }}</strong>
                       <small>{{ session.email || 'macOS 本地工作台' }}</small>
                     </div>
                   </div>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    @click="selectView('profile')"
+                  >
+                    <UserRound :size="15" />
+                    个人资料
+                  </button>
                   <button type="button" role="menuitem" @click="selectView('settings')">
                     <Settings :size="15" />
                     设置
@@ -724,7 +753,10 @@ onBeforeUnmount(() => {
                   <h1>{{ pageTitle }}</h1>
                   <p>{{ pageDescription }}</p>
                 </div>
-                <div class="page-heading__actions">
+                <div
+                  v-if="activeView !== 'profile' && activeView !== 'settings'"
+                  class="page-heading__actions"
+                >
                   <button
                     class="ghost-action"
                     type="button"
@@ -1254,6 +1286,11 @@ onBeforeUnmount(() => {
                 </div>
               </section>
 
+              <ProfileEditor
+                v-else-if="activeView === 'profile'"
+                @saved="notify('个人资料已保存')"
+              />
+
               <section v-else class="settings-page">
                 <div class="settings-group">
                   <header>
@@ -1717,6 +1754,7 @@ onBeforeUnmount(() => {
   display: grid;
   width: 26px;
   height: 26px;
+  overflow: hidden;
   flex: 0 0 auto;
   color: #eaf0ec;
   font-size: 10px;
@@ -1726,6 +1764,12 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 12%);
   place-items: center;
+}
+
+.profile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .profile-avatar--large {

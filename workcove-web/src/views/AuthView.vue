@@ -117,7 +117,7 @@ async function handleSubmit() {
 }
 
 async function previewWorkbench() {
-  session.signIn('Yong', false)
+  session.signIn('Yong', false, 'preview@workcove.local')
   await router.push({ name: 'dashboard' })
 }
 
