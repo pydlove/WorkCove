@@ -422,6 +422,7 @@ function backendJavaExecutable() {
 function backendEnvironment(runtimeDirectory) {
   const backendHome = clientDataPath('backend')
   const rendererDirectory = path.join(runtimeDirectory, 'renderer')
+  const configDirectory = path.join(runtimeDirectory, 'config')
   return {
     ...process.env,
     WORKCOVE_PROFILE: 'client,local',
@@ -434,6 +435,8 @@ function backendEnvironment(runtimeDirectory) {
     WORKCOVE_VAULT_ALLOWED_ORIGINS: CLIENT_ORIGIN,
     SPRING_WEB_RESOURCES_STATIC_LOCATIONS:
       `${pathToFileURL(rendererDirectory).href}/`,
+    SPRING_CONFIG_ADDITIONAL_LOCATION:
+      `${pathToFileURL(configDirectory).href}/`,
   }
 }
 

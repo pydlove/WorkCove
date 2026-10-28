@@ -38,12 +38,33 @@ export function sha256File(filename) {
     .digest('hex')
 }
 
+export function resolveClientConfigFile(projectDirectory) {
+  const configured = process.env.WORKCOVE_CLIENT_CONFIG_FILE?.trim()
+  const filename = configured
+    ? path.resolve(configured)
+    : path.join(
+        projectDirectory,
+        'workcove-boot',
+        'src',
+        'main',
+        'resources',
+        'application-local.yml',
+      )
+  if (!fs.existsSync(filename) || !fs.statSync(filename).isFile()) {
+    throw new Error(
+      `缺少客户端运行配置：${filename}。请通过 WORKCOVE_CLIENT_CONFIG_FILE 指定加密配置。`,
+    )
+  }
+  return filename
+}
+
 export function stageRuntime({
   destination,
   rendererDirectory,
   backendJar,
   releaseCode,
   minShellRelease,
+  clientConfigFile,
 }) {
   fs.rmSync(destination, { recursive: true, force: true })
   fs.mkdirSync(path.join(destination, 'backend'), { recursive: true })
@@ -55,6 +76,12 @@ export function stageRuntime({
   fs.copyFileSync(
     backendJar,
     path.join(destination, 'backend', 'workcove-boot.jar'),
+  )
+  const configDirectory = path.join(destination, 'config')
+  fs.mkdirSync(configDirectory, { recursive: true })
+  fs.copyFileSync(
+    clientConfigFile,
+    path.join(configDirectory, 'application-local.yml'),
   )
   fs.writeFileSync(
     path.join(destination, 'runtime-manifest.json'),

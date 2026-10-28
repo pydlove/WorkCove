@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import {
   buildThinBackend,
   createRuntimeArchive,
+  resolveClientConfigFile,
   run,
   sha256File,
   stageRuntime,
@@ -69,6 +70,7 @@ stageRuntime({
   rendererDirectory,
   backendJar: backend.thinJar,
   releaseCode,
+  clientConfigFile: resolveClientConfigFile(projectDirectory),
   minShellRelease:
     process.env.WORKCOVE_MIN_SHELL_RELEASE?.trim() ||
     releaseInfo.shellRelease ||
