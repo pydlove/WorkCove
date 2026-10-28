@@ -4,6 +4,7 @@ const {
   dialog,
   ipcMain,
   safeStorage,
+  session,
   shell,
   systemPreferences,
 } = require('electron')
@@ -147,7 +148,12 @@ function clearTouchIdSecret(accountKey) {
   writeTouchIdStore(store)
 }
 
-function createWindow() {
+async function createWindow() {
+  if (app.isPackaged) {
+    await session
+      .fromPartition(CLIENT_PARTITION)
+      .clearCache()
+  }
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -192,7 +198,11 @@ function createWindow() {
   })
 
   void mainWindow.loadURL(
-    app.isPackaged ? `${CLIENT_ORIGIN}/login` : DEV_WEB_URL,
+    app.isPackaged
+      ? `${CLIENT_ORIGIN}/login?runtime=${encodeURIComponent(
+          runtimeStartup?.releaseCode || releaseInfo.releaseCode,
+        )}`
+      : DEV_WEB_URL,
   )
 }
 
@@ -732,7 +742,7 @@ async function initializeClient() {
     preparePackagedRuntime()
     await startBackend()
   }
-  createWindow()
+  await createWindow()
 }
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
@@ -825,7 +835,9 @@ app.whenReady().then(async () => {
     return
   }
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) {
+      void createWindow()
+    }
   })
 })
 

@@ -1,7 +1,9 @@
 /// <reference types="vite/client" />
 
-declare const __WORKCOVE_VERSION__: string
-declare const __WORKCOVE_RELEASE_CODE__: string
+declare module 'virtual:workcove-release-info' {
+  export const version: string
+  export const releaseCode: string
+}
 
 interface WorkCoveDesktopBridge {
   platform: string
