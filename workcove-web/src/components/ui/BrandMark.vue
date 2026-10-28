@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import logoMark from '@/assets/brand/workcove-mark.svg'
+import logoMark from '@/assets/brand/workcove-mark.png'
 
 withDefaults(
   defineProps<{
@@ -29,11 +29,9 @@ withDefaults(
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background: #f8fafd;
+  background: var(--canvas-raised);
   border-radius: 22%;
-  box-shadow:
-    0 2px 7px rgb(10 23 40 / 16%),
-    0 0 0 1px rgb(10 23 40 / 7%);
+  box-shadow: var(--shadow-control);
 }
 
 .brand-mark img {

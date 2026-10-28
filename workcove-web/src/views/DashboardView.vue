@@ -1,67 +1,173 @@
 <script setup lang="ts">
 import {
+  AppWindow,
+  ArrowLeftRight,
   ArrowUpRight,
   Bell,
-  Bookmark,
+  Boxes,
+  Bug,
   CalendarDays,
   Check,
-  CheckSquare2,
+  CheckCheck,
   ChevronDown,
+  ChevronRight,
   Clock3,
-  FileText,
+  Coffee,
+  Code2,
+  Database,
   FolderKanban,
+  FolderCode,
+  GitBranch,
   Globe2,
   Home,
+  Inbox,
+  KeyRound,
+  LogIn,
   LogOut,
+  Mail,
   Menu,
   NotebookPen,
+  PanelLeft,
   Pause,
   Play,
   Plus,
+  Palette,
+  RefreshCw,
+  Rocket,
   RotateCcw,
   Search,
+  Server,
   Settings,
-  Star,
   UserRound,
   X,
 } from '@lucide/vue'
 import type { Component } from 'vue'
 import {
   computed,
+  defineAsyncComponent,
   nextTick,
   onBeforeUnmount,
   onMounted,
   ref,
+  watch,
 } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
+import { getCodexStatus } from '@/api/codex'
+import { getCcSwitchUsage } from '@/api/ccSwitch'
+import {
+  getUnreadNotificationCount,
+  listCalendarNotifications,
+  markAllCalendarNotificationsRead,
+  markCalendarNotificationRead,
+} from '@/api/calendar'
+import { getSystemHealth } from '@/api/system'
+import { prepareZentaoTestRun } from '@/api/zentao'
+import ccSwitchIcon from '@/assets/integrations/cc-switch.png'
+import codexIcon from '@/assets/integrations/codex.png'
+import mysqlIcon from '@/assets/integrations/mysql.svg'
+import sogouInputIcon from '@/assets/integrations/sogou-input.png'
+import {
+  PRODUCT_NAME,
+  PRODUCT_TAGLINE,
+  PRODUCT_VERSION_LABEL,
+} from '@/brand'
 import AppTitlebar from '@/components/business/AppTitlebar.vue'
+import ApplicationLibrary from '@/components/business/applications/ApplicationLibrary.vue'
+import DeploymentLibrary from '@/components/business/development/DeploymentLibrary.vue'
+import GitRepositoryLibrary from '@/components/business/development/GitRepositoryLibrary.vue'
+import ServerManagement from '@/components/business/development/ServerManagement.vue'
+import WorkDirectoryLibrary from '@/components/business/development/WorkDirectoryLibrary.vue'
+import ZentaoBugLibrary from '@/components/business/development/ZentaoBugLibrary.vue'
+import MailWorkspace from '@/components/business/mail/MailWorkspace.vue'
 import ProfileEditor from '@/components/business/ProfileEditor.vue'
+import CodexIdentitySettings from '@/components/business/settings/CodexIdentitySettings.vue'
+import StyleGuidePanel from '@/components/business/settings/StyleGuidePanel.vue'
 import TaskRow from '@/components/business/TaskRow.vue'
+import WebsiteLibrary from '@/components/business/websites/WebsiteLibrary.vue'
+import WorkbenchHome from '@/components/business/workbench/WorkbenchHome.vue'
+import WellnessReminderBar from '@/components/business/workbench/WellnessReminderBar.vue'
+import WorkbenchWellnessPanel from '@/components/business/workbench/WorkbenchWellnessPanel.vue'
+import WellnessRestOverlay from '@/components/business/workbench/WellnessRestOverlay.vue'
+import WorkspaceSwitcher from '@/components/business/workspaces/WorkspaceSwitcher.vue'
 import BrandMark from '@/components/ui/BrandMark.vue'
+import CodexMark from '@/components/ui/CodexMark.vue'
+import UiPagination from '@/components/ui/UiPagination.vue'
+import UiSegmentedControl from '@/components/ui/UiSegmentedControl.vue'
+import { useActivityTracker } from '@/composables/useActivityTracker'
+import { usePagination } from '@/composables/usePagination'
+import {
+  DEFAULT_CODEX_ASSISTANT_NAME,
+  loadUserWorkbenchData,
+  loadUserWorkbenchSettings,
+  saveUserWorkbenchData,
+  saveUserWorkbenchSettings,
+} from '@/services/userWorkbench'
 import { useAuthStore } from '@/stores/useAuthStore'
+import { useActivityStore } from '@/stores/useActivityStore'
+import { useCodexStore } from '@/stores/useCodexStore'
+import { useDatabaseStore } from '@/stores/useDatabaseStore'
+import { useDeploymentStore } from '@/stores/useDeploymentStore'
+import { useGitRepositoryStore } from '@/stores/useGitRepositoryStore'
+import { useManagedServerStore } from '@/stores/useManagedServerStore'
+import { useShortcutStore } from '@/stores/useShortcutStore'
+import { useWorkDirectoryStore } from '@/stores/useWorkDirectoryStore'
+import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
+import { useWorkNoteStore } from '@/stores/useWorkNoteStore'
+import { useWellnessStore } from '@/stores/useWellnessStore'
+import { useZentaoStore } from '@/stores/useZentaoStore'
 import {
   useThemeStore,
+  type FontPreference,
   type ThemePreference,
 } from '@/stores/theme'
 import type {
-  SavedBookmark,
   WorkNote,
   WorkProject,
   WorkTask,
 } from '@/types/workbench'
+import type { WorkNote as StoredWorkNote } from '@/types/workNote'
+import type { CalendarNotification } from '@/types/calendar'
+import type { ZentaoBug } from '@/types/zentao'
+import { openWebsiteUrl } from '@/utils/openWebsite'
+import {
+  formatWellnessDuration,
+  localDateKey,
+  wellnessDaySummary,
+} from '@/utils/wellness'
 
 type ViewId =
   | 'overview'
+  | 'websites'
+  | 'codex'
+  | 'apps'
+  | 'workDirectories'
+  | 'gitRepositories'
+  | 'databases'
+  | 'deployments'
+  | 'zentaoBugs'
+  | 'servers'
   | 'tasks'
   | 'notes'
+  | 'vault'
+  | 'mail'
   | 'calendar'
   | 'projects'
-  | 'favorites'
   | 'profile'
   | 'settings'
 
 type TaskFilter = 'all' | 'open' | 'done'
+type DatabaseStatus =
+  | 'checking'
+  | 'connected'
+  | 'disconnected'
+  | 'offline'
+type LocalIntegrationStatus =
+  | 'checking'
+  | 'ready'
+  | 'missing'
+  | 'unavailable'
+  | 'offline'
 
 interface NavigationItem {
   id: ViewId
@@ -69,28 +175,142 @@ interface NavigationItem {
   icon: Component
 }
 
+type GlobalSearchKind =
+  | 'view'
+  | 'website'
+  | 'application'
+  | 'task'
+  | 'workbenchNote'
+  | 'project'
+  | 'note'
+  | 'codexSession'
+  | 'workDirectory'
+  | 'git'
+  | 'database'
+  | 'deployment'
+  | 'bug'
+  | 'server'
+
+interface GlobalSearchResult {
+  key: string
+  kind: GlobalSearchKind
+  targetId: string
+  targetView: ViewId
+  group: string
+  title: string
+  subtitle: string
+  icon: Component
+}
+
+const viewIds: ViewId[] = [
+  'overview',
+  'websites',
+  'codex',
+  'apps',
+  'workDirectories',
+  'gitRepositories',
+  'databases',
+  'deployments',
+  'zentaoBugs',
+  'servers',
+  'tasks',
+  'notes',
+  'vault',
+  'mail',
+  'calendar',
+  'projects',
+  'profile',
+  'settings',
+]
+
+const route = useRoute()
 const router = useRouter()
+const CodexWorkspace = defineAsyncComponent(
+  () => import('@/components/business/codex/CodexWorkspace.vue'),
+)
+const WorkNotes = defineAsyncComponent(
+  () => import('@/components/business/notes/WorkNotes.vue'),
+)
+const CalendarPage = defineAsyncComponent(
+  () => import('@/components/business/calendar/CalendarPage.vue'),
+)
+const DatabaseWorkspace = defineAsyncComponent(
+  () => import('@/components/business/development/DatabaseWorkspace.vue'),
+)
+const WorkVault = defineAsyncComponent(
+  () => import('@/components/business/vault/WorkVault.vue'),
+)
 const session = useAuthStore()
+const activityStore = useActivityStore()
+const shortcutStore = useShortcutStore()
+const workspaceStore = useWorkspaceStore()
+const workDirectoryStore = useWorkDirectoryStore()
+const gitRepositoryStore = useGitRepositoryStore()
+const databaseStore = useDatabaseStore()
+const deploymentStore = useDeploymentStore()
+const managedServerStore = useManagedServerStore()
+const zentaoStore = useZentaoStore()
+const codexStore = useCodexStore()
+const noteLibraryStore = useWorkNoteStore()
+const wellnessStore = useWellnessStore()
 const themeStore = useThemeStore()
 const now = new Date()
+useActivityTracker()
 
-const activeView = ref<ViewId>('overview')
+function routeView(): ViewId {
+  const value = route.query.view
+  return typeof value === 'string' &&
+    viewIds.includes(value as ViewId)
+    ? (value as ViewId)
+    : 'overview'
+}
+
+const activeView = ref<ViewId>(routeView())
 const mobileNavOpen = ref(false)
+const sidebarCollapsed = ref(false)
 const profileMenuOpen = ref(false)
+const notificationCenterOpen = ref(false)
+const notifications = ref<CalendarNotification[]>([])
+const unreadNotificationCount = ref(0)
+const notificationsLoading = ref(false)
 const searchQuery = ref('')
 const searchInput = ref<HTMLInputElement | null>(null)
 const taskComposer = ref<HTMLInputElement | null>(null)
 const newTaskTitle = ref('')
-const noteDraft = ref('')
+const notesWorkspace = ref<{ startComposer: () => void } | null>(null)
+const notesQuickCapturePending = ref(false)
 const taskFilter = ref<TaskFilter>('all')
 const launchOnLogin = ref(true)
 const compactSidebar = ref(false)
+const codexDisplayName = ref(DEFAULT_CODEX_ASSISTANT_NAME)
+const codexIconDataUrl = ref<string | null>(null)
+const databaseStatus = ref<DatabaseStatus>('checking')
+const codexStatus = ref<LocalIntegrationStatus>('checking')
+const codexDetail = ref('正在检测本地 Codex CLI')
+const ccSwitchStatus = ref<LocalIntegrationStatus>('checking')
+const ccSwitchDetail = ref('正在检测本地 CC Switch')
+const styleGuideOpen = ref(false)
+const codexMounted = ref(activeView.value === 'codex')
+const serverManagementMounted = ref(activeView.value === 'servers')
+const developmentViews = new Set<ViewId>([
+  'workDirectories',
+  'gitRepositories',
+  'databases',
+  'deployments',
+  'zentaoBugs',
+  'servers',
+])
+const dailyViews = new Set<ViewId>(['codex', 'notes', 'calendar', 'mail'])
+const resourceViews = new Set<ViewId>(['websites', 'apps', 'vault'])
+const dailyMenuOpen = ref(true)
+const developmentMenuOpen = ref(false)
+const resourceMenuOpen = ref(true)
 const toastMessage = ref('')
-const tasks = ref<WorkTask[]>([
+const defaultTasks: WorkTask[] = [
   {
     id: 1,
     title: '梳理本周产品优先级',
-    project: 'WorkCove',
+    project: PRODUCT_NAME,
     time: '09:30',
     done: false,
     priority: 'high',
@@ -114,7 +334,7 @@ const tasks = ref<WorkTask[]>([
   {
     id: 4,
     title: '完成首页交互细节',
-    project: 'WorkCove',
+    project: PRODUCT_NAME,
     time: '16:30',
     done: true,
     priority: 'medium',
@@ -127,8 +347,8 @@ const tasks = ref<WorkTask[]>([
     done: false,
     priority: 'low',
   },
-])
-const notes = ref<WorkNote[]>([
+]
+const defaultNotes: WorkNote[] = [
   {
     id: 1,
     title: '设计评审随手记',
@@ -150,11 +370,11 @@ const notes = ref<WorkNote[]>([
     updatedAt: '昨天',
     tone: 'rose',
   },
-])
-const projects = ref<WorkProject[]>([
+]
+const defaultProjects: WorkProject[] = [
   {
     id: 1,
-    name: 'WorkCove 1.0',
+    name: `${PRODUCT_NAME} 1.0`,
     description: '个人工作台',
     progress: 62,
     color: 'green',
@@ -173,60 +393,42 @@ const projects = ref<WorkProject[]>([
     progress: 14,
     color: 'amber',
   },
-])
-const bookmarks = ref<SavedBookmark[]>([
-  {
-    id: 1,
-    title: '项目知识库',
-    url: 'notion.so',
-    category: '文档',
-  },
-  {
-    id: 2,
-    title: '产品设计规范',
-    url: 'design.local',
-    category: '设计',
-  },
-  {
-    id: 3,
-    title: '常用代码片段',
-    url: 'snippets.local',
-    category: '开发',
-  },
-])
-const schedule = [
-  {
-    time: '10:00',
-    title: '产品同步会',
-    detail: '设计稿与优先级对齐',
-    tone: 'green',
-  },
-  {
-    time: '14:30',
-    title: '设计评审',
-    detail: '工作台主流程走查',
-    tone: 'coral',
-  },
-  {
-    time: '17:00',
-    title: '日终回顾',
-    detail: '整理今天未完成事项',
-    tone: 'amber',
-  },
-] as const
-
+]
+const tasks = ref<WorkTask[]>(
+  defaultTasks.map((task) => ({ ...task })),
+)
+const notes = ref<WorkNote[]>(
+  defaultNotes.map((note) => ({ ...note })),
+)
+const projects = ref<WorkProject[]>(
+  defaultProjects.map((project) => ({ ...project })),
+)
+const {
+  currentPage: projectPage,
+  pageItems: pagedProjects,
+  setPage: setProjectPage,
+} = usePagination(projects)
 const navigationPrimary: NavigationItem[] = [
   { id: 'overview', label: '工作台', icon: Home },
-  { id: 'tasks', label: '任务', icon: CheckSquare2 },
-  { id: 'notes', label: '笔记', icon: NotebookPen },
-  { id: 'calendar', label: '日历', icon: CalendarDays },
-  { id: 'projects', label: '项目', icon: FolderKanban },
 ]
-
-const navigationUtility: NavigationItem[] = [
-  { id: 'favorites', label: '收藏', icon: Star },
-  { id: 'profile', label: '个人资料', icon: UserRound },
-  { id: 'settings', label: '设置', icon: Settings },
+const dailyNavigation: NavigationItem[] = [
+  { id: 'codex', label: 'Codex', icon: CodexMark },
+  { id: 'notes', label: '速记', icon: NotebookPen },
+  { id: 'calendar', label: '日历', icon: CalendarDays },
+  { id: 'mail', label: '邮件', icon: Mail },
+]
+const developmentNavigation: NavigationItem[] = [
+  { id: 'workDirectories', label: '工作目录', icon: FolderCode },
+  { id: 'gitRepositories', label: 'Git 仓库', icon: GitBranch },
+  { id: 'databases', label: '数据库', icon: Database },
+  { id: 'servers', label: '服务器管理', icon: Server },
+  { id: 'deployments', label: '部署', icon: Rocket },
+  { id: 'zentaoBugs', label: 'Bug 清单', icon: Bug },
+]
+const resourceNavigation: NavigationItem[] = [
+  { id: 'websites', label: '网址', icon: Globe2 },
+  { id: 'apps', label: 'App', icon: AppWindow },
+  { id: 'vault', label: '密码库', icon: KeyRound },
 ]
 
 const themeOptions: Array<{ value: ThemePreference; label: string }> = [
@@ -234,53 +436,164 @@ const themeOptions: Array<{ value: ThemePreference; label: string }> = [
   { value: 'dark', label: '深色' },
   { value: 'system', label: '跟随系统' },
 ]
+const fontOptions: Array<{ value: FontPreference; label: string }> = [
+  { value: 'system', label: '系统' },
+  { value: 'codex', label: 'Codex' },
+  { value: 'avenir', label: 'Avenir' },
+]
+const taskFilterOptions: Array<{ value: TaskFilter; label: string }> = [
+  { value: 'all', label: '全部' },
+  { value: 'open', label: '待完成' },
+  { value: 'done', label: '已完成' },
+]
+const databaseStatusText = computed(() => {
+  if (databaseStatus.value === 'connected') return '已连接'
+  if (databaseStatus.value === 'disconnected') return '数据库连接失败'
+  if (databaseStatus.value === 'offline') return '服务未启动'
+  return '检测中'
+})
+
+const sogouStatus = computed<LocalIntegrationStatus>(() => {
+  if (activityStore.sogou.loading) return 'checking'
+  if (activityStore.sogou.serviceAvailable) return 'ready'
+  if (activityStore.sogou.installed) return 'missing'
+  return 'missing'
+})
+
+const sogouStatusText = computed(() => {
+  if (activityStore.sogou.loading) return '检测中'
+  if (activityStore.sogou.serviceAvailable) return '统计可用'
+  if (activityStore.sogou.installed) return '服务未运行'
+  return activityStore.sogou.checkedAt ? '未安装' : '未检测'
+})
+
+const sogouDetail = computed(() => {
+  if (activityStore.sogou.loading) {
+    return '正在检查本机搜狗输入法统计服务'
+  }
+  if (activityStore.sogou.serviceAvailable) {
+    return `全系统字数与速度 · 当前 ${activityStore.sogou.currentSpeed} 字/分`
+  }
+  if (activityStore.sogou.message) {
+    return activityStore.sogou.message
+  }
+  return '全系统字数与速度来源；不可用时自动回退到页面内计数'
+})
+const databaseStatusClass = computed(() => ({
+  'setting-status--success': databaseStatus.value === 'connected',
+  'setting-status--neutral':
+    databaseStatus.value === 'checking' ||
+    databaseStatus.value === 'offline',
+}))
+const codexStatusText = computed(() =>
+  localIntegrationStatusText(codexStatus.value),
+)
+const ccSwitchStatusText = computed(() =>
+  localIntegrationStatusText(ccSwitchStatus.value),
+)
+
+function localIntegrationStatusText(status: LocalIntegrationStatus) {
+  if (status === 'ready') return '已就绪'
+  if (status === 'missing') return '未检测到'
+  if (status === 'unavailable') return '桌面版可用'
+  if (status === 'offline') return '服务未启动'
+  return '检测中'
+}
+
+function localIntegrationStatusClass(status: LocalIntegrationStatus) {
+  return {
+    'setting-status--success': status === 'ready',
+    'setting-status--neutral':
+      status === 'checking' ||
+      status === 'unavailable' ||
+      status === 'offline',
+  }
+}
 
 const viewMeta: Record<
   ViewId,
-  { label: string; eyebrow: string; description: string }
+  { label: string; description: string }
 > = {
   overview: {
     label: '工作台',
-    eyebrow: 'TODAY',
-    description: '把注意力留给真正重要的事情。',
+    description: '时间、常用网址和本地软件集中在这里。',
+  },
+  websites: {
+    label: '网址',
+    description: '按分类整理网址，工作台会展示点击量最高的 Top 10。',
+  },
+  codex: {
+    label: 'Codex',
+    description: '与本地 Codex 对话，并记录每个会话执行的任务。',
+  },
+  apps: {
+    label: 'App',
+    description: '集中管理本地应用，工作台会展示使用频率最高的 Top 5。',
+  },
+  workDirectories: {
+    label: '工作目录',
+    description: '集中管理日常项目路径，快速回到正在处理的工作。',
+  },
+  gitRepositories: {
+    label: 'Git 仓库',
+    description: '集中查看本地仓库的分支、远端、提交和工作区状态。',
+  },
+  databases: {
+    label: '数据库',
+    description: '集中管理 MySQL 和 ClickHouse 连接，执行 SQL 并查看结果。',
+  },
+  deployments: {
+    label: '部署',
+    description: '保存部署脚本，在研发服务器上执行并查看运行结果。',
+  },
+  zentaoBugs: {
+    label: 'Bug 清单',
+    description:
+      '从禅道同步指定项目的 Bug，可查看详情、在平台内标记解决或交给 Codex。',
+  },
+  servers: {
+    label: '服务器管理',
+    description: `集中保存研发服务器，在${PRODUCT_NAME}内连接 SSH 终端和管理 SFTP 文件。`,
   },
   tasks: {
     label: '任务',
-    eyebrow: 'TASKS',
     description: '整理、推进并完成今天的工作。',
   },
   notes: {
-    label: '笔记',
-    eyebrow: 'NOTES',
-    description: '让想法有一个随手停留的地方。',
+    label: '速记',
+    description: '快速记录工作中的重要事情、决定和结论。',
+  },
+  vault: {
+    label: '密码库',
+    description: '集中管理账号密码，验证后 5 分钟内可以查看。',
+  },
+  mail: {
+    label: '邮件',
+    description: '在一个安静的工作区里收取、阅读并回复邮件。',
   },
   calendar: {
     label: '日历',
-    eyebrow: 'CALENDAR',
-    description: '查看这一周的时间安排。',
+    description: '按月查看速记和日程，快速安排每天的工作。',
   },
   projects: {
     label: '项目',
-    eyebrow: 'PROJECTS',
     description: '从更长的周期观察工作进展。',
-  },
-  favorites: {
-    label: '收藏',
-    eyebrow: 'FAVORITES',
-    description: '常用资料与工具集中在这里。',
   },
   profile: {
     label: '个人资料',
-    eyebrow: 'PROFILE',
     description: '管理头像、昵称和只属于你的工作台信息。',
   },
   settings: {
     label: '设置',
-    eyebrow: 'SETTINGS',
     description: '配置你的本地工作台。',
   },
 }
 
+const codexAssistantName = computed(
+  () =>
+    codexDisplayName.value.trim() ||
+    DEFAULT_CODEX_ASSISTANT_NAME,
+)
 const displayName = computed(() => {
   const name = session.userName.trim() || 'Yong'
   return name.charAt(0).toUpperCase() + name.slice(1)
@@ -310,26 +623,27 @@ const pageTitle = computed(() =>
 )
 const pageDescription = computed(() =>
   activeView.value === 'overview'
-    ? `今天是 ${dateLabel.value}，${openTaskCount.value} 项任务等待处理。`
+    ? `今天是 ${dateLabel.value}，从这里开始今天的工作。`
     : currentView.value.description,
 )
-const pageEyebrow = computed(() =>
-  activeView.value === 'overview' ? 'MY DAY' : currentView.value.eyebrow,
-)
+const calendarDateQuery = computed(() => {
+  const value = route.query.date
+  return typeof value === 'string' &&
+    /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? value
+    : ''
+})
 
-const openTaskCount = computed(
-  () => tasks.value.filter((task) => !task.done).length,
-)
-const completedTaskCount = computed(
-  () => tasks.value.filter((task) => task.done).length,
-)
-const taskCompletion = computed(() =>
-  tasks.value.length
-    ? Math.round((completedTaskCount.value / tasks.value.length) * 100)
-    : 0,
-)
-const overviewTasks = computed(() => tasks.value.slice(0, 4))
-const notePreview = computed(() => notes.value.slice(0, 2))
+function setTaskFilter(value: string) {
+  taskFilter.value = value as TaskFilter
+}
+
+function setThemePreference(value: string) {
+  themeStore.setPreference(value as ThemePreference)
+}
+function setFontPreference(value: string) {
+  themeStore.setFontPreference(value as FontPreference)
+}
 const filteredTasks = computed(() => {
   if (taskFilter.value === 'open') {
     return tasks.value.filter((task) => !task.done)
@@ -341,85 +655,342 @@ const filteredTasks = computed(() => {
 
   return tasks.value
 })
+const {
+  currentPage: taskPage,
+  pageItems: pagedTasks,
+  setPage: setTaskPage,
+} = usePagination(filteredTasks, () => taskFilter.value)
 
-const monthTitle = computed(() =>
-  new Intl.DateTimeFormat('zh-CN', {
-    month: 'long',
-    year: 'numeric',
-  }).format(now),
-)
-const weekdayFormatter = new Intl.DateTimeFormat('zh-CN', {
-  weekday: 'short',
-})
-const weekStart = (() => {
-  const date = new Date(now)
-  const offset = (date.getDay() + 6) % 7
-  date.setDate(date.getDate() - offset)
-  date.setHours(12, 0, 0, 0)
-  return date
-})()
-const calendarWeek = computed(() =>
-  Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(weekStart)
-    date.setDate(weekStart.getDate() + index)
+const viewSearchIcons: Record<ViewId, Component> = {
+  overview: Home,
+  codex: CodexMark,
+  websites: Globe2,
+  apps: AppWindow,
+  workDirectories: FolderCode,
+  gitRepositories: GitBranch,
+  databases: Database,
+  deployments: Rocket,
+  zentaoBugs: Bug,
+  servers: Server,
+  tasks: CheckCheck,
+  mail: Mail,
+  notes: NotebookPen,
+  vault: KeyRound,
+  calendar: CalendarDays,
+  projects: FolderKanban,
+  profile: UserRound,
+  settings: Settings,
+}
 
-    return {
-      key: date.toISOString(),
-      weekday: weekdayFormatter.format(date).replace('周', ''),
-      day: date.getDate(),
-      isToday: date.toDateString() === now.toDateString(),
-    }
-  }),
-)
-
-const searchResults = computed(() => {
+const searchResults = computed<GlobalSearchResult[]>(() => {
   const query = searchQuery.value.trim().toLocaleLowerCase('zh-CN')
   if (!query) return []
+  const matches = (...values: Array<string | number | null | undefined>) =>
+    values
+      .filter((value) => value !== null && value !== undefined)
+      .join(' ')
+      .toLocaleLowerCase('zh-CN')
+      .includes(query)
+  const workspaceId = workspaceStore.activeWorkspaceId
 
-  const taskHits = tasks.value
-    .filter((task) =>
-      `${task.title} ${task.project}`.toLocaleLowerCase('zh-CN').includes(query),
+  const pages = (
+    Object.entries(viewMeta) as Array<
+      [ViewId, (typeof viewMeta)[ViewId]]
+    >
+  )
+    .filter(([id, meta]) => matches(id, meta.label, meta.description))
+    .slice(0, 5)
+    .map<GlobalSearchResult>(([id, meta]) => ({
+      key: `view:${id}`,
+      kind: 'view',
+      targetId: id,
+      targetView: id,
+      group: '页面',
+      title: meta.label,
+      subtitle: meta.description,
+      icon: viewSearchIcons[id],
+    }))
+
+  const websites = shortcutStore.websites
+    .filter((website) => website.workspaceId === workspaceId)
+    .filter((website) =>
+      matches(website.name, website.url, website.category),
     )
-    .map((task) => ({
-      id: `task-${task.id}`,
+    .slice(0, 3)
+    .map<GlobalSearchResult>((website) => ({
+      key: `website:${website.id}`,
+      kind: 'website',
+      targetId: website.id,
+      targetView: 'websites',
+      group: '网址',
+      title: website.name,
+      subtitle: `${website.category} · ${website.url}`,
+      icon: Globe2,
+    }))
+
+  const applications = shortcutStore.applications
+    .filter((application) => application.workspaceId === workspaceId)
+    .filter((application) => matches(application.name, application.path))
+    .slice(0, 3)
+    .map<GlobalSearchResult>((application) => ({
+      key: `application:${application.id}`,
+      kind: 'application',
+      targetId: application.id,
+      targetView: 'apps',
+      group: 'App',
+      title: application.name,
+      subtitle: application.path,
+      icon: AppWindow,
+    }))
+
+  const workTasks = tasks.value
+    .filter((task) => matches(task.title, task.project))
+    .slice(0, 3)
+    .map<GlobalSearchResult>((task) => ({
+      key: `task:${task.id}`,
+      kind: 'task',
+      targetId: String(task.id),
+      targetView: 'tasks',
+      group: '任务',
       title: task.title,
-      meta: task.project,
-      type: 'task' as const,
+      subtitle: task.project,
+      icon: Check,
     }))
 
-  const noteHits = notes.value
-    .filter((note) =>
-      `${note.title} ${note.excerpt}`
-        .toLocaleLowerCase('zh-CN')
-        .includes(query),
-    )
-    .map((note) => ({
-      id: `note-${note.id}`,
+  const workbenchNotes = notes.value
+    .filter((note) => matches(note.title, note.excerpt))
+    .slice(0, 3)
+    .map<GlobalSearchResult>((note) => ({
+      key: `workbench-note:${note.id}`,
+      kind: 'workbenchNote',
+      targetId: String(note.id),
+      targetView: 'notes',
+      group: '速记',
       title: note.title,
-      meta: note.updatedAt,
-      type: 'note' as const,
+      subtitle: note.excerpt,
+      icon: NotebookPen,
     }))
 
-  return [...taskHits, ...noteHits].slice(0, 6)
+  const workProjects = projects.value
+    .filter((project) => matches(project.name, project.description))
+    .slice(0, 3)
+    .map<GlobalSearchResult>((project) => ({
+      key: `project:${project.id}`,
+      kind: 'project',
+      targetId: String(project.id),
+      targetView: 'projects',
+      group: '项目',
+      title: project.name,
+      subtitle: project.description,
+      icon: FolderKanban,
+    }))
+
+  const libraryNotes = noteLibraryStore.notes
+    .filter((note) => note.workspaceId === workspaceId)
+    .filter((note) =>
+      matches(note.title, note.content, note.tags.join(' ')),
+    )
+    .slice(0, 3)
+    .map<GlobalSearchResult>((note) => ({
+      key: `note:${note.id}`,
+      kind: 'note',
+      targetId: note.id,
+      targetView: 'notes',
+      group: '速记',
+      title: note.title,
+      subtitle: note.content.replace(/\s+/g, ' ').trim().slice(0, 120),
+      icon: NotebookPen,
+    }))
+
+  const codexSessions = codexStore.sessions
+    .filter((item) => item.workspaceId === workspaceId)
+    .filter((item) =>
+      matches(
+        item.title,
+        item.cwd,
+        item.tasks.map((task) => task.displayPrompt || task.prompt).join(' '),
+      ),
+    )
+    .slice(0, 3)
+    .map<GlobalSearchResult>((item) => ({
+      key: `codex:${item.id}`,
+      kind: 'codexSession',
+      targetId: item.id,
+      targetView: 'codex',
+      group: 'Codex',
+      title: item.title,
+      subtitle: `${item.tasks.length} 个任务 · ${item.cwd || '未关联目录'}`,
+      icon: CodexMark,
+    }))
+
+  const workDirectories = workDirectoryStore.directories
+    .filter((directory) => directory.workspaceId === workspaceId)
+    .filter((directory) =>
+      matches(
+        directory.name,
+        directory.path,
+        directory.category,
+        directory.description,
+      ),
+    )
+    .slice(0, 3)
+    .map<GlobalSearchResult>((directory) => ({
+      key: `directory:${directory.id}`,
+      kind: 'workDirectory',
+      targetId: directory.id,
+      targetView: 'workDirectories',
+      group: '工作目录',
+      title: directory.name,
+      subtitle: `${directory.category} · ${directory.path}`,
+      icon: FolderCode,
+    }))
+
+  const gitRepositories = gitRepositoryStore.repositories
+    .filter((repository) => repository.workspaceId === workspaceId)
+    .filter((repository) =>
+      matches(
+        repository.name,
+        repository.path,
+        repository.remoteUrl,
+        repository.category,
+      ),
+    )
+    .slice(0, 3)
+    .map<GlobalSearchResult>((repository) => ({
+      key: `git:${repository.id}`,
+      kind: 'git',
+      targetId: repository.id,
+      targetView: 'gitRepositories',
+      group: 'Git 仓库',
+      title: repository.name,
+      subtitle: repository.path || repository.remoteUrl,
+      icon: GitBranch,
+    }))
+
+  const databases = databaseStore.connections
+    .filter((connection) => connection.workspaceId === workspaceId)
+    .filter((connection) =>
+      matches(
+        connection.name,
+        connection.type,
+        connection.host,
+        connection.databaseName,
+        connection.username,
+      ),
+    )
+    .slice(0, 3)
+    .map<GlobalSearchResult>((connection) => ({
+      key: `database:${connection.id}`,
+      kind: 'database',
+      targetId: String(connection.id),
+      targetView: 'databases',
+      group: '数据库',
+      title: connection.name,
+      subtitle: `${connection.type} · ${connection.host}:${connection.port}/${connection.databaseName}`,
+      icon: Database,
+    }))
+
+  const deployments = deploymentStore.deployments
+    .filter((deployment) => deployment.workspaceId === workspaceId)
+    .filter((deployment) =>
+      matches(
+        deployment.name,
+        deployment.serverName,
+        deployment.remoteDirectory,
+        deployment.scriptFilename,
+      ),
+    )
+    .slice(0, 3)
+    .map<GlobalSearchResult>((deployment) => ({
+      key: `deployment:${deployment.id}`,
+      kind: 'deployment',
+      targetId: deployment.id,
+      targetView: 'deployments',
+      group: '部署',
+      title: deployment.name,
+      subtitle: `${deployment.serverName || '未关联服务器'} · ${deployment.remoteDirectory}`,
+      icon: Rocket,
+    }))
+
+  const bugs = zentaoStore.bugs
+    .filter((bug) => !bug.localDeleted)
+    .filter((bug) =>
+      matches(
+        bug.remoteId,
+        bug.title,
+        bug.productName,
+        bug.projectName,
+        bug.assignedTo,
+      ),
+    )
+    .slice(0, 3)
+    .map<GlobalSearchResult>((bug) => ({
+      key: `bug:${bug.id}`,
+      kind: 'bug',
+      targetId: String(bug.id),
+      targetView: 'zentaoBugs',
+      group: 'Bug',
+      title: `#${bug.remoteId} ${bug.title}`,
+      subtitle: `${bug.productName || bug.projectName || '未分类'} · ${bug.assignedTo || '未指派'}`,
+      icon: Bug,
+    }))
+
+  const servers = managedServerStore.servers
+    .filter((server) => server.workspaceId === workspaceId)
+    .filter((server) =>
+      matches(server.name, server.host, server.username),
+    )
+    .slice(0, 3)
+    .map<GlobalSearchResult>((server) => ({
+      key: `server:${server.id}`,
+      kind: 'server',
+      targetId: String(server.id),
+      targetView: 'servers',
+      group: '服务器',
+      title: server.name,
+      subtitle: `${server.host}:${server.port} · ${server.username}`,
+      icon: Server,
+    }))
+
+  return [
+    ...pages,
+    ...websites,
+    ...applications,
+    ...workTasks,
+    ...workbenchNotes,
+    ...workProjects,
+    ...libraryNotes,
+    ...codexSessions,
+    ...workDirectories,
+    ...gitRepositories,
+    ...databases,
+    ...deployments,
+    ...bugs,
+    ...servers,
+  ]
 })
 
-const focusDuration = 25 * 60
-const focusSeconds = ref(focusDuration)
-const focusRunning = ref(false)
-const focusPercent = computed(
-  () => (focusSeconds.value / focusDuration) * 100,
-)
-const focusRingStyle = computed(() => ({
-  background: `conic-gradient(var(--accent) ${focusPercent.value}%, rgba(255, 255, 255, 0.13) 0)`,
-}))
-const focusTime = computed(() => {
-  const minutes = Math.floor(focusSeconds.value / 60)
-  const seconds = focusSeconds.value % 60
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+const todayWorkSession = computed(() => {
+  const date = localDateKey(new Date())
+  return (
+    wellnessStore.data.workSessions
+      .filter((work) => localDateKey(work.startedAt) === date)
+      .sort(
+        (left, right) =>
+          new Date(right.startedAt).getTime() -
+          new Date(left.startedAt).getTime(),
+      )[0] ?? null
+  )
+})
+const clockActionMode = computed(() => {
+  if (wellnessStore.data.activeWork) return 'clockOut'
+  return todayWorkSession.value ? 'update' : 'clockIn'
 })
 
-let focusTimer: number | null = null
 let toastTimer: number | null = null
+let notificationPollTimer: number | null = null
+let notificationRequestInFlight = false
+let workbenchOwnerEmail = ''
 
 function notify(message: string) {
   toastMessage.value = message
@@ -429,36 +1000,237 @@ function notify(message: string) {
   }, 2200)
 }
 
-function stopFocusTimer() {
-  if (focusTimer) {
-    window.clearInterval(focusTimer)
-    focusTimer = null
-  }
-  focusRunning.value = false
+function refreshCurrentPage() {
+  window.location.reload()
 }
 
-function toggleFocusTimer() {
-  if (focusRunning.value) {
-    stopFocusTimer()
+function startRestFromFooter() {
+  if (!wellnessStore.startRest()) return
+  notify('休息计时开始，先离开屏幕一会儿')
+}
+
+function clockInFromFooter() {
+  if (!wellnessStore.clockIn()) {
+    notify('今天已经完成上班打卡，一天只能打卡一次')
     return
   }
-
-  focusRunning.value = true
-  focusTimer = window.setInterval(() => {
-    if (focusSeconds.value <= 1) {
-      focusSeconds.value = 0
-      stopFocusTimer()
-      notify('本轮专注已完成')
-      return
-    }
-
-    focusSeconds.value -= 1
-  }, 1000)
+  notify('打卡成功，已开始记录工作时间')
 }
 
-function resetFocusTimer() {
-  stopFocusTimer()
-  focusSeconds.value = focusDuration
+function clockOutFromFooter() {
+  if (!wellnessStore.data.activeWork) return
+  wellnessStore.clockOut()
+  const summary = wellnessDaySummary(
+    wellnessStore.data,
+    localDateKey(new Date()),
+  )
+  notify(
+    `已下班，今日净工作 ${formatWellnessDuration(summary.focusMs)}`,
+  )
+}
+
+function updateClockOutFromFooter() {
+  if (!todayWorkSession.value) return
+  wellnessStore.updateClockOut()
+  const summary = wellnessDaySummary(
+    wellnessStore.data,
+    localDateKey(new Date()),
+  )
+  const clockOut = new Intl.DateTimeFormat('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date())
+  notify(
+    `下班时间已更新为 ${clockOut}，今日净工作 ${formatWellnessDuration(summary.focusMs)}`,
+  )
+}
+
+function continueRestFromFooter() {
+  const duration = wellnessStore.endRest()
+  notify(
+    duration < 60_000
+      ? '已继续工作'
+      : `已继续工作，本次休息 ${formatWellnessDuration(duration)}`,
+  )
+}
+
+async function refreshUnreadNotifications() {
+  try {
+    const result = await getUnreadNotificationCount()
+    unreadNotificationCount.value = result.count
+  } catch {
+    // Calendar data stays usable while the notification service is offline.
+  }
+}
+
+async function refreshNotificationCenter() {
+  if (notificationRequestInFlight) return
+  notificationRequestInFlight = true
+  notificationsLoading.value = true
+  try {
+    const [items, unread] = await Promise.all([
+      listCalendarNotifications(30),
+      getUnreadNotificationCount(),
+    ])
+    notifications.value = items
+    unreadNotificationCount.value = unread.count
+  } catch (error) {
+    if (notificationCenterOpen.value) {
+      notify(
+        error instanceof Error
+          ? `通知加载失败：${error.message}`
+          : '通知加载失败',
+      )
+    }
+  } finally {
+    notificationsLoading.value = false
+    notificationRequestInFlight = false
+  }
+}
+
+async function toggleNotificationCenter() {
+  notificationCenterOpen.value = !notificationCenterOpen.value
+  profileMenuOpen.value = false
+  if (notificationCenterOpen.value) {
+    await refreshNotificationCenter()
+  }
+}
+
+async function openNotification(notification: CalendarNotification) {
+  if (!notification.readAt) {
+    try {
+      await markCalendarNotificationRead(notification.id)
+      notification.readAt = new Date().toISOString()
+      unreadNotificationCount.value = Math.max(
+        0,
+        unreadNotificationCount.value - 1,
+      )
+    } catch {
+      // Navigation remains useful if marking a notification read fails.
+    }
+  }
+  notificationCenterOpen.value = false
+  if (
+    notification.linkView === 'calendar' ||
+    notification.linkView === ''
+  ) {
+    selectView('calendar')
+  }
+}
+
+async function markAllNotificationsRead() {
+  if (unreadNotificationCount.value === 0) return
+  try {
+    await markAllCalendarNotificationsRead()
+    const readAt = new Date().toISOString()
+    notifications.value = notifications.value.map((item) => ({
+      ...item,
+      readAt: item.readAt ?? readAt,
+    }))
+    unreadNotificationCount.value = 0
+  } catch (error) {
+    notify(
+      error instanceof Error
+        ? `通知标记失败：${error.message}`
+        : '通知标记失败',
+    )
+  }
+}
+
+function notificationTime(value: string) {
+  const timestamp = new Date(value)
+  if (Number.isNaN(timestamp.getTime())) return ''
+  const now = new Date()
+  const sameDay =
+    timestamp.getFullYear() === now.getFullYear() &&
+    timestamp.getMonth() === now.getMonth() &&
+    timestamp.getDate() === now.getDate()
+  if (sameDay) {
+    return new Intl.DateTimeFormat('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(timestamp)
+  }
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+  }).format(timestamp)
+}
+
+function restoreUserWorkbench(email: string) {
+  const normalizedEmail = email.trim().toLocaleLowerCase('en-US')
+  workbenchOwnerEmail = normalizedEmail
+  if (!normalizedEmail) return
+
+  const data = loadUserWorkbenchData(normalizedEmail)
+  tasks.value = (
+    data
+      ? data.tasks
+      : defaultTasks
+  ).map((task) => ({ ...task }))
+  notes.value = (
+    data
+      ? data.notes
+      : defaultNotes
+  ).map((note) => ({ ...note }))
+  projects.value = (
+    data
+      ? data.projects
+      : defaultProjects
+  ).map((project) => ({ ...project }))
+
+  const settings = loadUserWorkbenchSettings(normalizedEmail)
+  launchOnLogin.value = settings?.launchOnLogin ?? true
+  compactSidebar.value = settings?.compactSidebar ?? false
+  codexDisplayName.value =
+    settings?.codexName ?? DEFAULT_CODEX_ASSISTANT_NAME
+  codexIconDataUrl.value = settings?.codexIconDataUrl ?? null
+
+  if (!data) {
+    saveUserWorkbenchData(normalizedEmail, {
+      tasks: tasks.value,
+      notes: notes.value,
+      projects: projects.value,
+    })
+  }
+  if (!settings) {
+    saveUserWorkbenchSettings(normalizedEmail, {
+      launchOnLogin: launchOnLogin.value,
+      compactSidebar: compactSidebar.value,
+      codexName: codexDisplayName.value,
+      codexIconDataUrl: codexIconDataUrl.value,
+    })
+  }
+}
+
+function persistUserWorkbench() {
+  if (!workbenchOwnerEmail) return
+  saveUserWorkbenchData(workbenchOwnerEmail, {
+    tasks: tasks.value,
+    notes: notes.value,
+    projects: projects.value,
+  })
+}
+
+function persistUserWorkbenchSettings() {
+  if (!workbenchOwnerEmail) return
+  saveUserWorkbenchSettings(workbenchOwnerEmail, {
+    launchOnLogin: launchOnLogin.value,
+    compactSidebar: compactSidebar.value,
+    codexName: codexDisplayName.value,
+    codexIconDataUrl: codexIconDataUrl.value,
+  })
+}
+
+function handleStorageError(event: Event) {
+  const detail = (event as CustomEvent<{ message?: string }>).detail
+  notify(
+    detail?.message
+      ? `MySQL 保存失败：${detail.message}`
+      : 'MySQL 保存失败，请稍后重试',
+  )
 }
 
 function toggleTask(id: number) {
@@ -499,33 +1271,225 @@ async function focusTaskComposer() {
   taskComposer.value?.focus()
 }
 
-function addNote() {
-  const excerpt = noteDraft.value.trim()
-  if (!excerpt) return
-
-  notes.value.unshift({
-    id: Date.now(),
-    title: excerpt.split(/[，。,.!?！？\n]/)[0].slice(0, 18) || '新记录',
-    excerpt,
-    updatedAt: '刚刚',
-    tone: 'sage',
-  })
-  noteDraft.value = ''
-  notify('记录已保存')
+function toggleSidebar() {
+  profileMenuOpen.value = false
+  notificationCenterOpen.value = false
+  if (window.matchMedia('(max-width: 900px)').matches) {
+    sidebarCollapsed.value = false
+    mobileNavOpen.value = !mobileNavOpen.value
+    return
+  }
+  sidebarCollapsed.value = !sidebarCollapsed.value
 }
 
-function selectView(view: ViewId) {
+function selectView(
+  view: ViewId,
+  query: Record<string, string> = {},
+) {
+  if (view === 'codex') codexMounted.value = true
+  if (view === 'servers') serverManagementMounted.value = true
   activeView.value = view
+  syncNavigationMenus(view)
   mobileNavOpen.value = false
   profileMenuOpen.value = false
+  notificationCenterOpen.value = false
+  const routeNeedsUpdate =
+    route.query.view !== view ||
+    Object.entries(query).some(
+      ([key, value]) => route.query[key] !== value,
+    )
+  if (routeNeedsUpdate) {
+    void router.replace({
+      name: 'dashboard',
+      query: {
+        ...route.query,
+        view,
+        ...query,
+      },
+    })
+  }
 }
 
-function handleSearchSelection(type: 'task' | 'note') {
-  activeView.value = type === 'task' ? 'tasks' : 'notes'
+function openCalendarDate(date: string) {
+  selectView('calendar', { date })
+}
+
+function syncNavigationMenus(view: ViewId) {
+  if (dailyViews.has(view)) dailyMenuOpen.value = true
+  if (developmentViews.has(view)) developmentMenuOpen.value = true
+  if (resourceViews.has(view)) resourceMenuOpen.value = true
+}
+
+function toggleDailyMenu() {
+  dailyMenuOpen.value = !dailyMenuOpen.value
+}
+
+function toggleDevelopmentMenu() {
+  developmentMenuOpen.value = !developmentMenuOpen.value
+}
+
+function toggleResourceMenu() {
+  resourceMenuOpen.value = !resourceMenuOpen.value
+}
+
+function solveZentaoBug(bug: ZentaoBug) {
+  solveZentaoBugs(
+    [bug],
+    `请分析并解决当前关联的 Bug #${bug.remoteId}：${bug.title}。请先定位根因，完成代码修复和必要验证；任务完成后更新该 Bug 单的解决方案与问题原因。`,
+  )
+}
+
+async function testZentaoBug(bug: ZentaoBug) {
+  if (!workspaceStore.activeWorkspaceId) {
+    notify('工作空间尚未初始化')
+    return
+  }
+  try {
+    const run = await prepareZentaoTestRun(
+      bug.id,
+      workspaceStore.activeWorkspaceId,
+    )
+    zentaoStore.requestCodexTest(
+      bug.id,
+      run.runId,
+      run.evidenceDirectory,
+    )
+    selectView('codex')
+  } catch (error) {
+    notify(
+      error instanceof Error
+        ? error.message
+        : '无法创建 Codex 测试任务',
+    )
+  }
+}
+
+function solveZentaoBugs(bugs: ZentaoBug[], plan: string) {
+  if (bugs.length === 0) return
+  zentaoStore.requestCodexPrefill(
+    bugs.map((bug) => bug.id),
+    plan,
+  )
+  selectView('codex')
+}
+
+function solveGitConflicts(payload: {
+  repository: {
+    name: string
+    path: string
+    workspaceId: string
+  }
+  conflictFiles: string[]
+}) {
+  const { repository, conflictFiles } = payload
+  if (conflictFiles.length === 0) return
+  const fileList = conflictFiles
+    .map((file) => `- ${file}`)
+    .join('\n')
+  const prompt = [
+    `请解决 Git 仓库「${repository.name}」当前的合并冲突。`,
+    '',
+    `仓库路径：${repository.path}`,
+    '冲突文件：',
+    fileList,
+    '',
+    '要求：',
+    '1. 查看冲突文件及相关的提交差异，定位双方改动意图。',
+    '2. 保留双方正确逻辑，删除所有冲突标记，并检查是否还有语法或引用问题。',
+    '3. 运行与改动相关的测试或构建验证。',
+    '4. 不要自动提交，也不要执行 git merge --continue；完成后说明你的解决思路。',
+  ].join('\n')
+  codexStore.load(session.email)
+  codexStore.createSession(
+    repository.workspaceId,
+    repository.path,
+  )
+  codexStore.requestPrefill(
+    repository.workspaceId,
+    repository.path,
+    prompt,
+  )
+  selectView('codex')
+}
+
+function solveNoteWithCodex(note: StoredWorkNote) {
+  const content = note.content.trim()
+  if (!content) return
+
+  const prompt = [
+    '请分析并解决下面这条速记中记录的问题。',
+    '',
+    `标题：${note.title || '未命名速记'}`,
+    note.tags.length > 0
+      ? `标签：${note.tags.join('、')}`
+      : '标签：无',
+    '',
+    '速记内容：',
+    content,
+    '',
+    '执行要求：',
+    '1. 先判断这条速记是否描述了明确的问题、故障、待办或决策。',
+    '2. 如果存在需要修复的问题，请定位根因，完成必要的代码修改和验证。',
+    '3. 如果内容只是信息记录，请整理结论、风险和后续行动，不要做无关改动。',
+    '4. 最后说明分析结论、实际修改和验证结果。',
+  ].join('\n')
+
+  codexStore.load(session.email)
+  codexStore.createSession(workspaceStore.activeWorkspaceId, '')
+  codexStore.requestPrefill(
+    workspaceStore.activeWorkspaceId,
+    '',
+    prompt,
+  )
+  selectView('codex')
+}
+
+function openCalendarNote(noteId: string) {
+  noteLibraryStore.requestOpen(noteId)
+  selectView('notes')
+}
+
+async function handleSearchSelection(result: GlobalSearchResult) {
+  if (result.kind === 'website') {
+    const website = shortcutStore.websites.find(
+      (item) => item.id === result.targetId,
+    )
+    if (!website) return
+    const error = await openWebsiteUrl(website.url)
+    if (error) {
+      notify(`无法打开网址：${error}`)
+      return
+    }
+    shortcutStore.recordWebsiteClick(website.id)
+  } else if (result.kind === 'note') {
+    noteLibraryStore.requestOpen(result.targetId)
+    selectView('notes')
+  } else if (result.kind === 'codexSession') {
+    codexStore.selectSession(result.targetId)
+    selectView('codex')
+  } else {
+    selectView(result.targetView)
+  }
   searchQuery.value = ''
 }
 
 function handleGlobalShortcut(event: KeyboardEvent) {
+  if (
+    (event.metaKey || event.ctrlKey) &&
+    event.shiftKey &&
+    event.key.toLowerCase() === 'n'
+  ) {
+    event.preventDefault()
+    selectView('notes')
+    notesQuickCapturePending.value = true
+    void nextTick(() => {
+      if (!notesWorkspace.value) return
+      notesQuickCapturePending.value = false
+      notesWorkspace.value.startComposer()
+    })
+    return
+  }
+
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
     event.preventDefault()
     searchInput.value?.focus()
@@ -535,30 +1499,228 @@ function handleGlobalShortcut(event: KeyboardEvent) {
     searchQuery.value = ''
     mobileNavOpen.value = false
     profileMenuOpen.value = false
+    notificationCenterOpen.value = false
+  }
+}
+
+function handleDocumentPointerDown(event: PointerEvent) {
+  if (!(event.target instanceof Element)) return
+  if (
+    profileMenuOpen.value &&
+    !event.target.closest('.profile-area')
+  ) {
+    profileMenuOpen.value = false
+  }
+  if (
+    notificationCenterOpen.value &&
+    !event.target.closest('.notification-area')
+  ) {
+    notificationCenterOpen.value = false
   }
 }
 
 async function handleSignOut() {
-  stopFocusTimer()
-  session.signOut()
-  await router.push({ name: 'login' })
+  try {
+    await session.logout()
+  } finally {
+    await router.push({ name: 'login' })
+  }
 }
 
+async function handleSwitchAccount() {
+  profileMenuOpen.value = false
+  await handleSignOut()
+}
+
+async function refreshDatabaseStatus() {
+  databaseStatus.value = 'checking'
+  try {
+    const health = await getSystemHealth()
+    databaseStatus.value =
+      health.database === 'UP' ? 'connected' : 'disconnected'
+  } catch {
+    databaseStatus.value = 'offline'
+  }
+}
+
+async function refreshCodexStatus() {
+  codexStatus.value = 'checking'
+  codexDetail.value = '正在检测本地 Codex CLI'
+  try {
+    const status = await getCodexStatus()
+    codexStatus.value = status.available ? 'ready' : 'missing'
+    codexDetail.value = status.available
+      ? status.executable
+      : '未找到可用的 Codex CLI'
+  } catch {
+    codexStatus.value = 'offline'
+    codexDetail.value = `${PRODUCT_NAME}后端服务未启动`
+  }
+}
+
+async function refreshCcSwitchStatus() {
+  ccSwitchStatus.value = 'checking'
+  ccSwitchDetail.value = '正在检测本地 CC Switch'
+  if (window.workCoveDesktop?.ccSwitchStatus) {
+    try {
+      const status = await window.workCoveDesktop.ccSwitchStatus()
+      ccSwitchStatus.value = status.available ? 'ready' : 'missing'
+      if (!status.available) {
+        ccSwitchDetail.value = '未检测到 CC Switch 或本地数据'
+        return
+      }
+      ccSwitchDetail.value = status.dataPath
+        ? `${status.appPath ? 'CC Switch · ' : ''}${status.dataPath.replace(/^.*\.cc-switch$/, '~/.cc-switch')}`
+        : status.appPath ?? 'CC Switch 已安装'
+      return
+    } catch {
+      // Fall through to the local backend bridge.
+    }
+  }
+
+  try {
+    const start = new Date()
+    start.setHours(0, 0, 0, 0)
+    const usage = await getCcSwitchUsage(
+      Math.floor(start.getTime() / 1000),
+    )
+    ccSwitchStatus.value = usage.available ? 'ready' : 'missing'
+    ccSwitchDetail.value = usage.available
+      ? 'CC Switch · 本机数据库桥接'
+      : usage.reason || '未检测到 CC Switch 本地数据'
+  } catch {
+    ccSwitchStatus.value = 'unavailable'
+    ccSwitchDetail.value = 'CC Switch 本机桥接不可用'
+  }
+}
+
+async function refreshSogouStatus() {
+  await activityStore.refreshSogouStats()
+}
+
+watch(
+  () => session.email,
+  (email) => {
+    workspaceStore.load(email)
+    shortcutStore.load(email)
+    workDirectoryStore.load(email)
+    gitRepositoryStore.load(email)
+    deploymentStore.load(email)
+    noteLibraryStore.load(email)
+    codexStore.load(email)
+    wellnessStore.load(email)
+    restoreUserWorkbench(email)
+    const workspaceId = workspaceStore.activeWorkspaceId
+    if (workspaceId) {
+      void databaseStore.load(workspaceId).catch(() => {})
+      void managedServerStore.load().catch(() => {})
+      void zentaoStore.load(email, workspaceId).catch(() => {})
+    }
+    notifications.value = []
+    unreadNotificationCount.value = 0
+    notificationCenterOpen.value = false
+    if (email) void refreshUnreadNotifications()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => workspaceStore.activeWorkspaceId,
+  (workspaceId) => {
+    if (!workspaceId) {
+      databaseStore.clear()
+      return
+    }
+    void databaseStore.load(workspaceId).catch(() => {})
+    void managedServerStore.load().catch(() => {})
+    void zentaoStore.load(session.email, workspaceId).catch(() => {})
+  },
+)
+
+watch(notesWorkspace, (component) => {
+  if (!component || !notesQuickCapturePending.value) return
+  notesQuickCapturePending.value = false
+  component.startComposer()
+})
+
+watch(
+  [tasks, notes, projects],
+  persistUserWorkbench,
+  { deep: true },
+)
+
+watch(
+  [
+    launchOnLogin,
+    compactSidebar,
+    codexDisplayName,
+    codexIconDataUrl,
+  ],
+  persistUserWorkbenchSettings,
+)
+
+watch(activeView, (view) => {
+  if (view !== 'settings') return
+  void refreshDatabaseStatus()
+  void refreshCodexStatus()
+  void refreshCcSwitchStatus()
+  void refreshSogouStatus()
+})
+
+watch(
+  () => route.query.view,
+  (value) => {
+    const next =
+      typeof value === 'string' &&
+      viewIds.includes(value as ViewId)
+        ? (value as ViewId)
+        : 'overview'
+    if (next === activeView.value) return
+    if (next === 'codex') codexMounted.value = true
+    if (next === 'servers') serverManagementMounted.value = true
+    activeView.value = next
+    syncNavigationMenus(next)
+    mobileNavOpen.value = false
+    profileMenuOpen.value = false
+    notificationCenterOpen.value = false
+  },
+)
+
 onMounted(() => {
+  syncNavigationMenus(activeView.value)
   window.addEventListener('keydown', handleGlobalShortcut)
+  window.addEventListener('workcove:storage-error', handleStorageError)
+  document.addEventListener('pointerdown', handleDocumentPointerDown)
+  void refreshDatabaseStatus()
+  void refreshCodexStatus()
+  void refreshCcSwitchStatus()
+  void refreshSogouStatus()
+  void refreshUnreadNotifications()
+  notificationPollTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      void refreshUnreadNotifications()
+    }
+  }, 45_000)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleGlobalShortcut)
-  stopFocusTimer()
+  window.removeEventListener(
+    'workcove:storage-error',
+    handleStorageError,
+  )
+  document.removeEventListener('pointerdown', handleDocumentPointerDown)
   if (toastTimer) window.clearTimeout(toastTimer)
+  if (notificationPollTimer) {
+    window.clearInterval(notificationPollTimer)
+  }
 })
 </script>
 
 <template>
   <main class="desktop-stage">
     <section class="workbench-window">
-      <AppTitlebar :title="currentView.label" local-status>
+      <AppTitlebar :title="currentView.label">
         <template #actions>
           <button
             class="mobile-menu-trigger"
@@ -582,18 +1744,20 @@ onBeforeUnmount(() => {
 
         <aside
           class="workbench-sidebar"
-          :class="{ 'workbench-sidebar--open': mobileNavOpen }"
+          :class="{
+            'workbench-sidebar--open': mobileNavOpen,
+            'workbench-sidebar--collapsed': sidebarCollapsed,
+          }"
         >
           <div class="sidebar-brand">
             <BrandMark :size="32" />
             <div class="sidebar-brand__copy">
-              <span>WorkCove</span>
-              <small>栖作 · PERSONAL DESK</small>
+              <span>{{ PRODUCT_NAME }}</span>
+              <small>{{ PRODUCT_TAGLINE }}</small>
             </div>
           </div>
 
           <nav class="sidebar-navigation" aria-label="主导航">
-            <p class="sidebar-label">工作区</p>
             <button
               v-for="item in navigationPrimary"
               :key="item.id"
@@ -603,94 +1767,188 @@ onBeforeUnmount(() => {
               :aria-current="activeView === item.id ? 'page' : undefined"
               @click="selectView(item.id)"
             >
-              <component :is="item.icon" :size="16" :stroke-width="1.85" />
+              <component
+                :is="item.icon"
+                :size="17"
+                :stroke-width="1.85"
+              />
               <span>{{ item.label }}</span>
-              <span v-if="item.id === 'tasks'" class="nav-badge">
-                {{ openTaskCount }}
-              </span>
             </button>
 
-            <p class="sidebar-label sidebar-label--spaced">工具</p>
             <button
-              v-for="item in navigationUtility"
-              :key="item.id"
-              class="nav-item"
-              :class="{ 'nav-item--active': activeView === item.id }"
+              class="nav-item nav-item--group nav-item--group-start"
+              :class="{
+                'nav-item--group-active':
+                  activeView === 'codex' ||
+                  activeView === 'notes' ||
+                  activeView === 'calendar' ||
+                  activeView === 'mail',
+              }"
               type="button"
-              :aria-current="activeView === item.id ? 'page' : undefined"
-              @click="selectView(item.id)"
+              :aria-expanded="dailyMenuOpen"
+              aria-controls="daily-submenu"
+              @click="toggleDailyMenu"
             >
-              <component :is="item.icon" :size="16" :stroke-width="1.85" />
-              <span>{{ item.label }}</span>
+              <CalendarDays :size="17" :stroke-width="1.85" />
+              <span>日常</span>
+              <ChevronDown
+                class="nav-item__chevron"
+                :class="{ 'nav-item__chevron--closed': !dailyMenuOpen }"
+                :size="15"
+              />
             </button>
+            <div
+              v-show="dailyMenuOpen"
+              id="daily-submenu"
+              class="nav-submenu"
+            >
+              <button
+                v-for="item in dailyNavigation"
+                :key="item.id"
+                class="nav-item nav-item--sub"
+                :class="{ 'nav-item--active': activeView === item.id }"
+                type="button"
+                :aria-current="activeView === item.id ? 'page' : undefined"
+                @click="selectView(item.id)"
+              >
+                <component
+                  :is="item.icon"
+                  :size="16"
+                  :stroke-width="1.85"
+                />
+                <span>{{ item.label }}</span>
+              </button>
+            </div>
+
+            <button
+              class="nav-item nav-item--group nav-item--group-start"
+              :class="{
+                'nav-item--group-active':
+                  activeView === 'workDirectories' ||
+                  activeView === 'gitRepositories' ||
+                  activeView === 'databases' ||
+                  activeView === 'servers' ||
+                  activeView === 'deployments' ||
+                  activeView === 'zentaoBugs',
+              }"
+              type="button"
+              :aria-expanded="developmentMenuOpen"
+              aria-controls="development-submenu"
+              @click="toggleDevelopmentMenu"
+            >
+              <Code2 :size="17" :stroke-width="1.85" />
+              <span>研发</span>
+              <ChevronDown
+                class="nav-item__chevron"
+                :class="{ 'nav-item__chevron--closed': !developmentMenuOpen }"
+                :size="15"
+              />
+            </button>
+            <div
+              v-show="developmentMenuOpen"
+              id="development-submenu"
+              class="nav-submenu"
+            >
+              <button
+                v-for="item in developmentNavigation"
+                :key="item.id"
+                class="nav-item nav-item--sub"
+                :class="{ 'nav-item--active': activeView === item.id }"
+                type="button"
+                :aria-current="activeView === item.id ? 'page' : undefined"
+                @click="selectView(item.id)"
+              >
+                <component
+                  :is="item.icon"
+                  :size="16"
+                  :stroke-width="1.85"
+                />
+                <span>{{ item.label }}</span>
+              </button>
+            </div>
+
+            <button
+              class="nav-item nav-item--group nav-item--group-start"
+              :class="{
+                'nav-item--group-active':
+                  activeView === 'websites' ||
+                  activeView === 'apps' ||
+                  activeView === 'vault',
+              }"
+              type="button"
+              :aria-expanded="resourceMenuOpen"
+              aria-controls="resource-submenu"
+              @click="toggleResourceMenu"
+            >
+              <Boxes :size="17" :stroke-width="1.85" />
+              <span>资源</span>
+              <ChevronDown
+                class="nav-item__chevron"
+                :class="{ 'nav-item__chevron--closed': !resourceMenuOpen }"
+                :size="15"
+              />
+            </button>
+            <div
+              v-show="resourceMenuOpen"
+              id="resource-submenu"
+              class="nav-submenu"
+            >
+              <button
+                v-for="item in resourceNavigation"
+                :key="item.id"
+                class="nav-item nav-item--sub"
+                :class="{ 'nav-item--active': activeView === item.id }"
+                type="button"
+                :aria-current="activeView === item.id ? 'page' : undefined"
+                @click="selectView(item.id)"
+              >
+                <component
+                  :is="item.icon"
+                  :size="16"
+                  :stroke-width="1.85"
+                />
+                <span>{{ item.label }}</span>
+              </button>
+            </div>
           </nav>
 
-          <div class="sidebar-spacer" />
-
-          <div class="sidebar-storage">
-            <span class="sidebar-storage__dot" />
-            <div>
-              <span>本地模式</span>
-              <small>WorkCove v0.1</small>
-            </div>
-          </div>
-        </aside>
-
-        <section class="workspace-main">
-          <header class="workspace-toolbar">
-            <div class="global-search">
-              <Search :size="15" aria-hidden="true" />
-              <input
-                ref="searchInput"
-                v-model="searchQuery"
-                type="search"
-                aria-label="搜索任务和笔记"
-                placeholder="搜索任务与笔记"
-              />
-              <kbd>⌘ K</kbd>
-
-              <div v-if="searchQuery.trim()" class="search-results">
-                <p v-if="searchResults.length === 0" class="search-empty">
-                  没有找到相关内容
-                </p>
-                <button
-                  v-for="result in searchResults"
-                  :key="result.id"
-                  type="button"
-                  @click="handleSearchSelection(result.type)"
-                >
-                  <CheckSquare2
-                    v-if="result.type === 'task'"
-                    :size="15"
-                  />
-                  <FileText v-else :size="15" />
-                  <span>{{ result.title }}</span>
-                  <small>{{ result.meta }}</small>
-                </button>
-              </div>
-            </div>
-
-            <div class="toolbar-actions">
+          <div class="sidebar-account">
+            <div class="profile-area sidebar-profile-area">
               <button
-                class="toolbar-icon"
+                class="profile-trigger sidebar-profile-trigger"
                 type="button"
-                aria-label="通知"
-                title="通知"
-                @click="notify('今天没有新的提醒')"
+                aria-label="账户菜单"
+                aria-haspopup="menu"
+                :aria-expanded="profileMenuOpen"
+                :title="`${displayName} · ${accountLabel}`"
+                @click="profileMenuOpen = !profileMenuOpen"
               >
-                <Bell :size="16" />
-                <span class="notification-dot" />
+                <span class="profile-avatar sidebar-profile-avatar">
+                  <img
+                    v-if="session.profile?.avatarDataUrl"
+                    :src="session.profile.avatarDataUrl"
+                    alt=""
+                  />
+                  <template v-else>{{ displayInitial }}</template>
+                </span>
+                <span class="sidebar-profile-copy">
+                  <strong>{{ displayName }}</strong>
+                  <small>{{ accountLabel }}</small>
+                </span>
+                <ChevronDown
+                  class="sidebar-profile-chevron"
+                  :size="14"
+                  aria-hidden="true"
+                />
               </button>
 
-              <div class="profile-area">
-                <button
-                  class="profile-trigger"
-                  type="button"
-                  aria-haspopup="menu"
-                  :aria-expanded="profileMenuOpen"
-                  @click="profileMenuOpen = !profileMenuOpen"
-                >
-                  <span class="profile-avatar">
+              <div
+                v-if="profileMenuOpen"
+                class="profile-popover sidebar-profile-popover"
+                role="menu"
+              >
+                <div class="profile-popover__heading">
+                  <span class="profile-avatar profile-avatar--large">
                     <img
                       v-if="session.profile?.avatarDataUrl"
                       :src="session.profile.avatarDataUrl"
@@ -698,370 +1956,339 @@ onBeforeUnmount(() => {
                     />
                     <template v-else>{{ displayInitial }}</template>
                   </span>
-                  <span class="profile-trigger__copy">
+                  <div>
                     <strong>{{ displayName }}</strong>
-                    <small :title="accountLabel">{{ accountLabel }}</small>
-                  </span>
-                  <ChevronDown :size="13" />
-                </button>
-
-                <div
-                  v-if="profileMenuOpen"
-                  class="profile-popover"
-                  role="menu"
-                >
-                  <div class="profile-popover__heading">
-                    <span class="profile-avatar profile-avatar--large">
-                      <img
-                        v-if="session.profile?.avatarDataUrl"
-                        :src="session.profile.avatarDataUrl"
-                        alt=""
-                      />
-                      <template v-else>{{ displayInitial }}</template>
-                    </span>
-                    <div>
-                      <strong>{{ displayName }}</strong>
-                      <small>{{ session.email || 'macOS 本地工作台' }}</small>
-                    </div>
+                    <small>{{ session.email || 'macOS 本地工作台' }}</small>
                   </div>
+                </div>
+                <button
+                  type="button"
+                  role="menuitem"
+                  @click="selectView('profile')"
+                >
+                  <UserRound :size="15" />
+                  个人资料
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  @click="selectView('settings')"
+                >
+                  <Settings :size="15" />
+                  设置
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  @click="handleSwitchAccount"
+                >
+                  <ArrowLeftRight :size="15" />
+                  切换账号
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  @click="handleSignOut"
+                >
+                  <LogOut :size="15" />
+                  退出登录
+                </button>
+              </div>
+            </div>
+
+            <button
+              class="sidebar-settings-button"
+              type="button"
+              aria-label="打开设置"
+              title="设置"
+              @click="selectView('settings')"
+            >
+              <Settings :size="17" />
+            </button>
+          </div>
+        </aside>
+
+        <section class="workspace-main">
+          <header
+            class="workspace-toolbar"
+          >
+            <div class="toolbar-leading">
+              <WorkspaceSwitcher @notify="notify" />
+
+              <div class="global-search">
+                <Search :size="15" aria-hidden="true" />
+                <input
+                  ref="searchInput"
+                  v-model="searchQuery"
+                  type="search"
+                  aria-label="全局搜索"
+                  placeholder="搜索页面、任务、资源…"
+                />
+                <kbd aria-label="快捷键 Command K">
+                  <span aria-hidden="true">⌘</span>
+                  <span>K</span>
+                </kbd>
+
+                <div v-if="searchQuery.trim()" class="search-results">
+                  <p v-if="searchResults.length === 0" class="search-empty">
+                    没有找到相关内容
+                  </p>
                   <button
+                    v-for="result in searchResults"
+                    :key="result.key"
                     type="button"
-                    role="menuitem"
-                    @click="selectView('profile')"
+                    @click="handleSearchSelection(result)"
                   >
-                    <UserRound :size="15" />
-                    个人资料
-                  </button>
-                  <button type="button" role="menuitem" @click="selectView('settings')">
-                    <Settings :size="15" />
-                    设置
-                  </button>
-                  <button type="button" role="menuitem" @click="handleSignOut">
-                    <LogOut :size="15" />
-                    退出登录
+                    <component :is="result.icon" :size="15" />
+                    <span class="search-result__copy">
+                      <strong>{{ result.title }}</strong>
+                      <small>{{ result.subtitle }}</small>
+                    </span>
+                    <small class="search-result__group">
+                      {{ result.group }}
+                    </small>
                   </button>
                 </div>
               </div>
             </div>
+
+            <div class="toolbar-actions">
+              <button
+                class="toolbar-icon page-refresh-button"
+                type="button"
+                aria-label="刷新页面"
+                title="刷新页面"
+                @click="refreshCurrentPage"
+              >
+                <RefreshCw :size="16" />
+              </button>
+
+              <div class="notification-area">
+                <button
+                  class="toolbar-icon"
+                  type="button"
+                  aria-label="通知"
+                  title="通知"
+                  aria-haspopup="dialog"
+                  :aria-expanded="notificationCenterOpen"
+                  @click="toggleNotificationCenter"
+                >
+                  <Bell :size="16" />
+                  <span
+                    v-if="unreadNotificationCount > 0"
+                    class="notification-badge"
+                  >
+                    {{
+                      unreadNotificationCount > 99
+                        ? '99+'
+                        : unreadNotificationCount
+                    }}
+                  </span>
+                </button>
+
+                <section
+                  v-if="notificationCenterOpen"
+                  class="notification-center"
+                  aria-label="通知中心"
+                >
+                  <header class="notification-center__header">
+                    <div>
+                      <strong>通知</strong>
+                      <small>
+                        {{
+                          unreadNotificationCount > 0
+                            ? `${unreadNotificationCount} 条未读`
+                            : '暂无未读通知'
+                        }}
+                      </small>
+                    </div>
+                    <button
+                      v-if="unreadNotificationCount > 0"
+                      type="button"
+                      @click="markAllNotificationsRead"
+                    >
+                      <CheckCheck :size="13" />
+                      全部已读
+                    </button>
+                  </header>
+
+                  <div class="notification-center__list">
+                    <p
+                      v-if="notificationsLoading"
+                      class="notification-center__empty"
+                    >
+                      正在加载通知…
+                    </p>
+                    <p
+                      v-else-if="notifications.length === 0"
+                      class="notification-center__empty"
+                    >
+                      <span>
+                        <Inbox :size="18" />
+                      </span>
+                      日程提醒会出现在这里
+                    </p>
+                    <template v-else>
+                      <button
+                        v-for="notification in notifications"
+                        :key="notification.id"
+                        type="button"
+                        class="notification-item"
+                        :class="{
+                          'notification-item--unread':
+                            !notification.readAt,
+                        }"
+                        @click="openNotification(notification)"
+                      >
+                        <span class="notification-item__icon">
+                          <CalendarDays :size="15" />
+                        </span>
+                        <span class="notification-item__copy">
+                          <span>
+                            <strong>{{ notification.title }}</strong>
+                            <time>
+                              {{
+                                notificationTime(
+                                  notification.createdAt,
+                                )
+                              }}
+                            </time>
+                          </span>
+                          <small>{{ notification.body }}</small>
+                        </span>
+                        <i
+                          v-if="!notification.readAt"
+                          aria-label="未读"
+                        />
+                      </button>
+                    </template>
+                  </div>
+                </section>
+              </div>
+
+              <button
+                class="toolbar-icon sidebar-toggle-button"
+                type="button"
+                :aria-label="
+                  sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'
+                "
+                :aria-expanded="!sidebarCollapsed"
+                :title="
+                  sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'
+                "
+                @click="toggleSidebar"
+              >
+                <PanelLeft :size="16" />
+              </button>
+            </div>
           </header>
 
-          <div class="content-scroll">
-            <div class="content-frame">
-              <header class="page-heading">
+          <div
+            class="content-scroll"
+            :class="{ 'content-scroll--codex': activeView === 'codex' }"
+          >
+            <div
+              class="content-frame"
+              :class="{
+                'content-frame--codex': activeView === 'codex',
+                'content-frame--database': activeView === 'databases',
+                'content-frame--mail': activeView === 'mail',
+              }"
+            >
+              <header
+                v-if="activeView !== 'codex'"
+                class="page-heading"
+                :class="{ 'page-heading--workbench': activeView === 'overview' }"
+              >
                 <div class="page-heading__copy">
-                  <p class="page-eyebrow">{{ pageEyebrow }}</p>
                   <h1>{{ pageTitle }}</h1>
                   <p>{{ pageDescription }}</p>
                 </div>
-                <div
-                  v-if="activeView !== 'profile' && activeView !== 'settings'"
-                  class="page-heading__actions"
-                >
-                  <button
-                    class="ghost-action"
-                    type="button"
-                    @click="notify('本周暂无新的外部更新')"
-                  >
-                    <Clock3 :size="15" />
-                    <span>最近更新</span>
-                  </button>
-                  <button
-                    class="primary-action"
-                    type="button"
-                    @click="focusTaskComposer"
-                  >
-                    <Plus :size="16" :stroke-width="2.2" />
-                    <span>新建任务</span>
-                  </button>
-                </div>
+                <WorkbenchWellnessPanel
+                  v-if="activeView === 'overview'"
+                  class="page-heading__wellness"
+                  @notify="notify"
+                />
               </header>
 
-              <section v-if="activeView === 'overview'" class="overview">
-                <div class="day-summary">
-                  <div class="summary-metric">
-                    <strong>{{ openTaskCount }}</strong>
-                    <span>待完成</span>
-                  </div>
-                  <div class="summary-metric">
-                    <strong>{{ schedule.length }}</strong>
-                    <span>今日日程</span>
-                  </div>
-                  <div class="summary-metric">
-                    <strong>{{ projects.length }}</strong>
-                    <span>进行中项目</span>
-                  </div>
-                  <div class="task-progress">
-                    <div class="task-progress__copy">
-                      <span>今日进度</span>
-                      <strong>{{ taskCompletion }}%</strong>
-                    </div>
-                    <div class="task-progress__track">
-                      <span :style="{ width: `${taskCompletion}%` }" />
-                    </div>
-                  </div>
-                </div>
+              <CodexWorkspace
+                v-if="codexMounted"
+                v-show="activeView === 'codex'"
+                :assistant-name="codexAssistantName"
+                :assistant-icon="codexIconDataUrl"
+                @notify="notify"
+              />
 
-                <div class="overview-layout">
-                  <div class="overview-primary">
-                    <section class="dashboard-section">
-                      <header class="section-heading">
-                        <div>
-                          <p class="section-eyebrow">PRIORITIES</p>
-                          <h2>今天要做</h2>
-                        </div>
-                        <button
-                          class="section-link"
-                          type="button"
-                          @click="selectView('tasks')"
-                        >
-                          全部任务
-                          <ArrowUpRight :size="13" />
-                        </button>
-                      </header>
+              <ServerManagement
+                v-if="serverManagementMounted"
+                v-show="activeView === 'servers'"
+                @notify="notify"
+              />
 
-                      <div class="task-list">
-                        <TaskRow
-                          v-for="task in overviewTasks"
-                          :key="task.id"
-                          :task="task"
-                          @toggle="toggleTask"
-                        />
-                      </div>
+              <WorkbenchHome
+                v-if="activeView === 'overview'"
+                @notify="notify"
+                @open-calendar="openCalendarDate"
+                @open-git-repositories="selectView('gitRepositories')"
+              />
 
-                      <form class="task-composer" @submit.prevent="addTask">
-                        <Plus :size="15" />
-                        <input
-                          ref="taskComposer"
-                          v-model="newTaskTitle"
-                          type="text"
-                          aria-label="新任务名称"
-                          placeholder="添加一项任务"
-                        />
-                        <kbd>↵</kbd>
-                      </form>
-                    </section>
+              <WebsiteLibrary
+                v-else-if="activeView === 'websites'"
+                @notify="notify"
+              />
 
-                    <section class="dashboard-section notes-section">
-                      <header class="section-heading">
-                        <div>
-                          <p class="section-eyebrow">RECENT NOTES</p>
-                          <h2>最近记录</h2>
-                        </div>
-                        <button
-                          class="section-link"
-                          type="button"
-                          @click="selectView('notes')"
-                        >
-                          打开笔记
-                          <ArrowUpRight :size="13" />
-                        </button>
-                      </header>
+              <ApplicationLibrary
+                v-else-if="activeView === 'apps'"
+                @notify="notify"
+              />
 
-                      <div class="recent-notes">
-                        <article
-                          v-for="note in notePreview"
-                          :key="note.id"
-                          class="recent-note"
-                        >
-                          <span
-                            class="note-tone"
-                            :class="`note-tone--${note.tone}`"
-                          />
-                          <div>
-                            <h3>{{ note.title }}</h3>
-                            <p>{{ note.excerpt }}</p>
-                          </div>
-                          <time>{{ note.updatedAt }}</time>
-                        </article>
-                      </div>
+              <WorkDirectoryLibrary
+                v-else-if="activeView === 'workDirectories'"
+                @notify="notify"
+              />
 
-                      <form
-                        class="note-composer"
-                        @submit.prevent="addNote"
-                      >
-                        <textarea
-                          v-model="noteDraft"
-                          rows="2"
-                          aria-label="快速记录"
-                          placeholder="随手记下此刻的想法…"
-                        />
-                        <button type="submit" :disabled="!noteDraft.trim()">
-                          保存记录
-                        </button>
-                      </form>
-                    </section>
-                  </div>
+              <GitRepositoryLibrary
+                v-else-if="activeView === 'gitRepositories'"
+                @notify="notify"
+                @solve-conflicts="solveGitConflicts"
+              />
 
-                  <aside class="overview-rail">
-                    <section class="focus-card">
-                      <div class="focus-card__header">
-                        <span>专注计时</span>
-                        <span class="focus-card__state">
-                          <span />
-                          {{ focusRunning ? '进行中' : '待开始' }}
-                        </span>
-                      </div>
+              <DatabaseWorkspace
+                v-else-if="activeView === 'databases'"
+                @notify="notify"
+              />
 
-                      <div class="focus-clock">
-                        <div class="focus-dial" :style="focusRingStyle">
-                          <div class="focus-dial__inner">
-                            <strong>{{ focusTime }}</strong>
-                            <span>25 分钟专注</span>
-                          </div>
-                        </div>
-                      </div>
+              <DeploymentLibrary
+                v-else-if="activeView === 'deployments'"
+                @notify="notify"
+              />
 
-                      <div class="focus-controls">
-                        <button
-                          type="button"
-                          aria-label="重置计时"
-                          title="重置"
-                          @click="resetFocusTimer"
-                        >
-                          <RotateCcw :size="14" />
-                        </button>
-                        <button
-                          class="focus-controls__primary"
-                          type="button"
-                          :aria-label="focusRunning ? '暂停专注' : '开始专注'"
-                          @click="toggleFocusTimer"
-                        >
-                          <Pause v-if="focusRunning" :size="16" />
-                          <Play v-else :size="16" fill="currentColor" />
-                        </button>
-                      </div>
-                      <p>当前专注：搭建工作台骨架</p>
-                    </section>
+              <ZentaoBugLibrary
+                v-else-if="activeView === 'zentaoBugs'"
+                @notify="notify"
+                @solve-bug="solveZentaoBug"
+                @solve-bugs="solveZentaoBugs"
+                @test-bug="testZentaoBug"
+              />
 
-                    <section class="rail-section">
-                      <header class="rail-heading">
-                        <div>
-                          <p>{{ monthTitle }}</p>
-                          <h2>本周</h2>
-                        </div>
-                        <CalendarDays :size="15" />
-                      </header>
-                      <div class="week-strip">
-                        <button
-                          v-for="day in calendarWeek"
-                          :key="day.key"
-                          type="button"
-                          :class="{ 'week-day--today': day.isToday }"
-                        >
-                          <span>{{ day.weekday }}</span>
-                          <strong>{{ day.day }}</strong>
-                        </button>
-                      </div>
-                    </section>
-
-                    <section class="rail-section">
-                      <header class="rail-heading">
-                        <div>
-                          <p>SCHEDULE</p>
-                          <h2>今日日程</h2>
-                        </div>
-                        <button
-                          class="rail-icon"
-                          type="button"
-                          aria-label="打开日历"
-                          @click="selectView('calendar')"
-                        >
-                          <ArrowUpRight :size="14" />
-                        </button>
-                      </header>
-                      <div class="agenda-list">
-                        <article
-                          v-for="item in schedule"
-                          :key="item.time"
-                          class="agenda-item"
-                        >
-                          <time>{{ item.time }}</time>
-                          <span
-                            class="agenda-item__line"
-                            :class="`agenda-item__line--${item.tone}`"
-                          />
-                          <div>
-                            <h3>{{ item.title }}</h3>
-                            <p>{{ item.detail }}</p>
-                          </div>
-                        </article>
-                      </div>
-                    </section>
-
-                    <section class="rail-section rail-section--projects">
-                      <header class="rail-heading">
-                        <div>
-                          <p>PROJECTS</p>
-                          <h2>项目进展</h2>
-                        </div>
-                        <button
-                          class="rail-icon"
-                          type="button"
-                          aria-label="查看全部项目"
-                          @click="selectView('projects')"
-                        >
-                          <ArrowUpRight :size="14" />
-                        </button>
-                      </header>
-                      <div class="project-mini-list">
-                        <div
-                          v-for="project in projects.slice(0, 2)"
-                          :key="project.id"
-                        >
-                          <span
-                            class="project-color"
-                            :class="`project-color--${project.color}`"
-                          />
-                          <div>
-                            <span>{{ project.name }}</span>
-                            <div class="mini-progress">
-                              <span
-                                :style="{ width: `${project.progress}%` }"
-                              />
-                            </div>
-                          </div>
-                          <strong>{{ project.progress }}%</strong>
-                        </div>
-                      </div>
-                    </section>
-                  </aside>
-                </div>
-              </section>
+              <template v-else-if="activeView === 'servers'" />
 
               <section v-else-if="activeView === 'tasks'" class="content-section">
                 <header class="section-heading section-heading--bordered">
                   <div>
-                    <p class="section-eyebrow">ALL TASKS</p>
                     <h2>全部任务</h2>
                   </div>
-                  <div class="segmented-control" aria-label="任务筛选">
-                    <button
-                      type="button"
-                      :class="{ active: taskFilter === 'all' }"
-                      @click="taskFilter = 'all'"
-                    >
-                      全部
-                    </button>
-                    <button
-                      type="button"
-                      :class="{ active: taskFilter === 'open' }"
-                      @click="taskFilter = 'open'"
-                    >
-                      待完成
-                    </button>
-                    <button
-                      type="button"
-                      :class="{ active: taskFilter === 'done' }"
-                      @click="taskFilter = 'done'"
-                    >
-                      已完成
-                    </button>
-                  </div>
+                  <UiSegmentedControl
+                    :model-value="taskFilter"
+                    :items="taskFilterOptions"
+                    aria-label="任务筛选"
+                    @update:model-value="setTaskFilter"
+                  />
                 </header>
 
                 <div class="task-list task-list--roomy">
                   <TaskRow
-                    v-for="task in filteredTasks"
+                    v-for="task in pagedTasks"
                     :key="task.id"
                     :task="task"
                     @toggle="toggleTask"
@@ -1072,6 +2299,13 @@ onBeforeUnmount(() => {
                   <Check :size="22" />
                   <p>这里暂时没有任务</p>
                 </div>
+
+                <UiPagination
+                  :page="taskPage"
+                  :total="filteredTasks.length"
+                  label="任务分页"
+                  @update:page="setTaskPage"
+                />
 
                 <form class="task-composer task-composer--roomy" @submit.prevent="addTask">
                   <Plus :size="16" />
@@ -1088,133 +2322,33 @@ onBeforeUnmount(() => {
                 </form>
               </section>
 
-              <section v-else-if="activeView === 'notes'" class="notes-page">
-                <form class="notes-editor" @submit.prevent="addNote">
-                  <div class="notes-editor__heading">
-                    <div>
-                      <p class="section-eyebrow">QUICK NOTE</p>
-                      <h2>快速记录</h2>
-                    </div>
-                    <NotebookPen :size="18" />
-                  </div>
-                  <textarea
-                    v-model="noteDraft"
-                    rows="4"
-                    aria-label="笔记内容"
-                    placeholder="写下一段想法、会议记录或待整理内容…"
-                  />
-                  <div class="notes-editor__footer">
-                    <span>UTF-8 · Markdown</span>
-                    <button type="submit" :disabled="!noteDraft.trim()">
-                      <Plus :size="15" />
-                      保存笔记
-                    </button>
-                  </div>
-                </form>
+              <WorkNotes
+                v-else-if="activeView === 'notes'"
+                ref="notesWorkspace"
+                @notify="notify"
+                @send-to-codex="solveNoteWithCodex"
+              />
 
-                <div class="notes-grid">
-                  <article
-                    v-for="note in notes"
-                    :key="note.id"
-                    class="note-card"
-                    :class="`note-card--${note.tone}`"
-                  >
-                    <div class="note-card__top">
-                      <span class="note-card__type">NOTE</span>
-                      <time>{{ note.updatedAt }}</time>
-                    </div>
-                    <h3>{{ note.title }}</h3>
-                    <p>{{ note.excerpt }}</p>
-                    <button type="button" aria-label="打开笔记">
-                      <ArrowUpRight :size="15" />
-                    </button>
-                  </article>
-                </div>
-              </section>
+              <WorkVault
+                v-else-if="activeView === 'vault'"
+                @notify="notify"
+              />
 
-              <section v-else-if="activeView === 'calendar'" class="calendar-page">
-                <div class="calendar-board">
-                  <header class="calendar-board__header">
-                    <div>
-                      <p class="section-eyebrow">THIS WEEK</p>
-                      <h2>{{ monthTitle }}</h2>
-                    </div>
-                    <span>{{ calendarWeek[0].day }} 至 {{ calendarWeek[6].day }}</span>
-                  </header>
+              <MailWorkspace
+                v-else-if="activeView === 'mail'"
+                @notify="notify"
+              />
 
-                  <div class="calendar-week-head">
-                    <div
-                      v-for="day in calendarWeek"
-                      :key="day.key"
-                      :class="{ 'calendar-day--today': day.isToday }"
-                    >
-                      <span>{{ day.weekday }}</span>
-                      <strong>{{ day.day }}</strong>
-                    </div>
-                  </div>
-
-                  <div class="calendar-grid">
-                    <div
-                      v-for="index in 7"
-                      :key="index"
-                      :class="{ 'calendar-day--today': calendarWeek[index - 1].isToday }"
-                    >
-                      <span
-                        v-if="index === 2"
-                        class="calendar-event calendar-event--green"
-                      >
-                        10:00 产品同步会
-                      </span>
-                      <span
-                        v-if="index === 4"
-                        class="calendar-event calendar-event--coral"
-                      >
-                        14:30 设计评审
-                      </span>
-                      <span
-                        v-if="index === 4"
-                        class="calendar-event calendar-event--amber"
-                      >
-                        17:00 日终回顾
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <aside class="calendar-agenda">
-                  <header class="section-heading">
-                    <div>
-                      <p class="section-eyebrow">TUESDAY</p>
-                      <h2>今日安排</h2>
-                    </div>
-                    <span class="calendar-agenda__count">
-                      {{ schedule.length }}
-                    </span>
-                  </header>
-                  <div class="agenda-list agenda-list--large">
-                    <article
-                      v-for="item in schedule"
-                      :key="item.time"
-                      class="agenda-item"
-                    >
-                      <time>{{ item.time }}</time>
-                      <span
-                        class="agenda-item__line"
-                        :class="`agenda-item__line--${item.tone}`"
-                      />
-                      <div>
-                        <h3>{{ item.title }}</h3>
-                        <p>{{ item.detail }}</p>
-                      </div>
-                    </article>
-                  </div>
-                </aside>
-              </section>
+              <CalendarPage
+                v-else-if="activeView === 'calendar'"
+                :date="calendarDateQuery"
+                @notify="notify"
+                @open-note="openCalendarNote"
+              />
 
               <section v-else-if="activeView === 'projects'" class="projects-page">
                 <div class="projects-header">
                   <div>
-                    <p class="section-eyebrow">ACTIVE PROJECTS</p>
                     <h2>正在进行</h2>
                   </div>
                   <span>{{ projects.length }} 个项目</span>
@@ -1222,7 +2356,7 @@ onBeforeUnmount(() => {
 
                 <div class="project-list">
                   <article
-                    v-for="project in projects"
+                    v-for="project in pagedProjects"
                     :key="project.id"
                     class="project-row"
                   >
@@ -1249,41 +2383,13 @@ onBeforeUnmount(() => {
                     </button>
                   </article>
                 </div>
-              </section>
 
-              <section v-else-if="activeView === 'favorites'" class="favorites-page">
-                <div class="favorites-heading">
-                  <div>
-                    <p class="section-eyebrow">PINNED</p>
-                    <h2>常用入口</h2>
-                  </div>
-                  <button type="button" @click="notify('收藏入口已准备添加')">
-                    <Plus :size="15" />
-                    添加收藏
-                  </button>
-                </div>
-                <div class="bookmark-grid">
-                  <a
-                    v-for="bookmark in bookmarks"
-                    :key="bookmark.id"
-                    href="#"
-                    class="bookmark-card"
-                    @click.prevent
-                  >
-                    <span class="bookmark-card__icon">
-                      <Globe2 v-if="bookmark.category === '文档'" :size="18" />
-                      <FileText v-else-if="bookmark.category === '设计'" :size="18" />
-                      <Bookmark v-else :size="18" />
-                    </span>
-                    <div>
-                      <h3>{{ bookmark.title }}</h3>
-                      <p>{{ bookmark.url }}</p>
-                    </div>
-                    <span class="bookmark-card__category">
-                      {{ bookmark.category }}
-                    </span>
-                  </a>
-                </div>
+                <UiPagination
+                  :page="projectPage"
+                  :total="projects.length"
+                  label="项目分页"
+                  @update:page="setProjectPage"
+                />
               </section>
 
               <ProfileEditor
@@ -1291,10 +2397,9 @@ onBeforeUnmount(() => {
                 @saved="notify('个人资料已保存')"
               />
 
-              <section v-else class="settings-page">
+              <section v-else-if="activeView === 'settings'" class="settings-page">
                 <div class="settings-group">
                   <header>
-                    <p class="section-eyebrow">APPEARANCE</p>
                     <h2>外观</h2>
                   </header>
                   <div class="appearance-row">
@@ -1302,32 +2407,31 @@ onBeforeUnmount(() => {
                       <strong>颜色模式</strong>
                       <span>选择工作台使用浅色或深色外观。</span>
                     </div>
-                    <div
-                      class="theme-segmented"
-                      role="radiogroup"
+                    <UiSegmentedControl
+                      :model-value="themeStore.preference"
+                      :items="themeOptions"
                       aria-label="颜色模式"
-                    >
-                      <button
-                        v-for="option in themeOptions"
-                        :key="option.value"
-                        type="button"
-                        role="radio"
-                        :aria-checked="themeStore.preference === option.value"
-                        :class="{
-                          'theme-segmented__option--active':
-                            themeStore.preference === option.value,
-                        }"
-                        @click="themeStore.setPreference(option.value)"
-                      >
-                        {{ option.label }}
-                      </button>
+                      @update:model-value="setThemePreference"
+                    />
+                  </div>
+                  <div class="appearance-row">
+                    <div>
+                      <strong>字体风格</strong>
+                      <span>
+                        为界面选择系统字体、Codex 风格或 Avenir。
+                      </span>
                     </div>
+                    <UiSegmentedControl
+                      :model-value="themeStore.fontPreference"
+                      :items="fontOptions"
+                      aria-label="字体风格"
+                      @update:model-value="setFontPreference"
+                    />
                   </div>
                 </div>
 
                 <div class="settings-group">
                   <header>
-                    <p class="section-eyebrow">GENERAL</p>
                     <h2>通用</h2>
                   </header>
                   <label class="setting-row">
@@ -1346,33 +2450,214 @@ onBeforeUnmount(() => {
                   </label>
                 </div>
 
+                <CodexIdentitySettings
+                  v-model:name="codexDisplayName"
+                  v-model:icon-data-url="codexIconDataUrl"
+                />
+
                 <div class="settings-group">
                   <header>
-                    <p class="section-eyebrow">LOCAL DATA</p>
-                    <h2>本地数据</h2>
+                    <h2>数据与集成</h2>
                   </header>
                   <div class="setting-row">
-                    <div>
+                    <span
+                      class="setting-integration-icon setting-integration-icon--asset setting-integration-icon--glyph"
+                      aria-hidden="true"
+                    >
+                      <img :src="mysqlIcon" alt="" />
+                    </span>
+                    <div class="setting-row__copy">
                       <strong>数据库</strong>
                       <span>MySQL · 127.0.0.1:3306</span>
                     </div>
-                    <span class="setting-status">待接入</span>
-                  </div>
-                  <div class="setting-row">
-                    <div>
-                      <strong>应用版本</strong>
-                      <span>WorkCove 0.1.0</span>
-                    </div>
-                    <span class="setting-status setting-status--neutral">
-                      原型
+                    <span
+                      class="setting-status"
+                      :class="databaseStatusClass"
+                    >
+                      {{ databaseStatusText }}
                     </span>
                   </div>
+                  <div class="setting-row">
+                    <span
+                      class="setting-integration-icon setting-integration-icon--asset"
+                      aria-hidden="true"
+                    >
+                      <img :src="codexIcon" alt="" />
+                    </span>
+                    <div class="setting-row__copy">
+                      <strong>Codex</strong>
+                      <span :title="codexDetail">{{ codexDetail }}</span>
+                    </div>
+                    <span
+                      class="setting-status"
+                      :class="localIntegrationStatusClass(codexStatus)"
+                    >
+                      {{ codexStatusText }}
+                    </span>
+                  </div>
+                  <div class="setting-row">
+                    <span
+                      class="setting-integration-icon setting-integration-icon--asset"
+                      aria-hidden="true"
+                    >
+                      <img :src="ccSwitchIcon" alt="" />
+                    </span>
+                    <div class="setting-row__copy">
+                      <strong>CC Switch</strong>
+                      <span :title="ccSwitchDetail">
+                        {{ ccSwitchDetail }}
+                      </span>
+                    </div>
+                    <span
+                      class="setting-status"
+                      :class="localIntegrationStatusClass(ccSwitchStatus)"
+                    >
+                      {{ ccSwitchStatusText }}
+                    </span>
+                  </div>
+                  <div class="setting-row">
+                    <span
+                      class="setting-integration-icon setting-integration-icon--asset"
+                      aria-hidden="true"
+                    >
+                      <img :src="sogouInputIcon" alt="" />
+                    </span>
+                    <div class="setting-row__copy">
+                      <strong>搜狗输入法</strong>
+                      <span :title="sogouDetail">{{ sogouDetail }}</span>
+                    </div>
+                    <div class="setting-integration-actions">
+                      <UiButton
+                        size="sm"
+                        :disabled="activityStore.sogou.loading"
+                        @click="refreshSogouStatus"
+                      >
+                        <RotateCcw :size="13" />
+                        重新检测
+                      </UiButton>
+                      <span
+                        class="setting-status"
+                        :class="localIntegrationStatusClass(sogouStatus)"
+                      >
+                        {{ sogouStatusText }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="settings-group">
+                  <header>
+                    <h2>版本信息</h2>
+                  </header>
+                  <div class="setting-row">
+                    <div>
+                      <strong>{{ PRODUCT_NAME }}</strong>
+                      <span>本地优先的个人工作平台</span>
+                    </div>
+                    <span class="setting-version">
+                      {{ PRODUCT_VERSION_LABEL }}
+                    </span>
+                  </div>
+                </div>
+
+                <div class="settings-group">
+                  <header>
+                    <h2>设计系统</h2>
+                  </header>
+                  <button
+                    class="settings-navigation"
+                    type="button"
+                    :aria-expanded="styleGuideOpen"
+                    aria-controls="style-guide-panel"
+                    @click="styleGuideOpen = !styleGuideOpen"
+                  >
+                    <span class="settings-navigation__icon">
+                      <Palette :size="17" />
+                    </span>
+                    <span class="settings-navigation__copy">
+                      <strong>样式规范</strong>
+                      <small>颜色、字体、控件、弹窗和快捷图标规则</small>
+                    </span>
+                    <ChevronRight
+                      class="settings-navigation__chevron"
+                      :class="{ 'settings-navigation__chevron--open': styleGuideOpen }"
+                      :size="16"
+                    />
+                  </button>
+                  <Transition name="style-guide">
+                    <StyleGuidePanel
+                      v-if="styleGuideOpen"
+                      id="style-guide-panel"
+                    />
+                  </Transition>
                 </div>
               </section>
             </div>
           </div>
         </section>
       </div>
+
+      <WellnessReminderBar />
+
+      <footer class="app-footer">
+        <span
+          class="app-footer__copyright"
+          title="Copyright © 2026 panyong"
+        >
+          Copyright © 2026 panyong
+        </span>
+        <div class="app-footer__actions">
+          <button
+            v-if="clockActionMode === 'clockIn'"
+            class="app-footer__clock-action app-footer__clock-action--in"
+            type="button"
+            aria-label="打卡上班"
+            title="打卡上班"
+            @click="clockInFromFooter"
+          >
+            <LogIn :size="14" />
+            打卡
+          </button>
+          <button
+            v-else-if="clockActionMode === 'clockOut'"
+            class="app-footer__clock-action app-footer__clock-action--out"
+            type="button"
+            aria-label="下班"
+            title="结束今天的工作"
+            @click="clockOutFromFooter"
+          >
+            <LogOut :size="14" />
+            下班
+          </button>
+          <button
+            v-else
+            class="app-footer__clock-action app-footer__clock-action--update"
+            type="button"
+            aria-label="更新下班打卡"
+            title="更新今天下班时间"
+            @click="updateClockOutFromFooter"
+          >
+            <Clock3 :size="14" />
+            更新打卡
+          </button>
+          <button
+            class="app-footer__rest"
+            type="button"
+            aria-label="休息一下"
+            title="休息一下"
+            :disabled="Boolean(wellnessStore.data.activeRest)"
+            @click="startRestFromFooter"
+          >
+            <Coffee :size="15" />
+          </button>
+        </div>
+      </footer>
+
+      <WellnessRestOverlay
+        v-if="wellnessStore.data.activeRest"
+        :started-at="wellnessStore.data.activeRest.startedAt"
+        @continue="continueRestFromFooter"
+      />
 
       <Transition name="toast">
         <div v-if="toastMessage" class="app-toast" role="status">
@@ -1390,27 +2675,23 @@ onBeforeUnmount(() => {
   display: grid;
   width: 100%;
   height: 100%;
-  padding: 14px;
+  padding: 0;
   overflow: hidden;
-  background:
-    linear-gradient(125deg, #dfe4de 0%, #e8e5de 48%, #dce2df 100%);
+  background: var(--canvas);
   place-items: center;
 }
 
 .workbench-window {
   position: relative;
   display: flex;
-  width: min(100%, 1480px);
-  height: min(100%, 960px);
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   flex-direction: column;
   background: var(--canvas);
-  border: 1px solid rgb(31 41 38 / 15%);
-  border-radius: 14px;
-  box-shadow:
-    0 24px 64px rgb(35 44 38 / 17%),
-    0 2px 10px rgb(35 44 38 / 8%),
-    inset 0 0 0 1px rgb(255 255 255 / 48%);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .workspace {
@@ -1423,80 +2704,138 @@ onBeforeUnmount(() => {
 .workbench-sidebar {
   z-index: 10;
   display: flex;
-  width: 218px;
-  min-width: 218px;
+  width: 248px;
+  min-height: 0;
+  min-width: 248px;
   flex-direction: column;
-  padding: 20px 12px 14px;
+  overflow: hidden;
+  padding: 22px 14px 16px;
   background: var(--sidebar);
   border-right: 1px solid var(--line);
   backdrop-filter: blur(26px) saturate(1.15);
+  transition:
+    width var(--duration-window) var(--ease-apple),
+    min-width var(--duration-window) var(--ease-apple),
+    padding var(--duration-window) var(--ease-apple),
+    opacity var(--duration-fast) var(--ease-apple),
+    transform var(--duration-window) var(--ease-apple);
+}
+
+.workbench-sidebar.workbench-sidebar--collapsed {
+  width: 0;
+  min-width: 0;
+  padding-right: 0;
+  padding-left: 0;
+  pointer-events: none;
+  border-right-width: 0;
+  border-right-color: transparent;
+  opacity: 0;
+  transform: translateX(-12px);
 }
 
 .sidebar-brand {
   display: flex;
-  height: 42px;
+  height: 38px;
   align-items: center;
-  gap: 11px;
-  padding: 0 8px;
-  margin-bottom: 24px;
+  gap: 12px;
+  padding: 0 var(--space-2);
+  margin-bottom: 26px;
 }
 
 .sidebar-brand__copy {
   display: flex;
   min-width: 0;
+  height: 100%;
   flex-direction: column;
+  justify-content: center;
 }
 
 .sidebar-brand__copy span {
-  color: #29302c;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.2;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: var(--weight-strong);
+  line-height: 23px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-brand__copy small {
-  margin-top: 3px;
-  color: #969c97;
-  font-size: 8px;
-  font-weight: 650;
-  letter-spacing: 0.12em;
+  color: var(--text-subtle);
+  font-size: 11px;
+  font-weight: var(--weight-emphasis);
+  line-height: var(--line-caption);
+  letter-spacing: normal;
+  white-space: nowrap;
 }
 
 .sidebar-navigation {
   display: flex;
+  min-height: 0;
+  flex: 1;
   flex-direction: column;
   gap: 3px;
+  padding-right: 8px;
+  padding-bottom: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scroll-behavior: smooth;
 }
 
-.sidebar-label {
-  margin: 0 0 7px;
-  padding: 0 10px;
-  color: #989e99;
-  font-size: 9px;
-  font-weight: 650;
-  letter-spacing: 0.1em;
+.sidebar-navigation::-webkit-scrollbar {
+  width: 8px;
 }
 
-.sidebar-label--spaced {
-  margin-top: 23px;
+.sidebar-navigation::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-navigation::-webkit-scrollbar-thumb {
+  min-height: var(--space-8);
+  background: color-mix(
+    in srgb,
+    var(--scrollbar-thumb) 68%,
+    transparent
+  );
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  border-radius: 999px;
+}
+
+.sidebar-navigation::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb);
+  background-clip: padding-box;
+  border: 2px solid transparent;
 }
 
 .nav-item {
   display: flex;
   width: 100%;
-  height: 34px;
+  height: 36px;
+  flex: 0 0 36px;
   align-items: center;
-  gap: 10px;
-  padding: 0 10px;
+  gap: 12px;
+  padding: 0 11px;
   color: #626963;
-  font-size: 12px;
-  font-weight: 520;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
   text-align: left;
   background: transparent;
-  border-radius: 7px;
+  border-radius: 8px;
   transition:
     color 120ms ease,
     background 120ms ease;
+}
+
+.nav-item > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nav-item:hover {
@@ -1505,17 +2844,59 @@ onBeforeUnmount(() => {
 }
 
 .nav-item--active {
-  color: #234f41;
-  font-weight: 620;
-  background: rgb(255 255 255 / 67%);
-  box-shadow:
-    0 1px 2px rgb(31 41 38 / 7%),
-    inset 0 0 0 1px rgb(31 41 38 / 4%);
+  color: var(--text);
+  font-weight: var(--weight-emphasis);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  box-shadow: none;
 }
 
 .nav-item--active:hover {
-  color: #234f41;
-  background: rgb(255 255 255 / 76%);
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.nav-item--group-active {
+  color: var(--text);
+  font-weight: var(--weight-emphasis);
+}
+
+.nav-item--group {
+  font-weight: var(--weight-emphasis);
+}
+
+.nav-item--group-start {
+  margin-top: 12px;
+}
+
+.nav-item--group-active > svg:first-child {
+  color: var(--text-muted);
+}
+
+.nav-item__chevron {
+  margin-left: auto;
+  color: var(--text-subtle);
+  transition: transform var(--duration-fast) var(--ease-apple);
+}
+
+.nav-item__chevron--closed {
+  transform: rotate(-90deg);
+}
+
+.nav-submenu {
+  display: flex;
+  flex: 0 0 auto;
+  padding-left: var(--space-3);
+  margin: 1px 0 0 12px;
+  flex-direction: column;
+  gap: 2px;
+  border-left: 1px solid var(--line-soft);
+}
+
+.nav-item--sub {
+  height: 34px;
+  flex: 0 0 34px;
+  padding-left: 10px;
+  font-size: 13px;
 }
 
 .nav-badge {
@@ -1523,50 +2904,139 @@ onBeforeUnmount(() => {
   margin-left: auto;
   padding: 1px 5px;
   color: #7e857f;
-  font-size: 9px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   text-align: center;
   background: rgb(31 41 38 / 6%);
   border-radius: 4px;
 }
 
-.sidebar-spacer {
-  flex: 1;
+.app-footer {
+  position: relative;
+  display: flex;
+  min-height: var(--app-footer-height);
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 0 var(--space-4);
+  background: var(--material);
+  border-top: 1px solid var(--line-soft);
+  backdrop-filter: blur(24px) saturate(1.25);
 }
 
-.sidebar-storage {
+.app-footer__copyright {
+  max-width: calc(100% - 190px);
+  overflow: hidden;
+  color: var(--text-subtle);
+  font-size: var(--font-caption);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-footer__actions {
+  position: absolute;
+  top: 50%;
+  right: var(--space-4);
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 10px 6px;
-  border-top: 1px solid rgb(31 41 38 / 7%);
+  gap: 6px;
+  transform: translateY(-50%);
 }
 
-.sidebar-storage__dot {
-  width: 6px;
-  height: 6px;
-  background: #6f967f;
-  border-radius: 50%;
-  box-shadow: 0 0 0 3px rgb(111 150 127 / 10%);
+.app-footer__clock-action {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  font-size: var(--font-caption);
+  font-weight: var(--weight-emphasis);
+  border-radius: var(--radius-control);
+  transition:
+    color var(--duration-fast) var(--ease-apple),
+    background var(--duration-fast) var(--ease-apple);
 }
 
-.sidebar-storage div {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
+.app-footer__clock-action--in {
+  color: var(--accent);
+  background: color-mix(
+    in srgb,
+    var(--accent) 13%,
+    transparent
+  );
+  box-shadow: inset 0 0 0 0.5px
+    color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
-.sidebar-storage span:not(.sidebar-storage__dot) {
-  color: #6c746e;
-  font-size: 10px;
-  font-weight: 560;
-  line-height: 1.4;
+.app-footer__clock-action--in:hover {
+  color: var(--accent-strong);
+  background: color-mix(
+    in srgb,
+    var(--accent) 20%,
+    transparent
+  );
 }
 
-.sidebar-storage small {
-  color: #9ba19c;
-  font-size: 8px;
-  line-height: 1.4;
+.app-footer__clock-action--out {
+  color: var(--system-red);
+  background: color-mix(
+    in srgb,
+    var(--system-red) 8%,
+    transparent
+  );
+  box-shadow: inset 0 0 0 0.5px
+    color-mix(in srgb, var(--system-red) 20%, transparent);
+}
+
+.app-footer__clock-action--out:hover {
+  color: var(--system-red);
+  background: color-mix(
+    in srgb,
+    var(--system-red) 14%,
+    transparent
+  );
+}
+
+.app-footer__clock-action--update {
+  color: var(--text-muted);
+  background: var(--control-bg);
+  box-shadow: var(--control-shadow);
+}
+
+.app-footer__clock-action--update:hover {
+  color: var(--text);
+  background: var(--hover-bg);
+}
+
+.app-footer__rest {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--accent);
+  background: color-mix(
+    in srgb,
+    var(--accent) 13%,
+    transparent
+  );
+  border-radius: var(--radius-control);
+  box-shadow: inset 0 0 0 0.5px
+    color-mix(in srgb, var(--accent) 30%, transparent);
+  place-items: center;
+}
+
+.app-footer__rest:hover:not(:disabled) {
+  color: var(--accent-strong);
+  background: color-mix(
+    in srgb,
+    var(--accent) 20%,
+    transparent
+  );
+}
+
+.app-footer__rest:disabled {
+  opacity: 0.4;
 }
 
 .workspace-main {
@@ -1593,29 +3063,45 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(22px);
 }
 
+.toolbar-leading {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+}
+
 .global-search {
   position: relative;
   display: flex;
-  width: min(100%, 300px);
-  height: 30px;
+  width: min(100%, 340px);
+  height: calc(var(--control-md) + var(--space-2));
   align-items: center;
-  gap: 8px;
-  padding: 0 9px;
-  color: #9ba19c;
-  background: rgb(31 41 38 / 4%);
-  border: 1px solid transparent;
-  border-radius: 7px;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  color: var(--text-subtle);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  box-shadow: var(--control-shadow);
   transition:
     width 180ms ease,
     background 150ms ease,
-    border-color 150ms ease;
+    border-color 150ms ease,
+    box-shadow 150ms ease;
 }
 
 .global-search:focus-within {
-  width: min(100%, 360px);
-  background: #fff;
-  border-color: rgb(47 111 94 / 30%);
-  box-shadow: 0 4px 18px rgb(31 41 38 / 7%);
+  width: min(100%, 390px);
+  background: var(--canvas-raised);
+  border-color: var(--system-blue);
+  box-shadow: var(--focus-ring);
+}
+
+.global-search input:focus-visible,
+.task-composer input:focus-visible,
+.note-composer textarea:focus-visible {
+  outline: none;
 }
 
 .global-search input {
@@ -1623,7 +3109,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   height: 100%;
   padding: 0;
-  font-size: 11px;
+  font-size: var(--font-body);
   background: transparent;
   border: 0;
 }
@@ -1633,14 +3119,22 @@ onBeforeUnmount(() => {
 }
 
 .global-search kbd {
+  display: inline-flex;
+  height: var(--control-sm);
+  min-width: calc(var(--space-8) + var(--space-1));
   flex: 0 0 auto;
-  padding: 2px 5px;
-  color: #9aa09b;
-  font-family: inherit;
-  font-size: 8px;
-  background: rgb(255 255 255 / 60%);
-  border: 1px solid rgb(31 41 38 / 7%);
-  border-radius: 4px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--font-caption);
+  font-weight: var(--weight-emphasis);
+  line-height: 1;
+  background: var(--canvas-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-badge);
+  box-shadow: var(--shadow-control);
 }
 
 .search-results {
@@ -1649,7 +3143,9 @@ onBeforeUnmount(() => {
   left: 0;
   display: flex;
   width: 100%;
-  overflow: hidden;
+  max-height: min(62vh, 430px);
+  overflow-x: hidden;
+  overflow-y: auto;
   flex-direction: column;
   padding: 5px;
   background: rgb(253 252 250 / 97%);
@@ -1661,11 +3157,11 @@ onBeforeUnmount(() => {
 
 .search-results button {
   display: grid;
-  min-height: 35px;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
+  min-height: 46px;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
+  padding: 6px 9px;
   color: #535a55;
   font-size: 11px;
   text-align: left;
@@ -1678,27 +3174,48 @@ onBeforeUnmount(() => {
   background: rgb(47 111 94 / 7%);
 }
 
-.search-results button span {
+.search-result__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.search-result__copy strong,
+.search-result__copy small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.search-results button small {
+.search-result__copy strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: var(--weight-emphasis);
+}
+
+.search-result__copy small {
   color: #9ba19c;
-  font-size: 8px;
+  font-size: 11px;
+}
+
+.search-results button .search-result__group {
+  color: var(--text-subtle);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .search-empty {
   margin: 0;
   padding: 15px 10px;
   color: #999f9a;
-  font-size: 10px;
+  font-size: 11px;
   text-align: center;
 }
 
 .toolbar-actions {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
 }
@@ -1720,6 +3237,10 @@ onBeforeUnmount(() => {
   background: rgb(31 41 38 / 5%);
 }
 
+.sidebar-toggle-button {
+  color: var(--text);
+}
+
 .notification-dot {
   position: absolute;
   top: 7px;
@@ -1731,19 +3252,233 @@ onBeforeUnmount(() => {
   border-radius: 50%;
 }
 
+.notification-area {
+  position: relative;
+}
+
+.notification-badge {
+  position: absolute;
+  top: 1px;
+  right: -2px;
+  display: grid;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  color: #ffffff;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: var(--weight-emphasis);
+  line-height: 1;
+  background: var(--system-red);
+  border: 1.5px solid var(--canvas-raised);
+  border-radius: 999px;
+  place-items: center;
+}
+
+.notification-center {
+  position: absolute;
+  z-index: 90;
+  top: calc(100% + 9px);
+  right: -42px;
+  display: flex;
+  width: min(370px, calc(100vw - 24px));
+  max-height: min(480px, calc(100vh - 120px));
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--text);
+  background: color-mix(
+    in srgb,
+    var(--canvas-raised) 97%,
+    transparent
+  );
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow:
+    0 22px 56px rgb(0 0 0 / 18%),
+    0 2px 8px rgb(0 0 0 / 6%);
+  backdrop-filter: blur(24px) saturate(1.15);
+}
+
+.notification-center__header {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 10px 14px 9px 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.notification-center__header > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.notification-center__header strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  font-weight: var(--weight-emphasis);
+}
+
+.notification-center__header small {
+  color: var(--text-subtle);
+  font-size: var(--font-caption);
+}
+
+.notification-center__header button {
+  display: inline-flex;
+  height: 26px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  color: var(--system-blue);
+  font-size: var(--font-caption);
+  background: transparent;
+  border-radius: 6px;
+}
+
+.notification-center__header button:hover {
+  background: color-mix(
+    in srgb,
+    var(--system-blue) 8%,
+    transparent
+  );
+}
+
+.notification-center__list {
+  min-height: 0;
+  padding: 6px;
+  overflow-y: auto;
+}
+
+.notification-center__empty {
+  display: flex;
+  min-height: 150px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0;
+  color: var(--text-subtle);
+  font-size: var(--font-caption);
+}
+
+.notification-center__empty > span {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  color: var(--text-subtle);
+  background: var(--canvas);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  place-items: center;
+}
+
+.notification-item {
+  position: relative;
+  display: grid;
+  width: 100%;
+  grid-template-columns: 34px minmax(0, 1fr) 8px;
+  align-items: start;
+  gap: 10px;
+  padding: 10px;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  border-radius: 8px;
+}
+
+.notification-item:hover {
+  background: var(--hover-bg);
+}
+
+.notification-item--unread {
+  background: color-mix(
+    in srgb,
+    var(--system-blue) 5%,
+    transparent
+  );
+}
+
+.notification-item__icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  color: var(--system-blue);
+  background: color-mix(
+    in srgb,
+    var(--system-blue) 10%,
+    var(--canvas-raised)
+  );
+  border-radius: 9px;
+  place-items: center;
+}
+
+.notification-item__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notification-item__copy > span {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.notification-item__copy strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--font-caption);
+  font-weight: var(--weight-emphasis);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-item__copy time {
+  flex: 0 0 auto;
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.notification-item__copy small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.notification-item > i {
+  width: 6px;
+  height: 6px;
+  margin-top: 5px;
+  background: var(--system-blue);
+  border-radius: 50%;
+}
+
 .profile-area {
   position: relative;
 }
 
 .profile-trigger {
-  display: flex;
-  height: 38px;
-  align-items: center;
-  gap: 8px;
-  padding: 0 6px;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  padding: 0;
   color: #667069;
   background: transparent;
-  border-radius: 7px;
+  border-radius: 50%;
+  place-items: center;
 }
 
 .profile-trigger:hover {
@@ -1752,12 +3487,12 @@ onBeforeUnmount(() => {
 
 .profile-avatar {
   display: grid;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   overflow: hidden;
   flex: 0 0 auto;
   color: #eaf0ec;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   background:
     linear-gradient(145deg, #477564, #2c5143);
@@ -1776,29 +3511,6 @@ onBeforeUnmount(() => {
   width: 34px;
   height: 34px;
   font-size: 12px;
-}
-
-.profile-trigger__copy {
-  display: flex;
-  max-width: 124px;
-  flex-direction: column;
-  text-align: left;
-}
-
-.profile-trigger__copy strong {
-  color: #4a514c;
-  font-size: 10px;
-  font-weight: 620;
-  line-height: 1.3;
-}
-
-.profile-trigger__copy small {
-  overflow: hidden;
-  color: #a0a5a1;
-  font-size: 8px;
-  line-height: 1.3;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .profile-popover {
@@ -1840,7 +3552,7 @@ onBeforeUnmount(() => {
 .profile-popover__heading small {
   overflow: hidden;
   color: #979d98;
-  font-size: 8px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1852,7 +3564,7 @@ onBeforeUnmount(() => {
   gap: 9px;
   padding: 0 8px;
   color: #5d655f;
-  font-size: 10px;
+  font-size: 11px;
   text-align: left;
   background: transparent;
   border-radius: 5px;
@@ -1865,6 +3577,115 @@ onBeforeUnmount(() => {
 
 .profile-popover > button:last-child {
   color: #9c5040;
+}
+
+.sidebar-account {
+  display: grid;
+  min-width: 0;
+  flex: 0 0 auto;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 6px;
+  background: color-mix(
+    in srgb,
+    var(--text) 4%,
+    transparent
+  );
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+}
+
+.sidebar-profile-area {
+  min-width: 0;
+}
+
+.profile-trigger.sidebar-profile-trigger {
+  display: flex;
+  width: 100%;
+  height: 42px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 9px;
+  padding: 4px 6px;
+  text-align: left;
+  border-radius: 9px;
+}
+
+.profile-trigger.sidebar-profile-trigger:hover {
+  background: color-mix(
+    in srgb,
+    var(--text) 4%,
+    transparent
+  );
+}
+
+.sidebar-profile-avatar {
+  width: 34px;
+  height: 34px;
+  font-size: 12px;
+}
+
+.sidebar-profile-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sidebar-profile-copy strong,
+.sidebar-profile-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-profile-copy strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: var(--weight-emphasis);
+  line-height: 18px;
+}
+
+.sidebar-profile-copy small {
+  color: var(--text-subtle);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.sidebar-profile-chevron {
+  flex: 0 0 auto;
+  color: var(--text-subtle);
+}
+
+.profile-popover.sidebar-profile-popover {
+  top: auto;
+  right: auto;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 220px;
+}
+
+.sidebar-settings-button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: var(--text-muted);
+  background: transparent;
+  border-radius: 8px;
+  place-items: center;
+}
+
+.sidebar-settings-button:hover {
+  color: var(--text);
+  background: color-mix(
+    in srgb,
+    var(--text) 5%,
+    transparent
+  );
 }
 
 .mobile-menu-trigger {
@@ -1886,10 +3707,44 @@ onBeforeUnmount(() => {
   overscroll-behavior: contain;
 }
 
+.content-scroll--codex {
+  overflow: hidden;
+}
+
 .content-frame {
   width: min(100%, 1130px);
   padding: 34px 38px 48px;
   margin: 0 auto;
+}
+
+.content-frame.content-frame--codex {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+}
+
+.content-frame.content-frame--database {
+  width: 100%;
+  max-width: none;
+  padding: 26px 24px 40px;
+}
+
+.content-frame.content-frame--mail {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  padding: 20px 38px;
+  overflow: hidden;
+}
+
+.content-frame.content-frame--mail .page-heading {
+  display: none;
+}
+
+.content-frame.content-frame--mail .mail-workspace {
+  min-height: 0;
+  flex: 1;
+  height: auto;
 }
 
 /* Page heading */
@@ -1901,6 +3756,26 @@ onBeforeUnmount(() => {
   padding-bottom: 24px;
 }
 
+.page-heading--workbench {
+  align-items: center;
+  gap: var(--space-6);
+  padding-bottom: 19px;
+}
+
+.page-heading__wellness {
+  width: 100%;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.page-heading--workbench h1 {
+  font-size: clamp(27px, 2.5vw, 32px);
+}
+
+.page-heading--workbench .page-heading__copy > p:last-child {
+  margin-top: 8px;
+}
+
 .page-heading__copy {
   min-width: 0;
 }
@@ -1908,7 +3783,7 @@ onBeforeUnmount(() => {
 .page-eyebrow {
   margin: 0 0 9px;
   color: #829188;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.13em;
 }
@@ -1916,7 +3791,7 @@ onBeforeUnmount(() => {
 .page-heading h1 {
   margin: 0;
   color: #1f2722;
-  font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+  font-family: var(--font-sans);
   font-size: clamp(27px, 2.8vw, 36px);
   font-weight: 620;
   letter-spacing: 0;
@@ -1936,6 +3811,18 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+@media (max-width: 1180px) {
+  .page-heading--workbench {
+    align-items: stretch;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .page-heading__wellness {
+    margin-left: 0;
+  }
+}
+
 .ghost-action,
 .primary-action {
   display: inline-flex;
@@ -1944,7 +3831,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   gap: 7px;
   padding: 0 12px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   border-radius: 7px;
   transition:
@@ -2007,7 +3894,7 @@ onBeforeUnmount(() => {
 
 .summary-metric strong {
   color: #303934;
-  font-family: "SF Pro Display", "Helvetica Neue", sans-serif;
+  font-family: var(--font-sans);
   font-size: 22px;
   font-weight: 580;
   font-variant-numeric: tabular-nums;
@@ -2015,7 +3902,7 @@ onBeforeUnmount(() => {
 
 .summary-metric span {
   color: #818882;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .task-progress {
@@ -2036,12 +3923,12 @@ onBeforeUnmount(() => {
 
 .task-progress__copy span {
   color: #7e8580;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .task-progress__copy strong {
   color: #4d5a53;
-  font-size: 10px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -2093,7 +3980,7 @@ onBeforeUnmount(() => {
 .section-eyebrow {
   margin: 0 0 6px;
   color: #97a098;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.13em;
 }
@@ -2107,7 +3994,7 @@ onBeforeUnmount(() => {
 .settings-group h2 {
   margin: 0;
   color: #29302c;
-  font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+  font-family: var(--font-sans);
   font-size: 16px;
   font-weight: 620;
   letter-spacing: 0;
@@ -2120,7 +4007,7 @@ onBeforeUnmount(() => {
   gap: 4px;
   padding: 5px 0;
   color: #89908a;
-  font-size: 9px;
+  font-size: 11px;
   background: transparent;
 }
 
@@ -2165,7 +4052,7 @@ onBeforeUnmount(() => {
 .task-composer kbd {
   color: #a8ada9;
   font-family: inherit;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .recent-notes {
@@ -2220,7 +4107,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   margin: 4px 0 0;
   color: #8d948e;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2230,7 +4117,7 @@ onBeforeUnmount(() => {
   align-self: start;
   padding-top: 3px;
   color: #a2a8a3;
-  font-size: 8px;
+  font-size: 11px;
   white-space: nowrap;
 }
 
@@ -2246,7 +4133,7 @@ onBeforeUnmount(() => {
   resize: vertical;
   padding: 11px 82px 11px 12px;
   color: #4b534d;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.6;
   background: #f5f4f1;
   border: 1px solid transparent;
@@ -2269,7 +4156,7 @@ onBeforeUnmount(() => {
   height: 27px;
   padding: 0 10px;
   color: #fff;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
   background: var(--accent);
   border-radius: 5px;
@@ -2300,7 +4187,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   color: #c6d4cc;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -2309,7 +4196,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 5px;
   color: #9db8a9;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 500;
 }
 
@@ -2348,7 +4235,7 @@ onBeforeUnmount(() => {
 }
 
 .focus-dial__inner strong {
-  font-family: "SF Pro Display", "Helvetica Neue", sans-serif;
+  font-family: var(--font-sans);
   font-size: 27px;
   font-weight: 480;
   font-variant-numeric: tabular-nums;
@@ -2358,7 +4245,7 @@ onBeforeUnmount(() => {
 .focus-dial__inner span {
   margin-top: 4px;
   color: #91a79b;
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .focus-controls {
@@ -2400,7 +4287,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   margin: 13px 0 0;
   color: #99ad9f;
-  font-size: 8px;
+  font-size: 11px;
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2422,7 +4309,7 @@ onBeforeUnmount(() => {
 .rail-heading p {
   margin: 0 0 5px;
   color: #9aa19b;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.1em;
 }
@@ -2476,7 +4363,7 @@ onBeforeUnmount(() => {
 }
 
 .week-strip span {
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .week-strip strong {
@@ -2516,7 +4403,7 @@ onBeforeUnmount(() => {
 .agenda-item time {
   padding-top: 2px;
   color: #8b928c;
-  font-size: 9px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -2541,7 +4428,7 @@ onBeforeUnmount(() => {
 .agenda-item h3 {
   margin: 0;
   color: #414944;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   line-height: 1.4;
 }
@@ -2549,7 +4436,7 @@ onBeforeUnmount(() => {
 .agenda-item p {
   margin: 3px 0 0;
   color: #949b95;
-  font-size: 8px;
+  font-size: 11px;
   line-height: 1.4;
 }
 
@@ -2592,14 +4479,14 @@ onBeforeUnmount(() => {
   display: block;
   overflow: hidden;
   color: #5b635d;
-  font-size: 9px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .project-mini-list strong {
   color: #888f89;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 560;
   font-variant-numeric: tabular-nums;
 }
@@ -2642,7 +4529,7 @@ onBeforeUnmount(() => {
   height: 25px;
   padding: 0 10px;
   color: #8a918b;
-  font-size: 9px;
+  font-size: 11px;
   background: transparent;
   border-radius: 5px;
 }
@@ -2670,7 +4557,7 @@ onBeforeUnmount(() => {
   padding: 0 11px;
   margin-left: auto;
   color: #fff;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
   background: var(--accent);
   border-radius: 5px;
@@ -2742,7 +4629,7 @@ onBeforeUnmount(() => {
 
 .notes-editor__footer > span {
   color: #9ca29d;
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .notes-editor__footer button {
@@ -2752,7 +4639,7 @@ onBeforeUnmount(() => {
   gap: 5px;
   padding: 0 11px;
   color: #fff;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
   background: var(--accent);
   border-radius: 6px;
@@ -2819,14 +4706,14 @@ onBeforeUnmount(() => {
 
 .note-card__type {
   color: #99a09a;
-  font-size: 7px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.12em;
 }
 
 .note-card time {
   color: #a1a7a2;
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .note-card h3 {
@@ -2841,7 +4728,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   margin: 0;
   color: #79817a;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.65;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
@@ -2890,7 +4777,7 @@ onBeforeUnmount(() => {
 
 .calendar-board__header span {
   color: #929993;
-  font-size: 9px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -2912,7 +4799,7 @@ onBeforeUnmount(() => {
 }
 
 .calendar-week-head span {
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .calendar-week-head strong {
@@ -2920,7 +4807,7 @@ onBeforeUnmount(() => {
   width: 23px;
   height: 23px;
   color: #5e665f;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 560;
   border-radius: 50%;
   place-items: center;
@@ -2961,7 +4848,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   padding: 5px 6px;
   margin-bottom: 5px;
-  font-size: 7px;
+  font-size: 11px;
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3001,7 +4888,7 @@ onBeforeUnmount(() => {
   width: 23px;
   height: 23px;
   color: #788079;
-  font-size: 9px;
+  font-size: 11px;
   background: #efefeb;
   border-radius: 5px;
   place-items: center;
@@ -3032,7 +4919,7 @@ onBeforeUnmount(() => {
 
 .projects-header > span {
   color: #989f99;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .project-list {
@@ -3089,7 +4976,7 @@ onBeforeUnmount(() => {
 .project-row__copy p {
   margin: 4px 0 0;
   color: #959c96;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .project-row__progress {
@@ -3115,7 +5002,7 @@ onBeforeUnmount(() => {
 
 .project-row__progress strong {
   color: #7f8781;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 550;
   font-variant-numeric: tabular-nums;
 }
@@ -3148,7 +5035,7 @@ onBeforeUnmount(() => {
   gap: 6px;
   padding: 0 10px;
   color: #657068;
-  font-size: 9px;
+  font-size: 11px;
   background: #efefeb;
   border-radius: 6px;
 }
@@ -3205,7 +5092,7 @@ onBeforeUnmount(() => {
 .bookmark-card p {
   margin: 0;
   color: #929993;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .bookmark-card__category {
@@ -3213,31 +5100,33 @@ onBeforeUnmount(() => {
   bottom: 14px;
   left: 16px;
   color: #9ca29d;
-  font-size: 8px;
+  font-size: 11px;
 }
 
 /* Settings */
 .settings-page {
   display: flex;
   flex-direction: column;
-  gap: 26px;
-  animation: content-arrive 260ms ease both;
+  gap: var(--space-5);
+  animation: content-arrive var(--duration-window) var(--ease-apple) both;
 }
 
 .settings-group {
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  background: var(--canvas-raised);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
 }
 
 .settings-group header {
-  padding: 14px 16px 12px;
-  background: #f2f1ed;
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--line-soft);
 }
 
 .settings-group h2 {
-  font-size: 13px;
+  color: var(--text);
+  font-size: var(--font-body);
+  font-weight: var(--weight-emphasis);
 }
 
 .setting-row {
@@ -3245,8 +5134,8 @@ onBeforeUnmount(() => {
   min-height: 62px;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 11px 16px;
+  gap: var(--space-5);
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--line-soft);
 }
 
@@ -3256,19 +5145,74 @@ onBeforeUnmount(() => {
 
 .setting-row > div {
   display: flex;
+  min-width: 0;
   flex-direction: column;
 }
 
+.setting-row > .setting-row__copy {
+  flex: 1;
+}
+
+.setting-row > .setting-integration-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  margin-top: 0;
+  overflow: hidden;
+  color: var(--asset-tile-icon);
+  background: var(--asset-tile-bg);
+  border: 1px solid var(--asset-tile-border);
+  border-radius: var(--radius-control);
+  place-items: center;
+}
+
+.setting-row > .setting-integration-icon--asset {
+  background: transparent;
+  border-color: transparent;
+}
+
+.setting-row > .setting-integration-icon--glyph {
+  padding: 1px;
+}
+
+.setting-integration-icon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: contain;
+}
+
+.setting-row > div span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .setting-row strong {
-  color: #424a44;
-  font-size: 10px;
-  font-weight: 600;
+  color: var(--text);
+  font-size: var(--font-body);
+  font-weight: var(--weight-emphasis);
 }
 
 .setting-row span {
-  margin-top: 4px;
-  color: #979e98;
-  font-size: 9px;
+  margin-top: var(--space-1);
+  color: var(--text-subtle);
+  font-size: var(--font-caption);
+}
+
+.setting-row > .setting-integration-actions {
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-2);
+  flex-direction: row;
+}
+
+.setting-integration-actions .setting-status {
+  margin-top: 0;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .setting-row input[type="checkbox"] {
@@ -3276,10 +5220,10 @@ onBeforeUnmount(() => {
   height: 18px;
   margin: 0;
   appearance: none;
-  background: #d9dbd7;
+  background: var(--segmented-track);
   border-radius: 999px;
-  box-shadow: inset 0 1px 2px rgb(31 41 38 / 10%);
-  transition: background 150ms ease;
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 10%);
+  transition: background var(--duration-fast) var(--ease-apple);
 }
 
 .setting-row input[type="checkbox"]::after {
@@ -3288,10 +5232,10 @@ onBeforeUnmount(() => {
   height: 14px;
   margin: 2px;
   content: "";
-  background: #fff;
+  background: var(--control-bg);
   border-radius: 50%;
-  box-shadow: 0 1px 3px rgb(31 41 38 / 20%);
-  transition: transform 150ms ease;
+  box-shadow: var(--shadow-control);
+  transition: transform var(--duration-fast) var(--ease-apple);
 }
 
 .setting-row input[type="checkbox"]:checked {
@@ -3302,13 +5246,21 @@ onBeforeUnmount(() => {
   transform: translateX(14px);
 }
 
+.setting-version {
+  flex: 0 0 auto;
+  color: var(--text-muted) !important;
+  font-family: var(--font-mono);
+  font-size: var(--font-caption) !important;
+  font-variant-numeric: tabular-nums;
+}
+
 .setting-status {
   flex: 0 0 auto;
   padding: 3px 7px;
   margin-top: 0 !important;
-  color: #94654e !important;
-  font-size: 8px !important;
-  background: #f1e7e1;
+  color: var(--amber) !important;
+  font-size: 11px !important;
+  background: color-mix(in srgb, var(--system-orange) 12%, transparent);
   border-radius: 5px;
 }
 
@@ -3317,11 +5269,16 @@ onBeforeUnmount(() => {
   background: #eceeeb;
 }
 
+.setting-status--success {
+  color: var(--system-green) !important;
+  background: color-mix(in srgb, var(--system-green) 11%, transparent);
+}
+
 /* Global feedback */
 .app-toast {
   position: absolute;
   z-index: 50;
-  bottom: 24px;
+  bottom: calc(var(--app-footer-height) + var(--space-4));
   left: 50%;
   display: flex;
   height: 34px;
@@ -3329,7 +5286,7 @@ onBeforeUnmount(() => {
   gap: 7px;
   padding: 0 13px;
   color: #edf4ef;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 520;
   background: rgb(37 54 46 / 94%);
   border: 1px solid rgb(255 255 255 / 9%);
@@ -3406,7 +5363,7 @@ onBeforeUnmount(() => {
     top: 0;
     bottom: 0;
     left: 0;
-    width: 218px;
+    width: 248px;
     transform: translateX(-102%);
     transition: transform 210ms cubic-bezier(0.2, 0.75, 0.3, 1);
   }
@@ -3449,17 +5406,18 @@ onBeforeUnmount(() => {
     padding: 0 16px;
   }
 
-  .profile-trigger__copy,
-  .profile-trigger > svg {
-    display: none;
-  }
-
-  .profile-trigger {
-    padding: 0 3px;
-  }
-
   .content-frame {
     padding: 25px 20px 40px;
+  }
+
+  .content-frame.content-frame--mail {
+    height: auto;
+    padding: 16px 20px 24px;
+    overflow: visible;
+  }
+
+  .content-frame.content-frame--mail .mail-workspace {
+    min-height: 560px;
   }
 
   .page-heading {
@@ -3569,6 +5527,11 @@ onBeforeUnmount(() => {
     display: none;
   }
 
+  .page-refresh-button,
+  .notification-area .toolbar-icon {
+    display: grid;
+  }
+
   .workspace-toolbar {
     gap: 12px;
     padding: 0 13px;
@@ -3633,7 +5596,7 @@ onBeforeUnmount(() => {
 
   .app-toast {
     right: 18px;
-    bottom: 18px;
+    bottom: calc(var(--app-footer-height) + var(--space-2));
     left: 18px;
     justify-content: center;
     transform: none;
@@ -3651,8 +5614,8 @@ onBeforeUnmount(() => {
   min-height: 72px;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  padding: 12px 16px;
+  gap: var(--space-6);
+  padding: var(--space-3) var(--space-4);
 }
 
 .appearance-row > div:first-child {
@@ -3663,14 +5626,91 @@ onBeforeUnmount(() => {
 
 .appearance-row strong {
   color: var(--text);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--font-body);
+  font-weight: var(--weight-emphasis);
 }
 
 .appearance-row span {
-  margin-top: 4px;
+  margin-top: var(--space-1);
   color: var(--text-subtle);
-  font-size: 9px;
+  font-size: var(--font-caption);
+}
+
+.settings-navigation {
+  display: flex;
+  width: 100%;
+  min-height: 64px;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  transition: background var(--duration-fast) var(--ease-apple);
+}
+
+.settings-navigation:hover {
+  background: var(--hover-bg);
+}
+
+.settings-navigation:focus-visible {
+  outline: 2px solid var(--system-blue);
+  outline-offset: -2px;
+}
+
+.settings-navigation__icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  background: var(--canvas);
+  border-radius: var(--radius-control);
+  box-shadow: inset 0 0 0 0.5px var(--separator);
+  place-items: center;
+}
+
+.settings-navigation__copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.settings-navigation__copy strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  font-weight: var(--weight-emphasis);
+}
+
+.settings-navigation__copy small {
+  margin-top: var(--space-1);
+  color: var(--text-subtle);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+
+.settings-navigation__chevron {
+  flex: 0 0 auto;
+  color: var(--text-subtle);
+  transition: transform var(--duration-popover) var(--ease-apple);
+}
+
+.settings-navigation__chevron--open {
+  transform: rotate(90deg);
+}
+
+.style-guide-enter-active,
+.style-guide-leave-active {
+  transition:
+    opacity var(--duration-popover) var(--ease-apple),
+    transform var(--duration-popover) var(--ease-apple);
+}
+
+.style-guide-enter-from,
+.style-guide-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 
 .theme-segmented {
@@ -3689,7 +5729,7 @@ onBeforeUnmount(() => {
   height: 28px;
   padding: 0 8px;
   color: #59636e;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 550;
   background: transparent;
   border-radius: 5px;
@@ -3711,30 +5751,23 @@ onBeforeUnmount(() => {
 /* Developer light theme */
 html[data-theme="light"] {
   .desktop-stage {
-    background:
-      linear-gradient(125deg, #eef2f5 0%, #f6f8fa 48%, #e9edf2 100%);
+    background: var(--canvas);
   }
 
   .workbench-window {
-    border-color: var(--line);
-    box-shadow:
-      0 22px 60px rgb(31 35 40 / 14%),
-      0 2px 10px rgb(31 35 40 / 8%),
-      inset 0 0 0 1px rgb(255 255 255 / 65%);
+    border: 0;
+    box-shadow: none;
   }
 
   .workbench-sidebar {
     background: var(--sidebar);
   }
 
-  .sidebar-brand__copy small,
-  .sidebar-label,
-  .sidebar-storage small,
   .page-eyebrow,
   .section-eyebrow,
   .rail-heading p,
   .note-card__type {
-    font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
+    font-family: var(--font-mono);
   }
 
   .nav-item {
@@ -3748,13 +5781,13 @@ html[data-theme="light"] {
 
   .nav-item--active,
   .nav-item--active:hover {
-    color: var(--accent-strong);
-    background: var(--accent-soft);
-    box-shadow: inset 2px 0 0 var(--accent);
+    color: var(--text);
+    background: color-mix(in srgb, var(--text) 6%, transparent);
+    box-shadow: none;
   }
 
   .nav-item--active svg {
-    color: var(--accent);
+    color: var(--text);
   }
 
   .nav-badge {
@@ -3763,38 +5796,12 @@ html[data-theme="light"] {
   }
 
   .nav-item--active .nav-badge {
-    color: var(--accent-strong);
-    background: rgb(9 105 218 / 10%);
-  }
-
-  .sidebar-storage__dot {
-    background: var(--success);
-    box-shadow: 0 0 0 3px rgb(26 127 55 / 10%);
+    color: var(--text-muted);
+    background: rgb(31 35 40 / 6%);
   }
 
   .workspace-toolbar {
     background: rgb(255 255 255 / 88%);
-  }
-
-  .global-search {
-    color: #818b98;
-    background: #f6f8fa;
-    border-color: #d8dee4;
-  }
-
-  .global-search:focus-within {
-    background: #ffffff;
-    border-color: var(--accent);
-  }
-
-  .global-search input {
-    color: var(--text);
-  }
-
-  .global-search kbd {
-    color: #6e7781;
-    background: #ffffff;
-    border-color: #d0d7de;
   }
 
   .search-results {
@@ -3827,10 +5834,6 @@ html[data-theme="light"] {
 
   .profile-avatar {
     background: #0969da;
-  }
-
-  .profile-trigger__copy strong {
-    color: var(--text);
   }
 
   .profile-popover {
@@ -3886,7 +5889,7 @@ html[data-theme="light"] {
 
   .summary-metric strong {
     color: var(--text);
-    font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
+    font-family: var(--font-mono);
   }
 
   .task-progress__copy strong {
@@ -4052,6 +6055,11 @@ html[data-theme="light"] {
     background: #eaeef2;
   }
 
+  .setting-status--success {
+    color: var(--success) !important;
+    background: color-mix(in srgb, var(--success) 10%, transparent);
+  }
+
   .app-toast {
     color: #ffffff;
     background: rgb(31 35 40 / 94%);
@@ -4065,18 +6073,14 @@ html[data-theme="light"] {
 /* IDE-inspired dark theme */
 html[data-theme="dark"] {
 .desktop-stage {
-  background:
-    linear-gradient(125deg, #070b10 0%, #0d141c 48%, #080d13 100%);
+  background: var(--canvas);
 }
 
 .workbench-window {
   color-scheme: dark;
   background: var(--canvas);
-  border-color: rgb(240 246 252 / 13%);
-  box-shadow:
-    0 28px 76px rgb(0 0 0 / 58%),
-    0 2px 12px rgb(0 0 0 / 38%),
-    inset 0 0 0 1px rgb(255 255 255 / 4%);
+  border: 0;
+  box-shadow: none;
 }
 
 .workbench-sidebar {
@@ -4090,12 +6094,6 @@ html[data-theme="dark"] {
 
 .sidebar-brand__copy small {
   color: #6e7681;
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
-}
-
-.sidebar-label {
-  color: #6e7681;
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
 }
 
 .nav-item {
@@ -4109,15 +6107,13 @@ html[data-theme="dark"] {
 
 .nav-item--active,
 .nav-item--active:hover {
-  color: #f0f6fc;
-  background: rgb(56 139 253 / 14%);
-  box-shadow:
-    inset 2px 0 0 var(--accent),
-    inset 0 0 0 1px rgb(88 166 255 / 8%);
+  color: #e6edf3;
+  background: rgb(240 246 252 / 8%);
+  box-shadow: none;
 }
 
 .nav-item--active svg {
-  color: var(--accent);
+  color: #e6edf3;
 }
 
 .nav-badge {
@@ -4126,26 +6122,8 @@ html[data-theme="dark"] {
 }
 
 .nav-item--active .nav-badge {
-  color: #79c0ff;
-  background: rgb(88 166 255 / 12%);
-}
-
-.sidebar-storage {
-  border-top-color: var(--line-soft);
-}
-
-.sidebar-storage__dot {
-  background: var(--success);
-  box-shadow: 0 0 0 3px rgb(63 185 80 / 12%);
-}
-
-.sidebar-storage span:not(.sidebar-storage__dot) {
-  color: #8b949e;
-}
-
-.sidebar-storage small {
-  color: #586069;
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
+  color: #b1bac4;
+  background: rgb(240 246 252 / 8%);
 }
 
 .workspace-main {
@@ -4155,31 +6133,6 @@ html[data-theme="dark"] {
 .workspace-toolbar {
   background: rgb(13 17 23 / 86%);
   border-bottom-color: var(--line-soft);
-}
-
-.global-search {
-  color: #6e7681;
-  background: #0d1117;
-  border-color: rgb(240 246 252 / 9%);
-}
-
-.global-search:focus-within {
-  background: #0d1117;
-  border-color: rgb(88 166 255 / 46%);
-  box-shadow:
-    0 0 0 3px rgb(88 166 255 / 10%),
-    0 6px 20px rgb(0 0 0 / 24%);
-}
-
-.global-search input {
-  color: var(--text);
-}
-
-.global-search kbd {
-  color: #6e7681;
-  background: #161b22;
-  border-color: var(--line);
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
 }
 
 .search-results {
@@ -4232,14 +6185,6 @@ html[data-theme="dark"] {
     0 0 0 2px rgb(31 111 235 / 10%);
 }
 
-.profile-trigger__copy strong {
-  color: #c9d1d9;
-}
-
-.profile-trigger__copy small {
-  color: #6e7681;
-}
-
 .profile-popover {
   background: rgb(22 27 34 / 98%);
   border-color: var(--line);
@@ -4273,7 +6218,7 @@ html[data-theme="dark"] {
 
 .page-eyebrow {
   color: #7ee787;
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .page-heading h1,
@@ -4324,7 +6269,7 @@ html[data-theme="dark"] {
 
 .summary-metric strong {
   color: #f0f6fc;
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .summary-metric span,
@@ -4338,7 +6283,7 @@ html[data-theme="dark"] {
 
 .task-progress__copy strong {
   color: #79c0ff;
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .task-progress__track {
@@ -4353,7 +6298,7 @@ html[data-theme="dark"] {
 .rail-heading p,
 .note-card__type {
   color: #6e7681;
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .section-link {
@@ -4380,7 +6325,7 @@ html[data-theme="dark"] {
 
 .task-composer kbd {
   color: #6e7681;
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .recent-note {
@@ -4522,7 +6467,7 @@ html[data-theme="dark"] {
 
 .agenda-item time {
   color: #6e7681;
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .agenda-item__line--green {
@@ -4662,7 +6607,7 @@ html[data-theme="dark"] {
 }
 
 .calendar-event {
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -4786,11 +6731,10 @@ html[data-theme="dark"] {
 }
 
 .settings-group {
-  border-color: var(--line);
+  background: var(--canvas-raised);
 }
 
 .settings-group header {
-  background: #161b22;
   border-bottom-color: var(--line-soft);
 }
 
@@ -4799,25 +6743,29 @@ html[data-theme="dark"] {
 }
 
 .setting-row strong {
-  color: #e6edf3;
+  color: var(--text);
 }
 
 .setting-row span {
-  color: #6e7681;
+  color: var(--text-subtle);
+}
+
+.setting-row > .setting-integration-icon {
+  color: var(--asset-tile-icon);
 }
 
 .setting-row input[type="checkbox"] {
-  background: #30363d;
+  background: var(--segmented-track);
   box-shadow: inset 0 1px 2px rgb(0 0 0 / 35%);
 }
 
 .setting-row input[type="checkbox"]::after {
-  background: #8b949e;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 32%);
+  background: var(--control-bg);
+  box-shadow: var(--shadow-control);
 }
 
 .setting-row input[type="checkbox"]:checked {
-  background: #1f6feb;
+  background: var(--system-blue);
 }
 
 .setting-row input[type="checkbox"]:checked::after {
@@ -4825,13 +6773,18 @@ html[data-theme="dark"] {
 }
 
 .setting-status {
-  color: #e3b341 !important;
-  background: rgb(210 153 34 / 12%);
+  color: var(--amber) !important;
+  background: color-mix(in srgb, var(--system-orange) 14%, transparent);
 }
 
 .setting-status--neutral {
-  color: #8b949e !important;
-  background: rgb(240 246 252 / 7%);
+  color: var(--text-muted) !important;
+  background: var(--hover-bg);
+}
+
+.setting-status--success {
+  color: var(--system-green) !important;
+  background: color-mix(in srgb, var(--system-green) 12%, transparent);
 }
 
 .app-toast {
@@ -4846,11 +6799,11 @@ html[data-theme="dark"] {
 }
 
 .appearance-row strong {
-  color: #e6edf3;
+  color: var(--text);
 }
 
 .appearance-row span {
-  color: #6e7681;
+  color: var(--text-subtle);
 }
 
 .theme-segmented {

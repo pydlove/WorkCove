@@ -1,0 +1,6 @@
+export const PRODUCT_NAME = '8小时工作台'
+export const PRODUCT_TAGLINE = '栖作 · 专注每一天'
+export const PRODUCT_VERSION = __WORKCOVE_VERSION__
+export const PRODUCT_RELEASE_CODE = __WORKCOVE_RELEASE_CODE__
+export const PRODUCT_VERSION_LABEL =
+  `${PRODUCT_VERSION} · ${PRODUCT_RELEASE_CODE}`

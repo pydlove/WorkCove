@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.pydlove.workcove.identity.infrastructure.persistence.EmailVerificationCodeMapper">
+
+    <resultMap id="emailCodeDataMap"
+               type="com.pydlove.workcove.identity.infrastructure.persistence.EmailVerificationCodeData">
+        <id property="id" column="id"/>
+        <result property="email" column="email"/>
+        <result property="codeHash" column="code_hash"/>
+        <result property="expiresAt" column="expires_at"/>
+        <result property="consumedAt" column="consumed_at"/>
+        <result property="failedAttempts" column="failed_attempts"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <select id="findActive" resultMap="emailCodeDataMap">
+        SELECT id,
+               email,
+               code_hash,
+               expires_at,
+               consumed_at,
+               failed_attempts,
+               created_at
+        FROM email_verification_code
+        WHERE email = #{email}
+          AND consumed_at IS NULL
+          AND expires_at > #{now}
+          AND failed_attempts &lt; 5
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
+    <select id="findLatestCreatedAt" resultType="java.time.Instant">
+        SELECT created_at
+        FROM email_verification_code
+        WHERE email = #{email}
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
+    <select id="countCreatedSince" resultType="int">
+        SELECT COUNT(*)
+        FROM email_verification_code
+        WHERE email = #{email}
+          AND created_at >= #{since}
+    </select>
+
+    <insert id="insert"
+            parameterType="com.pydlove.workcove.identity.infrastructure.persistence.EmailVerificationCodeData"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO email_verification_code (
+            email,
+            code_hash,
+            expires_at,
+            consumed_at,
+            failed_attempts,
+            created_at
+        )
+        VALUES (
+            #{email},
+            #{codeHash},
+            #{expiresAt},
+            #{consumedAt},
+            #{failedAttempts},
+            #{createdAt}
+        )
+    </insert>
+
+    <update id="update"
+            parameterType="com.pydlove.workcove.identity.infrastructure.persistence.EmailVerificationCodeData">
+        UPDATE email_verification_code
+        SET consumed_at = #{consumedAt},
+            failed_attempts = #{failedAttempts}
+        WHERE id = #{id}
+    </update>
+</mapper>

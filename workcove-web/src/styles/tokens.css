@@ -1,46 +1,256 @@
-/* 语义令牌：业务组件只引用变量，不直接散落主题色。 */
+/*
+ * WorkCove design tokens
+ *
+ * All visual decisions live here. Business components should consume these
+ * variables instead of introducing local colors, type scales, radii or shadows.
+ * See doc/开发规范/Web前端样式规范.md.
+ */
 :root {
-  color: #1f2328;
+  color: rgb(0 0 0 / 85%);
   color-scheme: light;
-  font-family:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
-    "Hiragino Sans GB", "Helvetica Neue", sans-serif;
+  font-family: var(--font-sans);
   font-synthesis: none;
-  text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --canvas: #f6f8fa;
+
+  /* Typography */
+  --font-sans:
+    system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, "PingFang SC", monospace;
+  --font-caption: 11px;
+  --font-body: 13px;
+  --font-title: 15px;
+  --font-metric: 22px;
+  --font-display: 28px;
+  --font-hero: 34px;
+  --font-rest-timer: 64px;
+  --line-caption: 14px;
+  --line-body: 18px;
+  --line-title: 22px;
+  --weight-regular: 400;
+  --weight-emphasis: 500;
+  --weight-strong: 600;
+
+  /* macOS system colors */
+  --system-blue: #007aff;
+  --system-blue-hover: #006edc;
+  --system-red: #ff3b30;
+  --system-orange: #ff9500;
+  --system-yellow: #ffcc00;
+  --system-green: #34c759;
+  --system-gray: #8e8e93;
+  --codex-full-access: #e25509;
+  --codex-reasoning-blue: #4a9ff5;
+  --codex-send-surface: #1d1e20;
+  --codex-send-foreground: #ffffff;
+  --codex-session-active: #f0f0f1;
+  --codex-message-text: #1a1c20;
+  --codex-message-muted: #808182;
+  --codex-message-subtle: #b0b0b1;
+  --codex-inline-code-bg: #ececed;
+  --codex-message-line: 21px;
+  --codex-inline-font: 12px;
+
+  /* Semantic labels */
+  --label: rgb(0 0 0 / 85%);
+  --label-secondary: rgb(0 0 0 / 54%);
+  --label-tertiary: rgb(0 0 0 / 38%);
+  --separator: rgb(0 0 0 / 10%);
+  --separator-soft: rgb(0 0 0 / 5%);
+  --placeholder: rgb(0 0 0 / 28%);
+
+  /* Compatibility aliases used by existing views */
+  --text: var(--label);
+  --text-muted: var(--label-secondary);
+  --text-subtle: var(--label-tertiary);
+  --icon: var(--label-secondary);
+  --icon-hover: var(--label);
+  --line: var(--separator);
+  --line-soft: var(--separator-soft);
+  --accent: var(--system-blue);
+  --accent-strong: var(--system-blue-hover);
+  --accent-soft: #e8f2ff;
+  --success: var(--system-green);
+  --coral: var(--system-red);
+  --amber: var(--system-orange);
+
+  /* Surfaces */
+  --canvas: #f5f5f7;
   --canvas-raised: #ffffff;
-  --sidebar: rgb(246 248 250 / 92%);
-  --text: #1f2328;
-  --text-muted: #59636e;
-  --text-subtle: #818b98;
-  --line: #d0d7de;
-  --line-soft: rgb(31 35 40 / 7%);
-  --accent: #0969da;
-  --accent-strong: #0550ae;
-  --accent-soft: #ddf4ff;
-  --success: #1a7f37;
-  --coral: #cf222e;
-  --amber: #9a6700;
-  --focus-ring: 0 0 0 3px rgb(9 105 218 / 16%);
+  --content: #ffffff;
+  --sidebar: rgb(247 247 248 / 88%);
+  --material: rgb(246 246 246 / 72%);
+  --window-material: rgb(246 247 248 / 94%);
+  --hover-bg: rgb(0 0 0 / 3%);
+  --selection-bg: rgb(0 122 255 / 12%);
+  --selection-label: #ffffff;
+  --surface-secondary: #f6f8fa;
+  --surface-inset: #f2f3f5;
+  --asset-tile-bg: #f5f5f7;
+  --asset-tile-border: rgb(0 0 0 / 8%);
+  --asset-tile-icon: var(--label-secondary);
+  --category-chip-bg: var(--accent-soft);
+  --category-chip-color: var(--accent);
+  --category-chip-border: transparent;
+  --rest-screen-bg: #111815;
+  --rest-screen-text: #f5f7f4;
+  --rest-screen-muted: rgb(255 255 255 / 55%);
+  --rest-screen-line: rgb(255 255 255 / 12%);
+
+  /* Controls */
+  --control-bg: #ffffff;
+  --control-border: rgb(0 0 0 / 13%);
+  --control-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 7%),
+    0 0.5px 1.5px rgb(0 0 0 / 10%);
+  --segmented-track: rgb(118 118 128 / 14%);
+  --field-bg: var(--control-bg);
+  --field-border: var(--control-border);
+
+  /* Dropdowns */
+  --dropdown-bg: var(--canvas-raised);
+  --dropdown-border: var(--line);
+  --dropdown-radius: var(--radius-panel);
+  --dropdown-shadow: var(--shadow-popover);
+  --dropdown-item-height: 32px;
+  --dropdown-item-radius: var(--radius-control);
+
+  /* Window controls */
+  --traffic-close: #ff5f57;
+  --traffic-minimize: #febc2e;
+  --traffic-zoom: #28c840;
+
+  /* Elevation */
+  --shadow-control:
+    0 0 0 0.5px rgb(0 0 0 / 7%),
+    0 0.5px 1.5px rgb(0 0 0 / 10%);
+  --shadow-panel:
+    0 0 0 0.5px rgb(0 0 0 / 5%),
+    0 1px 3px rgb(0 0 0 / 5%);
+  --shadow-popover:
+    0 0 0 0.5px rgb(0 0 0 / 7%),
+    0 6px 20px rgb(0 0 0 / 13%);
+  --window-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 16%),
+    0 18px 60px rgb(0 0 0 / 24%),
+    0 3px 12px rgb(0 0 0 / 12%);
+
+  /* Radii */
+  --radius-badge: 4px;
+  --radius-control: 6px;
+  --radius-panel: 10px;
+  --radius-window: 12px;
+  --radius-card: 16px;
+
+  /* Four-pixel spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Control and layout dimensions */
+  --control-sm: 20px;
+  --control-md: 24px;
+  --control-lg: 28px;
+  --touch-target: 44px;
+  --titlebar-height: 46px;
+  --app-footer-height: 36px;
+  --dialog-height-compact: 360px;
+  --dialog-height-standard: 560px;
+  --dialog-height-tall: 680px;
+  --sidebar-width: 216px;
+
+  /* Focus, motion and layering */
+  --focus-ring: 0 0 0 3px rgb(0 122 255 / 22%);
+  --system-blue-ring: var(--focus-ring);
+  --ease-apple: cubic-bezier(0.32, 0.72, 0, 1);
+  --duration-fast: 120ms;
+  --duration-popover: 160ms;
+  --duration-window: 200ms;
+  --z-titlebar: 20;
+  --z-overlay: 80;
+  --z-popover: 90;
+  --z-toast: 100;
+  --tooltip-bg: #1d1d1f;
+  --tooltip-text: #ffffff;
+  --scrollbar-thumb: rgb(0 0 0 / 28%);
+}
+
+html[data-font="codex"] {
+  --font-sans:
+    "WorkCove Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+html[data-font="avenir"] {
+  --font-sans:
+    "Avenir Next", Avenir, -apple-system, BlinkMacSystemFont,
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
 }
 
 html[data-theme="dark"] {
-  color: #e6edf3;
+  color: rgb(255 255 255 / 88%);
   color-scheme: dark;
-  --canvas: #0d1117;
-  --canvas-raised: #161b22;
-  --sidebar: rgb(13 17 23 / 90%);
-  --text: #e6edf3;
-  --text-muted: #8b949e;
-  --text-subtle: #6e7681;
-  --line: rgb(240 246 252 / 14%);
-  --line-soft: rgb(240 246 252 / 8%);
-  --accent: #58a6ff;
-  --accent-strong: #79c0ff;
-  --accent-soft: rgb(56 139 253 / 16%);
-  --success: #3fb950;
-  --coral: #f85149;
-  --amber: #d29922;
-  --focus-ring: 0 0 0 3px rgb(88 166 255 / 20%);
+
+  --system-blue: #0a84ff;
+  --system-blue-hover: #2993ff;
+  --system-red: #ff453a;
+  --system-orange: #ff9f0a;
+  --system-yellow: #ffd60a;
+  --system-green: #30d158;
+  --system-gray: #98989d;
+  --codex-full-access: #ff8066;
+  --codex-reasoning-blue: #0a84ff;
+  --codex-send-surface: #f4f4f5;
+  --codex-send-foreground: #18191b;
+  --codex-session-active: #2a2c2f;
+  --codex-message-text: #f2f2f3;
+  --codex-message-muted: #9b9ca0;
+  --codex-message-subtle: #707176;
+  --codex-inline-code-bg: #343538;
+
+  --label: rgb(255 255 255 / 88%);
+  --label-secondary: rgb(255 255 255 / 56%);
+  --label-tertiary: rgb(255 255 255 / 34%);
+  --separator: rgb(255 255 255 / 13%);
+  --separator-soft: rgb(255 255 255 / 8%);
+  --placeholder: rgb(255 255 255 / 28%);
+
+  --accent-soft: #0d2a4a;
+  --canvas: #1e1e1e;
+  --canvas-raised: #2c2c2e;
+  --content: #2c2c2e;
+  --sidebar: rgb(35 35 37 / 88%);
+  --material: rgb(40 40 42 / 72%);
+  --window-material: rgb(40 40 42 / 94%);
+  --hover-bg: rgb(255 255 255 / 6%);
+  --selection-bg: rgb(10 132 255 / 24%);
+  --surface-secondary: #1c2128;
+  --surface-inset: #21262d;
+  --asset-tile-bg: #e6e8ec;
+  --asset-tile-border: rgb(0 0 0 / 12%);
+  --asset-tile-icon: rgb(0 0 0 / 54%);
+  --category-chip-bg: var(--surface-inset);
+  --category-chip-color: var(--label-secondary);
+  --category-chip-border: var(--separator-soft);
+
+  --control-bg: rgb(255 255 255 / 7%);
+  --control-border: rgb(255 255 255 / 13%);
+  --control-shadow: 0 0 0 0.5px rgb(255 255 255 / 9%);
+  --segmented-track: rgb(118 118 128 / 24%);
+
+  --shadow-control: 0 0 0 0.5px rgb(255 255 255 / 9%);
+  --shadow-panel: 0 0 0 0.5px rgb(255 255 255 / 6%);
+  --shadow-popover:
+    0 0 0 0.5px rgb(255 255 255 / 10%),
+    0 8px 24px rgb(0 0 0 / 50%);
+  --window-shadow:
+    0 0 0 0.5px rgb(255 255 255 / 12%),
+    0 20px 64px rgb(0 0 0 / 58%);
+
+  --focus-ring: 0 0 0 3px rgb(10 132 255 / 34%);
+  --scrollbar-thumb: rgb(255 255 255 / 28%);
 }

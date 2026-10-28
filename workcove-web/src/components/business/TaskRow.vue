@@ -109,7 +109,7 @@ const priorityLabels = {
   display: block;
   margin-top: 3px;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.35;
 }
 
@@ -121,7 +121,7 @@ const priorityLabels = {
 
 .task-priority {
   padding: 3px 7px;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 620;
   border-radius: 5px;
 }
@@ -211,7 +211,7 @@ html[data-theme="dark"] {
   }
 
   .task-priority {
-    font-size: 8px;
+    font-size: 11px;
   }
 }
 </style>

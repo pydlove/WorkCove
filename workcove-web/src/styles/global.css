@@ -13,12 +13,17 @@ body,
 
 body {
   overflow: hidden;
-  background: #eaeef2;
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  background: var(--canvas);
 }
 
 button,
 input,
-textarea {
+textarea,
+select {
   color: inherit;
   font: inherit;
 }
@@ -40,27 +45,56 @@ a {
 
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.6;
+  opacity: 0.4;
+}
+
+/*
+ * Row action icons stay visually quiet until hover. The trash icon is
+ * destructive everywhere, so it always carries the system danger color.
+ */
+button[aria-label]:has(svg.lucide-pencil) {
+  background: transparent;
+}
+
+button[aria-label]:has(svg.lucide-trash-2) {
+  color: var(--system-red);
+  background: transparent;
+}
+
+button[aria-label]:has(svg.lucide-trash-2):hover:not(:disabled) {
+  color: var(--system-red);
+  background: color-mix(in srgb, var(--system-red) 8%, transparent);
 }
 
 input,
-textarea {
+textarea,
+select {
   outline: none;
 }
 
 input::placeholder,
 textarea::placeholder {
-  color: #8c959f;
+  color: var(--placeholder);
+  opacity: 1;
 }
 
 ::selection {
-  color: #1f2328;
-  background: #b6e3ff;
+  color: var(--selection-label);
+  background: var(--system-blue);
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--system-blue);
+  outline-offset: 2px;
 }
 
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -68,48 +102,18 @@ textarea::placeholder {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(31 35 40 / 16%);
+  background-color: transparent;
   background-clip: content-box;
-  border: 3px solid transparent;
+  border: 2px solid transparent;
   border-radius: 999px;
 }
 
+*:hover::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+}
+
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(31 35 40 / 28%);
-  background-clip: content-box;
-}
-
-:focus-visible {
-  outline: 2px solid rgb(9 105 218 / 68%);
-  outline-offset: 2px;
-}
-
-html[data-theme="dark"] body {
-  background: #090d12;
-}
-
-html[data-theme="dark"] input::placeholder,
-html[data-theme="dark"] textarea::placeholder {
-  color: #6e7681;
-}
-
-html[data-theme="dark"] ::selection {
-  color: #f0f6fc;
-  background: rgb(56 139 253 / 48%);
-}
-
-html[data-theme="dark"] ::-webkit-scrollbar-thumb {
-  background: rgb(240 246 252 / 16%);
-  background-clip: content-box;
-}
-
-html[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
-  background: rgb(240 246 252 / 28%);
-  background-clip: content-box;
-}
-
-html[data-theme="dark"] :focus-visible {
-  outline-color: rgb(88 166 255 / 72%);
+  background-color: var(--label-secondary);
 }
 
 @media (prefers-reduced-motion: reduce) {

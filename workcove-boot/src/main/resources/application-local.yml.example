@@ -1,0 +1,13 @@
+spring:
+  datasource:
+    username: workcove_app
+    password: "ENC(v1:REPLACE_WITH_ENCRYPTED_DATABASE_PASSWORD)"
+  mail:
+    host: smtp.126.com
+    port: 465
+    username: "ENC(v1:REPLACE_WITH_ENCRYPTED_SMTP_USERNAME)"
+    password: "ENC(v1:REPLACE_WITH_ENCRYPTED_SMTP_PASSWORD)"
+
+workcove:
+  mail:
+    mode: smtp

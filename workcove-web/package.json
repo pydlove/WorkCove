@@ -1,16 +1,25 @@
 {
   "name": "workcove-web",
-  "version": "0.1.0",
+  "version": "0.2.5",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "pnpm check:ui && pnpm check:isolation && vue-tsc --noEmit && vite build",
+    "check:ui": "node scripts/check-ui-conventions.mjs",
+    "check:isolation": "node scripts/check-user-isolation.mjs",
     "typecheck": "vue-tsc --noEmit",
+    "test:zentao-test": "node --experimental-strip-types --test tests/zentaoTestResult.test.ts",
+    "test:zentao-resolution": "node --experimental-strip-types --test tests/zentaoResolution.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {
     "@lucide/vue": "^1.61.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "chinese-days": "1.5.9",
+    "dompurify": "^3.4.17",
+    "marked": "^18.1.2",
     "pinia": "^3.0.3",
     "vue": "^3.5.22",
     "vue-router": "^4.5.1"
