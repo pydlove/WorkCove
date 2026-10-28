@@ -1,73 +1,88 @@
 <script setup lang="ts">
-import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail } from '@lucide/vue'
-import { computed, nextTick, onMounted, ref } from 'vue'
+import {
+  ArrowRight,
+  Eye,
+  EyeOff,
+  LockKeyhole,
+  Mail,
+  ShieldCheck,
+} from '@lucide/vue'
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+} from 'vue'
 import { useRouter } from 'vue-router'
 
+import { ApiError } from '@/api/http'
+import { PRODUCT_NAME, PRODUCT_TAGLINE } from '@/brand'
 import AppTitlebar from '@/components/business/AppTitlebar.vue'
 import BrandMark from '@/components/ui/BrandMark.vue'
-import {
-  authenticateLocalAccount,
-  emailToDisplayName,
-  LocalAuthError,
-  normalizeEmail,
-  registerLocalAccount,
-} from '@/services/localAuth'
 import { useAuthStore } from '@/stores/useAuthStore'
 
 type AuthMode = 'login' | 'register'
 
-const LAST_EMAIL_KEY = 'workcove.last-email'
-
 const router = useRouter()
-const session = useAuthStore()
+const auth = useAuthStore()
 
 const authMode = ref<AuthMode>('login')
-const email = ref(window.localStorage.getItem(LAST_EMAIL_KEY) ?? '')
+const email = ref('')
+const emailCode = ref('')
 const password = ref('')
 const confirmPassword = ref('')
 const remember = ref(true)
 const passwordVisible = ref(false)
 const confirmPasswordVisible = ref(false)
 const submitting = ref(false)
+const sendingCode = ref(false)
+const resendSeconds = ref(0)
 const errorMessage = ref('')
+const noticeMessage = ref('')
 const emailInput = ref<HTMLInputElement | null>(null)
+const passwordInput = ref<HTMLInputElement | null>(null)
 
-const now = new Date()
+let countdownTimer: number | null = null
 const isRegisterMode = computed(() => authMode.value === 'register')
-const dayNumber = computed(() =>
-  new Intl.DateTimeFormat('zh-CN', { day: '2-digit' }).format(now),
-)
-const monthAndWeek = computed(() =>
-  new Intl.DateTimeFormat('zh-CN', {
-    month: 'long',
-    weekday: 'long',
-  }).format(now),
-)
+const codeButtonLabel = computed(() => {
+  if (resendSeconds.value > 0) return `${resendSeconds.value}s 后重发`
+  return sendingCode.value ? '发送中…' : '获取验证码'
+})
+
+function normalizeEmail(value: string) {
+  return value.trim().toLocaleLowerCase('en-US')
+}
 
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
 
-async function completeSignIn(accountEmail: string, useRemember: boolean) {
-  const normalizedEmail = normalizeEmail(accountEmail)
-  window.localStorage.setItem(LAST_EMAIL_KEY, normalizedEmail)
-  session.signIn(
-    emailToDisplayName(normalizedEmail),
-    useRemember,
-    normalizedEmail,
-  )
-  await router.push({ name: 'dashboard' })
+function errorText(error: unknown) {
+  if (error instanceof ApiError) return error.message
+  return '无法连接账号服务，请确认后端已启动'
 }
 
-async function handleSubmit() {
-  const normalizedEmail = normalizeEmail(email.value)
-
-  if (!normalizedEmail) {
-    errorMessage.value = '请输入邮箱'
-    await nextTick()
-    emailInput.value?.focus()
-    return
+function stopCountdown() {
+  if (countdownTimer !== null) {
+    window.clearInterval(countdownTimer)
+    countdownTimer = null
   }
+}
+
+function startCountdown() {
+  stopCountdown()
+  resendSeconds.value = 60
+  countdownTimer = window.setInterval(() => {
+    resendSeconds.value -= 1
+    if (resendSeconds.value <= 0) stopCountdown()
+  }, 1000)
+}
+
+async function sendCode() {
+  const normalizedEmail = normalizeEmail(email.value)
+  errorMessage.value = ''
+  noticeMessage.value = ''
 
   if (!isValidEmail(normalizedEmail)) {
     errorMessage.value = '请输入有效的邮箱地址'
@@ -76,58 +91,100 @@ async function handleSubmit() {
     return
   }
 
+  sendingCode.value = true
+  try {
+    await auth.sendRegistrationCode(normalizedEmail)
+    startCountdown()
+    noticeMessage.value = `验证码已发送至 ${normalizedEmail}，5 分钟内有效。`
+  } catch (error) {
+    errorMessage.value = errorText(error)
+  } finally {
+    sendingCode.value = false
+  }
+}
+
+async function handleSubmit() {
+  const normalizedEmail = normalizeEmail(email.value)
+  errorMessage.value = ''
+  noticeMessage.value = ''
+
+  if (!normalizedEmail) {
+    errorMessage.value = '请输入邮箱'
+    await nextTick()
+    emailInput.value?.focus()
+    return
+  }
+  if (!isValidEmail(normalizedEmail)) {
+    errorMessage.value = '请输入有效的邮箱地址'
+    await nextTick()
+    emailInput.value?.focus()
+    return
+  }
   if (!password.value) {
     errorMessage.value = '请输入密码'
     return
   }
-
+  if (isRegisterMode.value && !/^\d{6}$/.test(emailCode.value.trim())) {
+    errorMessage.value = '请输入 6 位邮箱验证码'
+    return
+  }
   if (isRegisterMode.value && password.value.length < 8) {
     errorMessage.value = '密码至少需要 8 个字符'
     return
   }
-
   if (isRegisterMode.value && password.value !== confirmPassword.value) {
     errorMessage.value = '两次输入的密码不一致'
     return
   }
 
   submitting.value = true
-  errorMessage.value = ''
-
   try {
     if (isRegisterMode.value) {
-      await registerLocalAccount(normalizedEmail, password.value)
-    } else {
-      await authenticateLocalAccount(normalizedEmail, password.value)
+      await auth.register({
+        email: normalizedEmail,
+        emailCode: emailCode.value.trim(),
+        password: password.value,
+        confirmPassword: confirmPassword.value,
+      })
+      stopCountdown()
+      resendSeconds.value = 0
+      emailCode.value = ''
+      password.value = ''
+      confirmPassword.value = ''
+      passwordVisible.value = false
+      confirmPasswordVisible.value = false
+      authMode.value = 'login'
+      noticeMessage.value = '账号已创建，请使用邮箱和密码登录。'
+      await nextTick()
+      passwordInput.value?.focus()
+      return
     }
 
-    await completeSignIn(normalizedEmail, remember.value)
+    await auth.login(normalizedEmail, password.value, remember.value)
+    await router.push({ name: 'dashboard' })
   } catch (error) {
-    if (error instanceof LocalAuthError) {
-      errorMessage.value =
-        error.code === 'EMAIL_EXISTS'
-          ? '该邮箱已经注册，请直接登录'
-          : '邮箱或密码不正确'
-    } else {
-      errorMessage.value = '账号操作失败，请稍后重试'
-    }
+    errorMessage.value = errorText(error)
   } finally {
     submitting.value = false
   }
 }
 
 async function previewWorkbench() {
-  session.signIn('Yong', false)
+  await auth.startPreview()
   await router.push({ name: 'dashboard' })
 }
 
 async function switchMode(mode: AuthMode) {
+  stopCountdown()
   authMode.value = mode
+  emailCode.value = ''
   password.value = ''
   confirmPassword.value = ''
   passwordVisible.value = false
   confirmPasswordVisible.value = false
+  resendSeconds.value = 0
   errorMessage.value = ''
+  noticeMessage.value = ''
   await nextTick()
   emailInput.value?.focus()
 }
@@ -135,39 +192,46 @@ async function switchMode(mode: AuthMode) {
 onMounted(() => {
   emailInput.value?.focus()
 })
+
+onBeforeUnmount(stopCountdown)
 </script>
 
 <template>
   <main class="login-stage">
     <section class="login-window" aria-labelledby="login-title">
-      <AppTitlebar title="WorkCove 栖作" />
+      <AppTitlebar :title="PRODUCT_NAME" />
 
       <div class="login-window__body">
         <aside class="login-story">
-          <div class="story-grid" aria-hidden="true" />
-
           <div class="story-brand">
             <BrandMark :size="36" />
             <div>
-              <p class="story-brand__name">WorkCove</p>
-              <p class="story-brand__meta">栖作 · Personal workspace</p>
+              <p class="story-brand__name">{{ PRODUCT_NAME }}</p>
+              <p class="story-brand__meta">{{ PRODUCT_TAGLINE }}</p>
             </div>
           </div>
 
           <div class="story-copy">
-            <p class="story-kicker">YOUR DAY, IN ONE PLACE</p>
-            <h1>把今天，<br />放在一张桌上。</h1>
+            <p class="story-kicker">8小时工作平台</p>
+            <h1>把工作，<br />放回自己的节奏。</h1>
             <p class="story-intro">
-              任务、笔记与日程，回到同一个安静的工作空间。
+              时间、常用网址与本地软件，在一个安静的工作台里触手可及。
             </p>
           </div>
 
-          <div class="story-date">
-            <span class="story-date__number">{{ dayNumber }}</span>
-            <span class="story-date__copy">
-              {{ monthAndWeek }}
-              <small>本地工作台</small>
-            </span>
+          <div class="story-features">
+            <div>
+              <strong>时间节奏</strong>
+              <span>把握每一天</span>
+            </div>
+            <div>
+              <strong>快捷入口</strong>
+              <span>常用网址一处打开</span>
+            </div>
+            <div>
+              <strong>本地工具</strong>
+              <span>工作应用随手可达</span>
+            </div>
           </div>
         </aside>
 
@@ -175,9 +239,6 @@ onMounted(() => {
           <div class="login-panel__inner">
             <div class="login-heading">
               <div class="login-heading__top">
-                <p class="login-heading__eyebrow">
-                  {{ isRegisterMode ? 'CREATE ACCOUNT' : 'WELCOME BACK' }}
-                </p>
                 <div
                   class="auth-mode-tabs"
                   role="tablist"
@@ -206,18 +267,23 @@ onMounted(() => {
                 </div>
               </div>
               <h2 id="login-title">
-                {{ isRegisterMode ? '创建本地账号' : '登录到工作台' }}
+                {{ isRegisterMode ? '创建账号' : '欢迎回来' }}
               </h2>
               <p>
                 {{
                   isRegisterMode
-                    ? '使用邮箱创建你的本地工作台账号。'
-                    : '继续今天的任务与记录。'
+                    ? `使用邮箱验证码创建 ${PRODUCT_NAME}账号。`
+                    : '登录后继续处理今天的工作。'
                 }}
               </p>
             </div>
 
-            <form class="login-form" novalidate @submit.prevent="handleSubmit">
+            <form
+              class="login-form"
+              :class="{ 'login-form--register': isRegisterMode }"
+              novalidate
+              @submit.prevent="handleSubmit"
+            >
               <label class="form-field">
                 <span class="form-field__label">邮箱</span>
                 <span class="form-field__control">
@@ -236,11 +302,39 @@ onMounted(() => {
                 </span>
               </label>
 
+              <label v-if="isRegisterMode" class="form-field">
+                <span class="form-field__label">邮箱验证码</span>
+                <span class="form-field__control form-field__control--code">
+                  <ShieldCheck :size="16" aria-hidden="true" />
+                  <input
+                    v-model="emailCode"
+                    type="text"
+                    name="email-code"
+                    inputmode="numeric"
+                    maxlength="6"
+                    autocomplete="one-time-code"
+                    aria-label="邮箱验证码"
+                    placeholder="6 位数字"
+                  />
+                  <button
+                    class="code-send"
+                    type="button"
+                    :disabled="
+                      sendingCode || resendSeconds > 0 || submitting
+                    "
+                    @click="sendCode"
+                  >
+                    {{ codeButtonLabel }}
+                  </button>
+                </span>
+              </label>
+
               <label class="form-field">
                 <span class="form-field__label">密码</span>
                 <span class="form-field__control">
                   <LockKeyhole :size="16" aria-hidden="true" />
                   <input
+                    ref="passwordInput"
                     v-model="password"
                     :type="passwordVisible ? 'text' : 'password'"
                     name="password"
@@ -294,7 +388,7 @@ onMounted(() => {
                 </span>
               </label>
 
-              <div class="form-options">
+              <div v-if="!isRegisterMode" class="form-options">
                 <label class="remember-control">
                   <input v-model="remember" type="checkbox" />
                   <span class="remember-control__box">
@@ -302,11 +396,15 @@ onMounted(() => {
                   </span>
                   <span>保持登录</span>
                 </label>
-                <span class="secure-hint">仅保存在此 Mac</span>
+                <span class="secure-hint">安全会话</span>
               </div>
 
               <p v-if="isRegisterMode" class="local-account-note">
-                账号和密码摘要保存在当前 Mac，不会发送验证邮件。
+                验证码 5 分钟内有效，同一邮箱 60 秒后可重发。
+              </p>
+
+              <p v-if="noticeMessage" class="form-notice" role="status">
+                {{ noticeMessage }}
               </p>
 
               <p v-if="errorMessage" class="form-error" role="alert">
@@ -334,11 +432,6 @@ onMounted(() => {
             </div>
           </div>
 
-          <footer class="login-footer">
-            <span class="login-footer__dot" />
-            <span>macOS 本地应用 · 原型</span>
-            <span class="login-footer__version">v0.1</span>
-          </footer>
         </section>
       </div>
     </section>
@@ -355,26 +448,14 @@ onMounted(() => {
   padding: 42px;
   place-items: center;
   background:
-    linear-gradient(124deg, #eef2f5 0%, #f6f8fa 48%, #e9edf2 100%);
-}
-
-.login-stage::before {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  content: "";
-  background-image:
-    linear-gradient(rgb(31 35 40 / 4%) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(31 35 40 / 4%) 1px, transparent 1px);
-  background-size: 56px 56px;
-  mask-image: linear-gradient(to bottom, rgb(0 0 0 / 2%), #000 60%, rgb(0 0 0 / 10%));
+    linear-gradient(128deg, #edf1f5 0%, #f7f8fa 50%, #e7ebf0 100%);
 }
 
 .login-window {
   position: relative;
   display: flex;
-  width: min(100%, 1000px);
-  min-height: 630px;
+  width: min(100%, 1120px);
+  min-height: 680px;
   overflow: hidden;
   flex-direction: column;
   background: var(--canvas-raised);
@@ -389,9 +470,9 @@ onMounted(() => {
 
 .login-window__body {
   display: grid;
-  min-height: 584px;
+  min-height: 634px;
   flex: 1;
-  grid-template-columns: minmax(340px, 0.94fr) minmax(400px, 1.06fr);
+  grid-template-columns: minmax(0, 1.06fr) minmax(380px, 0.94fr);
 }
 
 .login-story {
@@ -400,45 +481,22 @@ onMounted(() => {
   overflow: hidden;
   flex-direction: column;
   justify-content: space-between;
-  padding: 44px 46px 40px;
-  background: #f6f8fa;
-  border-right: 1px solid var(--line-soft);
-}
-
-.login-story::after {
-  position: absolute;
-  top: 110px;
-  right: 34px;
-  bottom: 142px;
-  width: 1px;
-  pointer-events: none;
-  content: "";
+  padding: 42px 44px 34px;
   background: linear-gradient(
-    to bottom,
-    transparent,
-    rgb(88 166 255 / 32%) 28%,
-    rgb(126 231 135 / 24%) 72%,
-    transparent
-  );
-}
-
-.story-grid {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image: linear-gradient(
-    90deg,
-    transparent 0,
-    transparent calc(100% - 1px),
-    rgb(31 35 40 / 6%) calc(100% - 1px)
-  );
-  background-size: 116px 100%;
-  opacity: 0.42;
+      180deg,
+      rgb(3 12 22 / 34%) 0%,
+      rgb(3 12 22 / 10%) 38%,
+      rgb(3 12 22 / 78%) 100%
+    ),
+    url("@/assets/auth/workcove-login-glass.webp") center / cover no-repeat,
+    #07111c;
+  border-right: 1px solid rgb(255 255 255 / 7%);
+  isolation: isolate;
 }
 
 .story-brand,
 .story-copy,
-.story-date {
+.story-features {
   position: relative;
   z-index: 1;
 }
@@ -449,90 +507,107 @@ onMounted(() => {
   gap: 12px;
 }
 
+.story-brand > div {
+  min-width: 0;
+}
+
 .story-brand p {
   margin: 0;
 }
 
 .story-brand__name {
-  color: var(--text);
+  overflow: hidden;
+  color: #ffffff;
   font-size: 14px;
   font-weight: 700;
   letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .story-brand__meta {
   margin-top: 2px !important;
-  color: var(--text-subtle);
-  font-size: 9px;
+  color: rgb(255 255 255 / 52%);
+  font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.12em;
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   text-transform: uppercase;
 }
 
 .story-copy {
   max-width: 390px;
-  margin-top: 56px;
+  margin-top: auto;
+  padding-top: 48px;
 }
 
 .story-kicker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin: 0 0 20px;
-  color: var(--success);
-  font-size: 10px;
+  color: rgb(255 255 255 / 62%);
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.13em;
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
+}
+
+.story-kicker::before {
+  width: 28px;
+  height: 1px;
+  content: "";
+  background: rgb(255 255 255 / 34%);
 }
 
 .story-copy h1 {
   margin: 0;
-  color: var(--text);
-  font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
-  font-size: clamp(32px, 3.8vw, 47px);
+  color: #ffffff;
+  font-family: var(--font-sans);
+  font-size: clamp(36px, 4vw, 50px);
   font-weight: 630;
   letter-spacing: 0;
-  line-height: 1.12;
+  line-height: 1.16;
   white-space: nowrap;
+  text-shadow: 0 2px 24px rgb(0 0 0 / 18%);
 }
 
 .story-intro {
-  max-width: 290px;
+  max-width: 330px;
   margin: 23px 0 0;
-  color: var(--text-muted);
+  color: rgb(255 255 255 / 66%);
   font-size: 14px;
   line-height: 1.75;
 }
 
-.story-date {
-  display: flex;
-  align-items: center;
-  gap: 17px;
-  padding-top: 24px;
-  border-top: 1px solid var(--line-soft);
+.story-features {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  padding-top: 20px;
+  margin-top: 34px;
+  border-top: 1px solid rgb(255 255 255 / 14%);
 }
 
-.story-date__number {
-  color: var(--accent-strong);
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
-  font-size: 43px;
-  font-weight: 550;
-  letter-spacing: 0;
-  line-height: 0.9;
-}
-
-.story-date__copy {
+.story-features > div {
   display: flex;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 550;
-  line-height: 1.6;
+  min-width: 0;
   flex-direction: column;
+  gap: 4px;
 }
 
-.story-date__copy small {
-  color: var(--text-subtle);
-  font-size: 10px;
-  font-weight: 500;
+.story-features strong {
+  color: rgb(255 255 255 / 88%);
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.story-features span {
+  overflow: hidden;
+  color: rgb(255 255 255 / 42%);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .login-panel {
@@ -547,25 +622,16 @@ onMounted(() => {
 }
 
 .login-panel__inner {
-  width: min(100%, 342px);
+  width: min(100%, 352px);
   margin: auto;
 }
 
 .login-heading__top {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 16px;
   margin-bottom: 12px;
-}
-
-.login-heading__eyebrow {
-  margin: 0;
-  color: var(--accent);
-  font-size: 9px;
-  font-weight: 750;
-  letter-spacing: 0.15em;
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
 }
 
 .auth-mode-tabs {
@@ -583,7 +649,7 @@ onMounted(() => {
   height: 24px;
   padding: 0 9px;
   color: var(--text-subtle);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 550;
   background: transparent;
   border-radius: 4px;
@@ -605,8 +671,8 @@ onMounted(() => {
 .login-heading h2 {
   margin: 0;
   color: var(--text);
-  font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
-  font-size: 28px;
+  font-family: var(--font-sans);
+  font-size: 32px;
   font-weight: 630;
   letter-spacing: 0;
   line-height: 1.2;
@@ -625,6 +691,11 @@ onMounted(() => {
   flex-direction: column;
 }
 
+.login-form--register {
+  margin-top: 26px;
+  gap: 14px;
+}
+
 .form-field {
   display: flex;
   gap: 8px;
@@ -635,7 +706,7 @@ onMounted(() => {
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 600;
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .form-field__control {
@@ -676,6 +747,32 @@ onMounted(() => {
 
 .form-field__control input:focus-visible {
   outline: none;
+}
+
+.form-field__control--code {
+  padding-right: 5px;
+}
+
+.code-send {
+  height: 29px;
+  flex: 0 0 auto;
+  padding: 0 9px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--accent-soft);
+  border-radius: 5px;
+}
+
+.code-send:hover:not(:disabled) {
+  color: #ffffff;
+  background: var(--accent);
+}
+
+.code-send:disabled {
+  color: var(--text-subtle);
+  background: rgb(31 35 40 / 5%);
 }
 
 .password-toggle {
@@ -755,7 +852,7 @@ onMounted(() => {
 
 .secure-hint {
   color: var(--text-subtle);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .form-error {
@@ -764,10 +861,20 @@ onMounted(() => {
   font-size: 11px;
 }
 
+.form-notice {
+  padding: 8px 10px;
+  margin: -5px 0;
+  color: #1a7f37;
+  font-size: 11px;
+  line-height: 1.5;
+  background: rgb(26 127 55 / 7%);
+  border-radius: 6px;
+}
+
 .local-account-note {
   margin: -6px 0 -2px;
   color: var(--text-subtle);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.55;
 }
 
@@ -821,7 +928,7 @@ onMounted(() => {
   gap: 5px;
   margin-top: 23px;
   color: var(--text-subtle);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .login-secondary button {
@@ -836,27 +943,6 @@ onMounted(() => {
   color: var(--accent-strong);
   text-decoration: underline;
   text-underline-offset: 3px;
-}
-
-.login-footer {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 28px;
-  color: var(--text-subtle);
-  font-size: 9px;
-}
-
-.login-footer__dot {
-  width: 5px;
-  height: 5px;
-  background: var(--success);
-  border-radius: 50%;
-}
-
-.login-footer__version {
-  margin-left: auto;
-  font-variant-numeric: tabular-nums;
 }
 
 @keyframes login-window-in {
@@ -889,7 +975,7 @@ onMounted(() => {
   }
 
   .story-copy h1 {
-    font-size: 38px;
+    font-size: 33px;
   }
 
   .login-panel {
@@ -922,19 +1008,20 @@ onMounted(() => {
   }
 
   .login-story {
-    min-height: 214px;
+    min-height: 280px;
     padding: 30px 28px;
     border-right: 0;
     border-bottom: 1px solid var(--line-soft);
   }
 
   .story-copy {
-    margin-top: 30px;
+    margin-top: 42px;
+    padding-top: 0;
   }
 
   .story-kicker,
   .story-intro,
-  .story-date {
+  .story-features {
     display: none;
   }
 
@@ -955,14 +1042,7 @@ onMounted(() => {
 html[data-theme="dark"] {
   .login-stage {
     background:
-      linear-gradient(124deg, #080c11 0%, #101720 48%, #0a0f15 100%);
-  }
-
-  .login-stage::before {
-    background-image:
-      linear-gradient(rgb(240 246 252 / 4%) 1px, transparent 1px),
-      linear-gradient(90deg, rgb(240 246 252 / 4%) 1px, transparent 1px);
-    mask-image: linear-gradient(to bottom, rgb(0 0 0 / 12%), #000 60%, rgb(0 0 0 / 24%));
+      linear-gradient(128deg, #080c11 0%, #111820 50%, #090e14 100%);
   }
 
   .login-window {
@@ -973,26 +1053,12 @@ html[data-theme="dark"] {
       inset 0 0 0 1px rgb(255 255 255 / 5%);
   }
 
-  .login-story {
-    background: #0f141a;
-  }
-
-  .story-grid {
-    background-image: linear-gradient(
-      90deg,
-      transparent 0,
-      transparent calc(100% - 1px),
-      rgb(240 246 252 / 6%) calc(100% - 1px)
-    );
-  }
-
-  .story-brand__meta,
-  .story-date__copy small {
-    color: #6e7681;
+  .story-brand__meta {
+    color: rgb(255 255 255 / 52%);
   }
 
   .story-kicker {
-    color: #7ee787;
+    color: #b9ddff;
   }
 
   .story-copy h1,
@@ -1002,11 +1068,7 @@ html[data-theme="dark"] {
 
   .story-intro,
   .form-field__label {
-    color: #8b949e;
-  }
-
-  .story-date__copy {
-    color: #c9d1d9;
+    color: rgb(255 255 255 / 60%);
   }
 
   .login-panel {
@@ -1046,6 +1108,26 @@ html[data-theme="dark"] {
       inset 0 0 0 1px rgb(240 246 252 / 7%);
   }
 
+  .code-send {
+    color: #79c0ff;
+    background: rgb(56 139 253 / 12%);
+  }
+
+  .code-send:hover:not(:disabled) {
+    color: #ffffff;
+    background: #1f6feb;
+  }
+
+  .code-send:disabled {
+    color: #6e7681;
+    background: rgb(240 246 252 / 6%);
+  }
+
+  .form-notice {
+    color: #7ee787;
+    background: rgb(63 185 80 / 10%);
+  }
+
   .password-toggle {
     color: #6e7681;
   }
@@ -1066,7 +1148,6 @@ html[data-theme="dark"] {
 
   .secure-hint,
   .login-secondary,
-  .login-footer,
   .local-account-note {
     color: #6e7681;
   }

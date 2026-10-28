@@ -3,7 +3,8 @@ interface ApiErrorBody {
   message?: string
 }
 
-const DEFAULT_TIMEOUT_MS = 15_000
+const DEFAULT_TIMEOUT_MS = 20_000
+const GET_RETRY_DELAY_MS = 400
 
 export class ApiError extends Error {
   readonly code: string
@@ -33,6 +34,7 @@ async function request(
   try {
     const response = await fetch(apiUrl(path), {
       ...init,
+      credentials: 'include',
       signal: controller.signal,
       headers: {
         Accept: 'application/json',
@@ -65,18 +67,160 @@ async function request(
   }
 }
 
+function shouldRetryGet(error: unknown) {
+  if (error instanceof ApiError) {
+    return (
+      error.code === 'TIMEOUT' ||
+      error.status === 502 ||
+      error.status === 503 ||
+      error.status === 504
+    )
+  }
+  return error instanceof TypeError
+}
+
+async function retryGetAfterTransientError(path: string) {
+  await new Promise((resolve) => {
+    globalThis.setTimeout(resolve, GET_RETRY_DELAY_MS)
+  })
+  return request(path)
+}
+
 export async function get<T>(path: string): Promise<T> {
-  const response = await request(path)
+  let response: Response
+  try {
+    response = await request(path)
+  } catch (error) {
+    if (!shouldRetryGet(error)) throw error
+    response = await retryGetAfterTransientError(path)
+  }
   return (await response.json()) as T
 }
 
 export async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await request(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  return postJsonWithHeaders<T>(path, body)
+}
+
+export async function postJsonWithHeaders<T>(
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<T> {
+  const response = await request(
+    path,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...headers,
+      },
+      body: JSON.stringify(body ?? {}),
+    },
+    timeoutMs,
+  )
+  return (await response.json()) as T
+}
+
+export async function postFormWithHeaders(
+  path: string,
+  form: FormData,
+  headers: Record<string, string> = {},
+  timeoutMs = 60_000,
+): Promise<void> {
+  await request(
+    path,
+    {
+      method: 'POST',
+      headers,
+      body: form,
+    },
+    timeoutMs,
+  )
+}
+
+export async function postFormJsonWithHeaders<T>(
+  path: string,
+  form: FormData,
+  headers: Record<string, string> = {},
+  timeoutMs = 60_000,
+): Promise<T> {
+  const response = await request(
+    path,
+    {
+      method: 'POST',
+      headers,
+      body: form,
+    },
+    timeoutMs,
+  )
+  return (await response.json()) as T
+}
+
+export async function postJsonNoContentWithHeaders(
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<void> {
+  await request(
+    path,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...headers,
+      },
+      body: JSON.stringify(body ?? {}),
+    },
+    timeoutMs,
+  )
+}
+
+export async function putJsonWithHeaders<T>(
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<T> {
+  const response = await request(
+    path,
+    {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...headers,
+      },
+      body: JSON.stringify(body ?? {}),
+    },
+    timeoutMs,
+  )
+  return (await response.json()) as T
+}
+
+export async function putJsonNoContentWithHeaders(
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<void> {
+  await request(path, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...headers,
+    },
     body: JSON.stringify(body ?? {}),
   })
-  return (await response.json()) as T
+}
+
+export async function deleteNoContentWithHeaders(
+  path: string,
+  headers: Record<string, string> = {},
+): Promise<void> {
+  await request(path, {
+    method: 'DELETE',
+    headers,
+  })
 }
 
 export async function postJsonNoContent(

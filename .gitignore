@@ -5,6 +5,7 @@ dist
 .artifacts
 .vscode
 *.iml
+*.iconset
 out
 *.local
 .env
@@ -14,3 +15,4 @@ out
 **/application-test.yml
 **/target
 *.log
+/log/

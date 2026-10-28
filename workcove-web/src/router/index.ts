@@ -32,8 +32,9 @@ const router = createRouter({
   ],
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const auth = useAuthStore(pinia)
+  await auth.initialize()
 
   if (!to.meta.public && !auth.authenticated) {
     return { name: 'login' }

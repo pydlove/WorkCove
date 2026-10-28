@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import logoMark from '@/assets/brand/workcove-mark.png'
+
 withDefaults(
   defineProps<{
     size?: number
@@ -15,8 +17,7 @@ withDefaults(
     :style="{ width: `${size}px`, height: `${size}px` }"
     aria-hidden="true"
   >
-    <span class="brand-mark__bar" />
-    <span class="brand-mark__letter">W</span>
+    <img :src="logoMark" alt="" draggable="false" />
   </span>
 </template>
 
@@ -28,29 +29,15 @@ withDefaults(
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  color: #e6edf3;
-  background: #161b22;
-  border-radius: 9px;
-  box-shadow:
-    inset 0 0 0 1px rgb(240 246 252 / 10%),
-    0 2px 7px rgb(0 0 0 / 30%);
+  background: var(--canvas-raised);
+  border-radius: 22%;
+  box-shadow: var(--shadow-control);
 }
 
-.brand-mark__bar {
-  position: absolute;
-  top: 0;
-  left: 0;
+.brand-mark img {
   width: 100%;
-  height: 4px;
-  background: #58a6ff;
-}
-
-.brand-mark__letter {
-  padding-top: 2px;
-  font-family: "SF Pro Display", "Helvetica Neue", sans-serif;
-  font-size: 0.9em;
-  font-weight: 700;
-  letter-spacing: 0;
-  transform: scale(0.84);
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
 }
 </style>
