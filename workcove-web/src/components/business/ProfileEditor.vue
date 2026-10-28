@@ -11,6 +11,7 @@ import {
 } from '@lucide/vue'
 import { computed, reactive, ref, watch } from 'vue'
 
+import UiConfirmDialog from '@/components/ui/UiConfirmDialog.vue'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { fileToSquareWebp } from '@/utils/image'
 
@@ -23,6 +24,7 @@ const avatarInput = ref<HTMLInputElement | null>(null)
 const errorMessage = ref('')
 const avatarError = ref('')
 const saving = ref(false)
+const confirmingAvatarRemoval = ref(false)
 const baseline = ref('')
 const form = reactive({
   username: '',
@@ -99,8 +101,13 @@ async function handleAvatar(event: Event) {
 }
 
 function removeAvatar() {
+  confirmingAvatarRemoval.value = true
+}
+
+function confirmRemoveAvatar() {
   form.avatarDataUrl = null
   avatarError.value = ''
+  confirmingAvatarRemoval.value = false
 }
 
 function resetForm() {
@@ -230,11 +237,10 @@ async function saveProfile() {
     <form class="profile-form" novalidate @submit.prevent="saveProfile">
       <header class="profile-form__header">
         <div>
-          <p class="profile-form__eyebrow">PROFILE</p>
           <h2>基本信息</h2>
           <p>这些信息用于工作台中的身份展示。</p>
         </div>
-        <span class="profile-form__local">本地资料</span>
+        <span class="profile-form__local">账号资料</span>
       </header>
 
       <div class="profile-fields">
@@ -314,7 +320,6 @@ async function saveProfile() {
       </p>
 
       <footer class="profile-actions">
-        <span>资料仅保存在此 Mac</span>
         <div>
           <button
             class="profile-actions__secondary"
@@ -336,6 +341,25 @@ async function saveProfile() {
       </footer>
     </form>
   </section>
+
+  <UiConfirmDialog
+    v-if="confirmingAvatarRemoval"
+    title="移除头像？"
+    description="头像会从当前资料中移除，保存个人资料后生效。"
+    warning="移除后仍可以重新上传头像。"
+    confirm-label="移除头像"
+    @close="confirmingAvatarRemoval = false"
+    @confirm="confirmRemoveAvatar"
+  >
+    <div class="profile-remove-target">
+      <img
+        v-if="form.avatarDataUrl"
+        :src="form.avatarDataUrl"
+        alt=""
+      />
+      <span>{{ form.displayName || '当前头像' }}</span>
+    </div>
+  </UiConfirmDialog>
 </template>
 
 <style scoped>
@@ -343,7 +367,7 @@ async function saveProfile() {
   display: grid;
   overflow: hidden;
   grid-template-columns: 260px minmax(0, 1fr);
-  background: #ffffff;
+  background: var(--surface-inset);
   border: 1px solid var(--line);
   border-radius: 8px;
   animation: profile-enter 220ms ease both;
@@ -354,7 +378,7 @@ async function saveProfile() {
   min-width: 0;
   flex-direction: column;
   padding: 28px 24px 22px;
-  background: #f6f8fa;
+  background: var(--surface-secondary);
   border-right: 1px solid var(--line-soft);
 }
 
@@ -375,12 +399,12 @@ async function saveProfile() {
   color: #ffffff;
   font-size: 34px;
   font-weight: 650;
-  background: #0969da;
-  border: 1px solid rgb(31 35 40 / 12%);
+  background: var(--accent-strong);
+  border: 1px solid var(--line);
   border-radius: 50%;
   box-shadow:
     0 6px 20px rgb(31 35 40 / 12%),
-    0 0 0 5px #ffffff;
+    0 0 0 5px var(--canvas-raised);
   place-items: center;
 }
 
@@ -417,7 +441,7 @@ async function saveProfile() {
   gap: 4px;
   padding: 3px 6px;
   color: var(--text-subtle);
-  font-size: 9px;
+  font-size: 11px;
   background: transparent;
   border-radius: 5px;
 }
@@ -431,7 +455,7 @@ async function saveProfile() {
   max-width: 190px;
   margin: 0;
   color: var(--coral);
-  font-size: 8px;
+  font-size: 11px;
   line-height: 1.45;
   text-align: center;
 }
@@ -454,9 +478,9 @@ async function saveProfile() {
 .profile-summary__name p {
   overflow: hidden;
   margin: 5px 0 0;
-  color: var(--text-subtle);
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
-  font-size: 9px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -475,7 +499,7 @@ async function saveProfile() {
   align-items: flex-start;
   gap: 9px;
   padding: 10px 0;
-  color: var(--text-subtle);
+  color: var(--icon);
 }
 
 .profile-summary__meta svg {
@@ -487,7 +511,7 @@ async function saveProfile() {
   display: flex;
   min-width: 0;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.45;
   flex-direction: column;
   overflow-wrap: anywhere;
@@ -495,8 +519,8 @@ async function saveProfile() {
 
 .profile-summary__meta small {
   margin-bottom: 2px;
-  color: var(--text-subtle);
-  font-size: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 .profile-summary__note {
@@ -505,8 +529,8 @@ async function saveProfile() {
   gap: 6px;
   margin: auto 0 0;
   padding-top: 20px;
-  color: var(--text-subtle);
-  font-size: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 .profile-form {
@@ -528,8 +552,8 @@ async function saveProfile() {
 .profile-form__eyebrow {
   margin: 0 0 6px;
   color: var(--success);
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
-  font-size: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.12em;
 }
@@ -544,17 +568,18 @@ async function saveProfile() {
 .profile-form__header p:last-child {
   margin: 7px 0 0;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .profile-form__local {
   flex: 0 0 auto;
   padding: 4px 8px;
-  color: var(--accent);
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
-  font-size: 8px;
-  background: var(--accent-soft);
+  color: var(--category-chip-color);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--category-chip-bg);
   border-radius: 5px;
+  box-shadow: inset 0 0 0 0.5px var(--category-chip-border);
 }
 
 .profile-fields {
@@ -573,7 +598,7 @@ async function saveProfile() {
 
 .profile-field > span:first-child {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -582,8 +607,8 @@ async function saveProfile() {
   width: 100%;
   color: var(--text);
   font-size: 11px;
-  background: #ffffff;
-  border: 1px solid var(--line);
+  background: var(--field-bg);
+  border: 1px solid var(--field-border);
   border-radius: 7px;
   transition:
     border-color 140ms ease,
@@ -596,8 +621,8 @@ async function saveProfile() {
 }
 
 .profile-field input[readonly] {
-  color: var(--text-subtle);
-  background: #f6f8fa;
+  color: var(--text-muted);
+  background: var(--surface-secondary);
   cursor: default;
 }
 
@@ -620,9 +645,9 @@ async function saveProfile() {
   align-items: center;
   gap: 9px;
   padding: 0 10px;
-  color: var(--text-subtle);
-  background: #ffffff;
-  border: 1px solid var(--line);
+  color: var(--icon);
+  background: var(--field-bg);
+  border: 1px solid var(--field-border);
   border-radius: 7px;
   transition:
     border-color 140ms ease,
@@ -665,8 +690,8 @@ async function saveProfile() {
 
 .profile-field small {
   min-height: 12px;
-  color: var(--text-subtle);
-  font-size: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
   line-height: 1.4;
 }
 
@@ -678,7 +703,7 @@ async function saveProfile() {
   padding: 9px 11px;
   margin: 0 0 14px;
   color: var(--coral);
-  font-size: 10px;
+  font-size: 11px;
   background: rgb(207 34 46 / 6%);
   border-radius: 6px;
 }
@@ -686,16 +711,35 @@ async function saveProfile() {
 .profile-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 20px;
   padding-top: 16px;
   margin-top: auto;
   border-top: 1px solid var(--line-soft);
 }
 
-.profile-actions > span {
-  color: var(--text-subtle);
-  font-size: 8px;
+.profile-remove-target {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.profile-remove-target img {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+.profile-remove-target span {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--font-body);
+  font-weight: var(--weight-emphasis);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .profile-actions > div {
@@ -706,7 +750,7 @@ async function saveProfile() {
 .profile-actions button {
   height: 32px;
   padding: 0 11px;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
   border-radius: 6px;
 }
@@ -735,43 +779,20 @@ async function saveProfile() {
 }
 
 .profile-actions button:disabled {
-  color: var(--text-subtle);
-  background: #eaeef2;
+  color: var(--text-muted);
+  background: var(--surface-inset);
   border-color: transparent;
 }
 
 html[data-theme="dark"] {
-  .profile-editor {
-    background: #161b22;
-  }
-
-  .profile-summary {
-    background: #0d1117;
-  }
-
   .profile-photo {
-    border-color: rgb(240 246 252 / 12%);
     box-shadow:
       0 6px 20px rgb(0 0 0 / 30%),
-      0 0 0 5px #0d1117;
-  }
-
-  .profile-field input,
-  .profile-field textarea,
-  .profile-field__control {
-    background: #0d1117;
-  }
-
-  .profile-field input[readonly] {
-    background: #161b22;
+      0 0 0 5px var(--canvas-raised);
   }
 
   .profile-actions__secondary:hover:not(:disabled) {
     background: rgb(240 246 252 / 5%);
-  }
-
-  .profile-actions button:disabled {
-    background: #21262d;
   }
 }
 

@@ -28,8 +28,7 @@ const emit = defineEmits<{
       <ShortcutVisual
         :sources="iconUrls"
         :mode="mode"
-        :name="name"
-        :size="54"
+        :size="42"
       />
       <span class="shortcut-copy">
         <strong>{{ name }}</strong>
@@ -53,28 +52,36 @@ const emit = defineEmits<{
   min-width: 0;
   background: transparent;
   border-radius: 9px;
-  transition:
-    background 150ms ease,
-    transform 150ms ease;
-}
-
-.shortcut-tile:hover {
-  background: rgb(255 255 255 / 58%);
-  transform: translateY(-1px);
 }
 
 .shortcut-tile__main {
   display: flex;
   width: 100%;
-  min-height: 94px;
+  min-height: 110px;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px;
-  padding: 7px 4px;
+  gap: 10px;
+  padding: 10px 2px 9px;
   flex-direction: column;
   text-align: center;
   background: transparent;
   border-radius: inherit;
+}
+
+.shortcut-tile__main:focus-visible {
+  outline: none;
+}
+
+.shortcut-tile__main:focus-visible .shortcut-visual {
+  outline: 2px solid var(--system-blue);
+  outline-offset: 2px;
+}
+
+.shortcut-tile__main:hover .shortcut-visual {
+  box-shadow:
+    inset 0 0 0 0.5px var(--asset-tile-border),
+    var(--shadow-control);
+  transform: translateY(-1px);
 }
 
 .shortcut-copy {
@@ -83,7 +90,7 @@ const emit = defineEmits<{
   min-width: 0;
   align-items: center;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
 }
 
 .shortcut-copy strong {
@@ -91,9 +98,9 @@ const emit = defineEmits<{
   width: 100%;
   overflow: hidden;
   color: var(--text);
-  font-size: 10px;
-  font-weight: 620;
-  line-height: 1.35;
+  font-size: var(--font-caption);
+  font-weight: var(--weight-emphasis);
+  line-height: 1.5;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -103,8 +110,8 @@ const emit = defineEmits<{
   width: 100%;
   overflow: hidden;
   color: var(--text-subtle);
-  font-size: 8px;
-  line-height: 1.35;
+  font-size: var(--font-caption);
+  line-height: 1.5;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -135,21 +142,7 @@ const emit = defineEmits<{
 
 .shortcut-edit:hover {
   color: var(--text);
-  background: rgb(31 35 40 / 5%);
-}
-
-html[data-theme="dark"] {
-  .shortcut-tile {
-    background: transparent;
-  }
-
-  .shortcut-tile:hover {
-    background: rgb(240 246 252 / 5%);
-  }
-
-  .shortcut-edit:hover {
-    background: rgb(240 246 252 / 6%);
-  }
+  background: var(--hover-bg);
 }
 
 @media (max-width: 560px) {

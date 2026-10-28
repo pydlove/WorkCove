@@ -1,7 +1,32 @@
 <script setup lang="ts">
 import { CalendarDays, Clock3 } from '@lucide/vue'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import {
+  computed,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from 'vue'
 
+import WorkbenchActivityPanel from '@/components/business/workbench/WorkbenchActivityPanel.vue'
+import WorkbenchDayInsights from '@/components/business/workbench/WorkbenchDayInsights.vue'
+import { useAuthStore } from '@/stores/useAuthStore'
+import { useCalendarStore } from '@/stores/useCalendarStore'
+import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
+import type { CalendarEvent } from '@/types/calendar'
+import {
+  lunarDateName,
+  lunarDayName,
+} from '@/utils/lunarCalendar'
+
+const emit = defineEmits<{
+  notify: [message: string]
+  openCalendar: [date: string]
+}>()
+
+const auth = useAuthStore()
+const calendar = useCalendarStore()
+const workspaces = useWorkspaceStore()
 const now = ref(new Date())
 let clockTimer: number | undefined
 
@@ -40,6 +65,22 @@ const weekNumber = computed(() => {
   )
 })
 
+const eventsByDate = computed(() => {
+  const result = new Map<string, CalendarEvent[]>()
+  for (const event of calendar.events) {
+    if (event.workspaceId !== workspaces.activeWorkspaceId) continue
+    const events = result.get(event.date) ?? []
+    events.push(event)
+    result.set(event.date, events)
+  }
+  for (const events of result.values()) {
+    events.sort((left, right) =>
+      left.startTime.localeCompare(right.startTime),
+    )
+  }
+  return result
+})
+
 const weekDays = computed(() => {
   const current = now.value
   const start = new Date(current)
@@ -49,13 +90,19 @@ const weekDays = computed(() => {
   return Array.from({ length: 7 }, (_, index) => {
     const date = new Date(start)
     date.setDate(start.getDate() + index)
+    const key = dateKey(date)
+    const events = eventsByDate.value.get(key) ?? []
     return {
-      key: date.toISOString(),
+      key,
+      dateKey: key,
       label: new Intl.DateTimeFormat('zh-CN', {
         weekday: 'narrow',
       }).format(date),
       day: date.getDate(),
+      lunarDay: lunarDayName(date),
       isToday: date.toDateString() === current.toDateString(),
+      events,
+      eventColors: events.slice(0, 3).map((event) => event.color),
     }
   })
 })
@@ -93,6 +140,29 @@ function formatDuration(minutes: number) {
   return `${hours} 小时 ${rest} 分钟`
 }
 
+function pad(value: number) {
+  return String(value).padStart(2, '0')
+}
+
+function dateKey(date: Date) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+watch(
+  () => auth.email,
+  (email) => {
+    void calendar.load(email).catch((error) => {
+      emit(
+        'notify',
+        error instanceof Error
+          ? `日程加载失败：${error.message}`
+          : '日程加载失败',
+      )
+    })
+  },
+  { immediate: true },
+)
+
 onMounted(() => {
   clockTimer = window.setInterval(() => {
     now.value = new Date()
@@ -108,15 +178,18 @@ onBeforeUnmount(() => {
   <section class="time-widget" aria-label="当前时间">
     <div class="time-widget__glow" aria-hidden="true" />
 
+    <WorkbenchDayInsights @notify="emit('notify', $event)" />
+
     <header class="time-widget__header">
       <span class="time-label">
         <Clock3 :size="13" />
-        LOCAL TIME
+        本地时间
         <i>UTC+8</i>
       </span>
       <span class="date-label">
         <CalendarDays :size="13" />
         {{ dateText }}
+        <span class="lunar-date">农历{{ lunarDateName(now) }}</span>
         <i>W{{ weekNumber }}</i>
       </span>
     </header>
@@ -128,10 +201,12 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="rhythm-copy">
-        <p>WORKDAY RHYTHM</p>
+        <p>工作节奏</p>
         <strong>{{ workdayMessage }}</strong>
       </div>
     </div>
+
+    <WorkbenchActivityPanel />
 
     <footer class="time-widget__footer">
       <div class="workday-meter">
@@ -146,14 +221,30 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="week-days">
-        <div
+        <button
           v-for="day in weekDays"
           :key="day.key"
+          type="button"
           :class="{ 'week-days__today': day.isToday }"
+          :aria-label="`${day.dateKey}，${day.events.length} 个日程，打开日历`"
+          :title="
+            day.events.length
+              ? `${day.dateKey} · ${day.events.length} 个日程`
+              : `${day.dateKey} · 打开日历`
+          "
+          @click="emit('openCalendar', day.dateKey)"
         >
           <span>{{ day.label }}</span>
           <strong>{{ day.day }}</strong>
-        </div>
+          <em>{{ day.lunarDay }}</em>
+          <span class="week-days__events" aria-hidden="true">
+            <i
+              v-for="(color, index) in day.eventColors"
+              :key="`${color}-${index}`"
+              :class="`week-days__event-dot--${color}`"
+            />
+          </span>
+        </button>
       </div>
     </footer>
   </section>
@@ -224,8 +315,8 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 20px;
   color: rgb(255 255 255 / 52%);
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
-  font-size: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.08em;
 }
@@ -237,11 +328,15 @@ onBeforeUnmount(() => {
   gap: 7px;
 }
 
+.lunar-date {
+  color: rgb(255 255 255 / 48%);
+}
+
 .time-label i,
 .date-label i {
   padding: 2px 5px;
   color: rgb(255 255 255 / 58%);
-  font-size: 7px;
+  font-size: 11px;
   font-style: normal;
   background: rgb(255 255 255 / 8%);
   border-radius: 4px;
@@ -260,7 +355,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: flex-end;
   gap: 10px;
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .clock-display strong {
@@ -290,15 +385,15 @@ onBeforeUnmount(() => {
 .rhythm-copy p {
   margin: 0 0 7px;
   color: #7ee787;
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
-  font-size: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.12em;
 }
 
 .rhythm-copy strong {
   color: rgb(255 255 255 / 72%);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 540;
 }
 
@@ -315,8 +410,8 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   color: rgb(255 255 255 / 38%);
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
-  font-size: 7px;
+  font-family: var(--font-mono);
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -339,39 +434,120 @@ onBeforeUnmount(() => {
 
 .week-days {
   display: flex;
-  gap: 3px;
+  align-items: center;
+  gap: 4px;
 }
 
-.week-days > div {
+.week-days > button {
   display: flex;
-  width: 35px;
-  height: 44px;
+  width: 38px;
+  height: 64px;
   align-items: center;
   justify-content: center;
+  padding: 5px 0;
   flex-direction: column;
   gap: 3px;
   color: rgb(255 255 255 / 42%);
-  border-radius: 7px;
+  font-family: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  transition:
+    background-color 160ms ease,
+    transform 160ms ease;
 }
 
-.week-days span {
-  font-size: 7px;
+.week-days > button:hover {
+  background: rgb(255 255 255 / 7%);
+}
+
+.week-days > button:focus-visible {
+  outline: 2px solid #79c0ff;
+  outline-offset: -2px;
+}
+
+.week-days span,
+.week-days strong,
+.week-days em {
+  display: block;
+  font-size: 11px;
+  line-height: var(--line-caption);
 }
 
 .week-days strong {
   color: rgb(255 255 255 / 72%);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 560;
   font-variant-numeric: tabular-nums;
 }
 
-.week-days__today {
+.week-days em {
+  color: rgb(255 255 255 / 46%);
+  font-style: normal;
+}
+
+.week-days__events {
+  display: flex;
+  min-height: 4px;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+}
+
+.week-days__events i {
+  display: block;
+  width: 4px;
+  height: 4px;
+  background: rgb(255 255 255 / 32%);
+  border-radius: 50%;
+}
+
+.week-days__events i.week-days__event-dot--blue {
+  background: var(--system-blue);
+}
+
+.week-days__events i.week-days__event-dot--green {
+  background: var(--system-green);
+}
+
+.week-days__events i.week-days__event-dot--orange {
+  background: var(--system-orange);
+}
+
+.week-days__events i.week-days__event-dot--red {
+  background: var(--system-red);
+}
+
+.week-days__events i.week-days__event-dot--purple {
+  background: color-mix(
+    in srgb,
+    var(--system-blue) 52%,
+    var(--system-red)
+  );
+}
+
+.week-days > .week-days__today {
+  width: 48px;
+  height: 76px;
+  padding: 8px 0;
+  margin-inline: -5px;
+  gap: 4px;
   background: #0969da;
+  border-radius: 10px;
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 12%);
+}
+
+.week-days > .week-days__today:hover {
+  background: #0b72e8;
 }
 
 .week-days__today strong {
   color: #ffffff;
+}
+
+.week-days__today em {
+  color: rgb(255 255 255 / 76%);
 }
 
 @media (max-width: 760px) {
@@ -412,8 +588,12 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 390px) {
-  .week-days > div {
+  .week-days > button {
     width: 31px;
+  }
+
+  .week-days > .week-days__today {
+    width: 43px;
   }
 }
 </style>

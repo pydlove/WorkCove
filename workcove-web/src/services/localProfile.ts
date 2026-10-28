@@ -1,21 +1,19 @@
+import { PRODUCT_NAME } from '@/brand'
 import type { UserProfile } from '@/types/profile'
+import {
+  readUserScopedMap,
+  requireUserScope,
+  writeUserScopedMap,
+} from '@/services/userScopedStorage'
 
 const PROFILE_STORAGE_KEY = 'workcove.profiles.v1'
 
 function readProfiles(): Record<string, UserProfile> {
-  const raw = window.localStorage.getItem(PROFILE_STORAGE_KEY)
-  if (!raw) return {}
-
-  try {
-    const parsed = JSON.parse(raw) as Record<string, UserProfile>
-    return parsed && typeof parsed === 'object' ? parsed : {}
-  } catch {
-    return {}
-  }
+  return readUserScopedMap<UserProfile>(PROFILE_STORAGE_KEY)
 }
 
 function writeProfiles(profiles: Record<string, UserProfile>) {
-  window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profiles))
+  writeUserScopedMap(PROFILE_STORAGE_KEY, profiles)
 }
 
 function defaultUsername(email: string) {
@@ -27,7 +25,7 @@ export function loadLocalProfile(
   email: string,
   fallbackDisplayName: string,
 ): UserProfile {
-  const normalizedEmail = email.trim().toLocaleLowerCase('en-US')
+  const normalizedEmail = requireUserScope(email)
   const existing = readProfiles()[normalizedEmail]
   if (existing) return existing
 
@@ -35,7 +33,7 @@ export function loadLocalProfile(
   return {
     email: normalizedEmail,
     username: defaultUsername(normalizedEmail),
-    displayName: fallbackDisplayName.trim() || 'WorkCove',
+    displayName: fallbackDisplayName.trim() || PRODUCT_NAME,
     birthday: '',
     location: '',
     bio: '',
@@ -47,7 +45,7 @@ export function loadLocalProfile(
 
 export function saveLocalProfile(profile: UserProfile) {
   const profiles = readProfiles()
-  profiles[profile.email] = profile
+  profiles[requireUserScope(profile.email)] = profile
   writeProfiles(profiles)
   return profile
 }

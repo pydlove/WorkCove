@@ -13,12 +13,40 @@ import java.security.KeyStore;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 
-final class WorkCoveMailTls {
+public final class WorkCoveMailTls {
 
     private WorkCoveMailTls() {
     }
 
-    static SSLSocketFactory socketFactory(String trustStorePath, String password) {
+    public static Path resolveTrustStore(String configuredPath) {
+        return resolveTrustStore(
+                configuredPath,
+                System.getProperty("user.home", ""));
+    }
+
+    static Path resolveTrustStore(
+            String configuredPath,
+            String userHome) {
+        if (configuredPath != null && !configuredPath.isBlank()) {
+            Path configured = Path.of(configuredPath);
+            if (Files.isRegularFile(configured)) {
+                return configured;
+            }
+        }
+
+        if (userHome.isBlank()) {
+            return null;
+        }
+        Path shared = Path.of(
+                userHome,
+                ".workcove",
+                "mail-truststore.p12");
+        return Files.isRegularFile(shared) ? shared : null;
+    }
+
+    public static SSLSocketFactory socketFactory(
+            String trustStorePath,
+            String password) {
         Path path = Path.of(trustStorePath);
         if (!Files.isRegularFile(path)) {
             throw new IllegalStateException("SMTP 信任库不存在：" + path);

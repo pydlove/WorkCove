@@ -7,31 +7,32 @@ import {
   register as registerRequest,
   sendRegistrationCode,
 } from '@/api/auth'
-import { ApiError } from '@/api/http'
 import {
   loadLocalProfile,
   saveLocalProfile,
 } from '@/services/localProfile'
+import {
+  clearUserStorageCache,
+  flushUserStorage,
+  initializeUserStorage,
+} from '@/services/userScopedStorage'
+import { useThemeStore } from '@/stores/theme'
 import type { AuthUser, RegisterInput } from '@/types/auth'
 import type { ProfileUpdate, UserProfile } from '@/types/profile'
-
-const PREVIEW_SESSION_KEY = 'workcove.preview-session'
 
 interface PreviewSession {
   email: string
   displayName: string
 }
 
-function readPreviewSession(): PreviewSession | null {
-  const raw = window.sessionStorage.getItem(PREVIEW_SESSION_KEY)
-  if (!raw) return null
+let previewSession: PreviewSession | null = null
 
-  try {
-    const parsed = JSON.parse(raw) as PreviewSession
-    return parsed.email && parsed.displayName ? parsed : null
-  } catch {
-    return null
-  }
+function reportStartupStatus(message: string) {
+  window.dispatchEvent(
+    new CustomEvent('workcove:startup-status', {
+      detail: message,
+    }),
+  )
 }
 
 export const useAuthStore = defineStore('auth', {
@@ -47,26 +48,38 @@ export const useAuthStore = defineStore('auth', {
     async initialize() {
       if (this.initialized) return this.authenticated
 
-      const preview = readPreviewSession()
-      if (preview) {
-        this.applyLocalUser(preview.email, preview.displayName)
+      if (previewSession) {
+        reportStartupStatus('正在进入预览工作台')
+        await initializeUserStorage(previewSession.email, {
+          persist: false,
+        })
+        this.applyLocalUser(
+          previewSession.email,
+          previewSession.displayName,
+        )
         this.initialized = true
         return true
       }
 
       try {
-        this.applyUser(await getCurrentUser())
-      } catch (error) {
-        if (!(error instanceof ApiError) || error.status !== 401) {
-          this.clearAuth()
-        }
+        reportStartupStatus('正在恢复登录状态')
+        const user = await getCurrentUser()
+        reportStartupStatus('正在载入你的工作空间')
+        await initializeUserStorage(user.email)
+        this.applyUser(user)
+      } catch {
+        reportStartupStatus('正在进入登录页')
+        this.clearAuth()
       } finally {
         this.initialized = true
       }
       return this.authenticated
     },
     async login(email: string, password: string, rememberMe: boolean) {
+      reportStartupStatus('正在登录')
       const user = await loginRequest({ email, password, rememberMe })
+      reportStartupStatus('正在载入你的工作空间')
+      await initializeUserStorage(user.email)
       this.applyUser(user)
       this.initialized = true
     },
@@ -78,19 +91,26 @@ export const useAuthStore = defineStore('auth', {
     },
     async logout() {
       try {
+        await flushUserStorage()
+      } catch {
+        // The failed write has already been reported through storage error.
+      }
+      try {
         await logoutRequest()
       } finally {
-        window.sessionStorage.removeItem(PREVIEW_SESSION_KEY)
         this.clearAuth()
       }
     },
-    startPreview() {
-      const preview: PreviewSession = {
+    async startPreview() {
+      previewSession = {
         email: 'preview@workcove.local',
         displayName: 'Yong',
       }
-      window.sessionStorage.setItem(PREVIEW_SESSION_KEY, JSON.stringify(preview))
-      this.applyLocalUser(preview.email, preview.displayName)
+      await initializeUserStorage(previewSession.email, { persist: false })
+      this.applyLocalUser(
+        previewSession.email,
+        previewSession.displayName,
+      )
       this.initialized = true
     },
     applyUser(user: AuthUser) {
@@ -100,6 +120,7 @@ export const useAuthStore = defineStore('auth', {
       const profile = loadLocalProfile(user.email, user.displayName)
       this.profile = profile
       this.userName = profile.displayName
+      useThemeStore().setUserScope(user.email)
     },
     applyLocalUser(email: string, displayName: string) {
       this.authenticated = true
@@ -108,6 +129,7 @@ export const useAuthStore = defineStore('auth', {
       const profile = loadLocalProfile(email, displayName)
       this.profile = profile
       this.userName = profile.displayName
+      useThemeStore().setUserScope(email)
     },
     updateProfile(update: ProfileUpdate) {
       if (!this.profile) return
@@ -131,6 +153,9 @@ export const useAuthStore = defineStore('auth', {
       this.userName = 'Yong'
       this.email = ''
       this.profile = null
+      previewSession = null
+      clearUserStorageCache()
+      useThemeStore().setUserScope(null)
     },
   },
 })

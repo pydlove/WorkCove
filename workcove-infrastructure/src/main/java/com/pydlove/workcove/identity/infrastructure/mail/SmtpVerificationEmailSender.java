@@ -16,7 +16,6 @@ import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Properties;
@@ -40,14 +39,16 @@ public class SmtpVerificationEmailSender implements VerificationEmailSender {
             String trustStorePassword) {
         this.mailSender = mailSender;
         this.from = from;
+        Path resolvedTrustStore =
+                WorkCoveMailTls.resolveTrustStore(trustStorePath);
         if (mailSender instanceof JavaMailSenderImpl javaMailSender
-                && trustStorePath != null
-                && !trustStorePath.isBlank()
-                && Files.isRegularFile(Path.of(trustStorePath))) {
+                && resolvedTrustStore != null) {
             Properties properties = javaMailSender.getJavaMailProperties();
             properties.put(
                     "mail.smtp.ssl.socketFactory",
-                    WorkCoveMailTls.socketFactory(trustStorePath, trustStorePassword));
+                    WorkCoveMailTls.socketFactory(
+                            resolvedTrustStore.toString(),
+                            trustStorePassword));
             properties.put("mail.smtp.ssl.checkserveridentity", "true");
         }
     }
@@ -65,18 +66,18 @@ public class SmtpVerificationEmailSender implements VerificationEmailSender {
                     StandardCharsets.UTF_8.name());
             helper.setFrom(from);
             helper.setTo(email.value());
-            helper.setSubject("WorkCove 栖作 · 邮箱验证码");
+            helper.setSubject("8小时工作台 · 邮箱验证码");
             helper.setText(plainText(rawCode, ttl), html(rawCode, ttl));
             mailSender.send(message);
         } catch (MailException | MessagingException exception) {
-            log.warn("WorkCove verification email failed for {}: {}",
+            log.warn("8小时工作台 verification email failed for {}: {}",
                     email.value(), exception.getMessage());
             throw new DomainException("验证码邮件发送失败，请检查 SMTP 配置", exception);
         }
     }
 
     private static String plainText(String code, Duration ttl) {
-        return "你正在注册 WorkCove 栖作。\n\n"
+        return "你正在注册 8小时工作台。\n\n"
                 + "邮箱验证码：" + code + "\n"
                 + "验证码 " + Math.max(1, ttl.toMinutes()) + " 分钟内有效，仅可使用一次。\n\n"
                 + "如果不是你本人操作，请忽略本邮件。";
@@ -91,11 +92,11 @@ public class SmtpVerificationEmailSender implements VerificationEmailSender {
                     <tr><td align="center" style="padding:40px 16px;">
                       <table role="presentation" width="520" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:520px;background:#ffffff;border:1px solid #dce5f2;border-radius:16px;overflow:hidden;">
                         <tr><td style="padding:28px 32px 0;">
-                          <div style="font-size:20px;font-weight:700;">WorkCove</div>
-                          <div style="margin-top:4px;font-size:12px;color:#6e6e73;">栖作 · 个人工作台</div>
+                          <div style="font-size:20px;font-weight:700;">8小时工作台</div>
+                          <div style="margin-top:4px;font-size:12px;color:#6e6e73;">栖作 · 专注每一天</div>
                         </td></tr>
                         <tr><td style="padding:28px 32px 8px;font-size:15px;line-height:1.7;color:#3a3a3c;">
-                          你正在注册 WorkCove 账号，请输入下面的邮箱验证码：
+                          你正在注册 8小时工作台账号，请输入下面的邮箱验证码：
                         </td></tr>
                         <tr><td style="padding:12px 32px 24px;">
                           <div style="padding:22px;background:#eef5ff;border-radius:12px;text-align:center;font-size:40px;font-weight:700;letter-spacing:10px;color:#0969da;">{{code}}</div>

@@ -8,8 +8,19 @@ PID_FILE="$LOG_DIR/backend.pid"
 LOG_FILE="$LOG_DIR/backend.log"
 BUILD_LOG="$LOG_DIR/backend-build.log"
 HEALTH_URL="http://127.0.0.1:8790/actuator/health"
+BACKEND_LABEL="com.workcove.local.backend"
+LAUNCHD_DOMAIN="gui/$(id -u)"
 
 mkdir -p "$LOG_DIR"
+
+if command -v launchctl >/dev/null 2>&1 \
+  && launchctl print "$LAUNCHD_DOMAIN/$BACKEND_LABEL" >/dev/null 2>&1; then
+  if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then
+    echo "后端服务已在运行 (launchd)"
+    exit 0
+  fi
+  launchctl remove "$BACKEND_LABEL" >/dev/null 2>&1 || true
+fi
 
 if [ -f "$PID_FILE" ]; then
   PID="$(cat "$PID_FILE")"
@@ -28,11 +39,26 @@ fi
 JAR="$(find "$PROJECT_DIR/workcove-boot/target" -maxdepth 1 -type f \
   -name 'workcove-boot-*.jar' ! -name '*.original' 2>/dev/null | head -n 1)"
 
+NEEDS_BUILD=false
 if [ -z "$JAR" ] || [ ! -f "$JAR" ]; then
-  echo "未找到后端 JAR，正在构建..."
+  NEEDS_BUILD=true
+elif find "$PROJECT_DIR" \
+  \( -path '*/target' -o -path '*/node_modules' -o -path '*/.git' -o -path '*/log' \) -prune -o \
+  -type f \( \
+    -name '*.java' -o \
+    -name '*.xml' -o \
+    -name '*.yml' -o \
+    -name '*.yaml' -o \
+    -name '*.sql' \
+  \) -newer "$JAR" -print -quit | grep -q .; then
+  NEEDS_BUILD=true
+fi
+
+if [ "$NEEDS_BUILD" = true ]; then
+  echo "后端源码已更新，正在构建..."
   (
     cd "$PROJECT_DIR"
-    mvn -q -DskipTests package
+    mvn -q -DskipTests clean package
   ) >>"$BUILD_LOG" 2>&1
   JAR="$(find "$PROJECT_DIR/workcove-boot/target" -maxdepth 1 -type f \
     -name 'workcove-boot-*.jar' ! -name '*.original' | head -n 1)"

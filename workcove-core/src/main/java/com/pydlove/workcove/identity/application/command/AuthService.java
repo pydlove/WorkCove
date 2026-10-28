@@ -183,7 +183,7 @@ public class AuthService {
 
     private static String defaultDisplayName(Email email) {
         String localPart = email.value().split("@")[0];
-        if (localPart.isBlank()) return "WorkCove";
+        if (localPart.isBlank()) return "8小时工作台";
         String normalized = localPart.toLowerCase(Locale.ROOT);
         return normalized.substring(0, 1).toUpperCase(Locale.ROOT)
                 + normalized.substring(1);

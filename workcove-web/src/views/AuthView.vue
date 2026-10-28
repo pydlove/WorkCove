@@ -17,18 +17,18 @@ import {
 import { useRouter } from 'vue-router'
 
 import { ApiError } from '@/api/http'
+import { PRODUCT_NAME, PRODUCT_TAGLINE } from '@/brand'
 import AppTitlebar from '@/components/business/AppTitlebar.vue'
 import BrandMark from '@/components/ui/BrandMark.vue'
 import { useAuthStore } from '@/stores/useAuthStore'
 
 type AuthMode = 'login' | 'register'
 
-const LAST_EMAIL_KEY = 'workcove.last-email'
 const router = useRouter()
 const auth = useAuthStore()
 
 const authMode = ref<AuthMode>('login')
-const email = ref(window.localStorage.getItem(LAST_EMAIL_KEY) ?? '')
+const email = ref('')
 const emailCode = ref('')
 const password = ref('')
 const confirmPassword = ref('')
@@ -94,7 +94,6 @@ async function sendCode() {
   sendingCode.value = true
   try {
     await auth.sendRegistrationCode(normalizedEmail)
-    window.localStorage.setItem(LAST_EMAIL_KEY, normalizedEmail)
     startCountdown()
     noticeMessage.value = `验证码已发送至 ${normalizedEmail}，5 分钟内有效。`
   } catch (error) {
@@ -147,7 +146,6 @@ async function handleSubmit() {
         password: password.value,
         confirmPassword: confirmPassword.value,
       })
-      window.localStorage.setItem(LAST_EMAIL_KEY, normalizedEmail)
       stopCountdown()
       resendSeconds.value = 0
       emailCode.value = ''
@@ -163,7 +161,6 @@ async function handleSubmit() {
     }
 
     await auth.login(normalizedEmail, password.value, remember.value)
-    window.localStorage.setItem(LAST_EMAIL_KEY, normalizedEmail)
     await router.push({ name: 'dashboard' })
   } catch (error) {
     errorMessage.value = errorText(error)
@@ -173,7 +170,7 @@ async function handleSubmit() {
 }
 
 async function previewWorkbench() {
-  auth.startPreview()
+  await auth.startPreview()
   await router.push({ name: 'dashboard' })
 }
 
@@ -202,20 +199,20 @@ onBeforeUnmount(stopCountdown)
 <template>
   <main class="login-stage">
     <section class="login-window" aria-labelledby="login-title">
-      <AppTitlebar title="WorkCove 栖作" />
+      <AppTitlebar :title="PRODUCT_NAME" />
 
       <div class="login-window__body">
         <aside class="login-story">
           <div class="story-brand">
             <BrandMark :size="36" />
             <div>
-              <p class="story-brand__name">WorkCove</p>
-              <p class="story-brand__meta">栖作 · Personal workspace</p>
+              <p class="story-brand__name">{{ PRODUCT_NAME }}</p>
+              <p class="story-brand__meta">{{ PRODUCT_TAGLINE }}</p>
             </div>
           </div>
 
           <div class="story-copy">
-            <p class="story-kicker">PERSONAL WORKBENCH</p>
+            <p class="story-kicker">8小时工作平台</p>
             <h1>把工作，<br />放回自己的节奏。</h1>
             <p class="story-intro">
               时间、常用网址与本地软件，在一个安静的工作台里触手可及。
@@ -242,9 +239,6 @@ onBeforeUnmount(stopCountdown)
           <div class="login-panel__inner">
             <div class="login-heading">
               <div class="login-heading__top">
-                <p class="login-heading__eyebrow">
-                  {{ isRegisterMode ? 'CREATE ACCOUNT' : 'WELCOME BACK' }}
-                </p>
                 <div
                   class="auth-mode-tabs"
                   role="tablist"
@@ -278,7 +272,7 @@ onBeforeUnmount(stopCountdown)
               <p>
                 {{
                   isRegisterMode
-                    ? '使用邮箱验证码创建 WorkCove 账号。'
+                    ? `使用邮箱验证码创建 ${PRODUCT_NAME}账号。`
                     : '登录后继续处理今天的工作。'
                 }}
               </p>
@@ -513,24 +507,31 @@ onBeforeUnmount(stopCountdown)
   gap: 12px;
 }
 
+.story-brand > div {
+  min-width: 0;
+}
+
 .story-brand p {
   margin: 0;
 }
 
 .story-brand__name {
+  overflow: hidden;
   color: #ffffff;
   font-size: 14px;
   font-weight: 700;
   letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .story-brand__meta {
   margin-top: 2px !important;
   color: rgb(255 255 255 / 52%);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.12em;
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   text-transform: uppercase;
 }
 
@@ -546,10 +547,10 @@ onBeforeUnmount(stopCountdown)
   gap: 10px;
   margin: 0 0 20px;
   color: rgb(255 255 255 / 62%);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.13em;
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .story-kicker::before {
@@ -562,7 +563,7 @@ onBeforeUnmount(stopCountdown)
 .story-copy h1 {
   margin: 0;
   color: #ffffff;
-  font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+  font-family: var(--font-sans);
   font-size: clamp(36px, 4vw, 50px);
   font-weight: 630;
   letter-spacing: 0;
@@ -597,14 +598,14 @@ onBeforeUnmount(stopCountdown)
 
 .story-features strong {
   color: rgb(255 255 255 / 88%);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 620;
 }
 
 .story-features span {
   overflow: hidden;
   color: rgb(255 255 255 / 42%);
-  font-size: 8px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -628,18 +629,9 @@ onBeforeUnmount(stopCountdown)
 .login-heading__top {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 16px;
   margin-bottom: 12px;
-}
-
-.login-heading__eyebrow {
-  margin: 0;
-  color: var(--accent);
-  font-size: 9px;
-  font-weight: 750;
-  letter-spacing: 0.15em;
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
 }
 
 .auth-mode-tabs {
@@ -657,7 +649,7 @@ onBeforeUnmount(stopCountdown)
   height: 24px;
   padding: 0 9px;
   color: var(--text-subtle);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 550;
   background: transparent;
   border-radius: 4px;
@@ -679,7 +671,7 @@ onBeforeUnmount(stopCountdown)
 .login-heading h2 {
   margin: 0;
   color: var(--text);
-  font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+  font-family: var(--font-sans);
   font-size: 32px;
   font-weight: 630;
   letter-spacing: 0;
@@ -714,7 +706,7 @@ onBeforeUnmount(stopCountdown)
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 600;
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .form-field__control {
@@ -766,7 +758,7 @@ onBeforeUnmount(stopCountdown)
   flex: 0 0 auto;
   padding: 0 9px;
   color: var(--accent);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
   background: var(--accent-soft);
@@ -860,7 +852,7 @@ onBeforeUnmount(stopCountdown)
 
 .secure-hint {
   color: var(--text-subtle);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .form-error {
@@ -873,7 +865,7 @@ onBeforeUnmount(stopCountdown)
   padding: 8px 10px;
   margin: -5px 0;
   color: #1a7f37;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.5;
   background: rgb(26 127 55 / 7%);
   border-radius: 6px;
@@ -882,7 +874,7 @@ onBeforeUnmount(stopCountdown)
 .local-account-note {
   margin: -6px 0 -2px;
   color: var(--text-subtle);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.55;
 }
 
@@ -936,7 +928,7 @@ onBeforeUnmount(stopCountdown)
   gap: 5px;
   margin-top: 23px;
   color: var(--text-subtle);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .login-secondary button {

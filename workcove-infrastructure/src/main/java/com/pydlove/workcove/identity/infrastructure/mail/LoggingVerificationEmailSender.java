@@ -23,7 +23,7 @@ public class LoggingVerificationEmailSender implements VerificationEmailSender {
     @Override
     public void sendRegistrationCode(Email email, String rawCode, Duration ttl) {
         log.info(
-                "WorkCove development email code: email={}, code={}, ttlMinutes={}",
+                "8小时工作台 development email code: email={}, code={}, ttlMinutes={}",
                 email.value(),
                 rawCode,
                 Math.max(1, ttl.toMinutes()));

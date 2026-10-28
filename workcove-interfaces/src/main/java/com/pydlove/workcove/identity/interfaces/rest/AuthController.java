@@ -9,7 +9,7 @@ import com.pydlove.workcove.identity.interfaces.dto.AuthUserResponse;
 import com.pydlove.workcove.identity.interfaces.dto.LoginRequest;
 import com.pydlove.workcove.identity.interfaces.dto.RegisterRequest;
 import com.pydlove.workcove.identity.interfaces.dto.SendEmailCodeRequest;
-import jakarta.servlet.http.Cookie;
+import com.pydlove.workcove.identity.interfaces.security.SessionCookieReader;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,15 +31,22 @@ import java.time.Instant;
 public class AuthController {
 
     private final AuthService authService;
+    private final SessionCookieReader sessionCookieReader;
     private final String cookieName;
+    private final String vaultCookieName;
     private final boolean secureCookie;
 
     public AuthController(
             AuthService authService,
+            SessionCookieReader sessionCookieReader,
             @Value("${workcove.auth.cookie-name:workcove_session}") String cookieName,
+            @Value("${workcove.vault.cookie-name:workcove_vault}")
+            String vaultCookieName,
             @Value("${workcove.auth.cookie-secure:false}") boolean secureCookie) {
         this.authService = authService;
+        this.sessionCookieReader = sessionCookieReader;
         this.cookieName = cookieName;
+        this.vaultCookieName = vaultCookieName;
         this.secureCookie = secureCookie;
     }
 
@@ -81,7 +88,7 @@ public class AuthController {
     @GetMapping("/me")
     public AuthUserResponse me(HttpServletRequest request,
                                HttpServletResponse response) {
-        String rawToken = readToken(request);
+        String rawToken = sessionCookieReader.readToken(request);
         CurrentAuthSession current = authService.currentSession(rawToken);
         if (current.remembered()) {
             response.addHeader(
@@ -96,25 +103,20 @@ public class AuthController {
     @PostMapping("/logout")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void logout(HttpServletRequest request, HttpServletResponse response) {
-        authService.logout(readToken(request));
+        authService.logout(sessionCookieReader.readToken(request));
         response.addHeader(
                 HttpHeaders.SET_COOKIE,
                 sessionCookie("", Duration.ZERO).toString());
-    }
-
-    String readToken(HttpServletRequest request) {
-        String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
-        if (authorization != null
-                && authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
-            String token = authorization.substring(7).trim();
-            if (!token.isEmpty()) return token;
-        }
-        Cookie[] cookies = request.getCookies();
-        if (cookies == null) return null;
-        for (Cookie cookie : cookies) {
-            if (cookieName.equals(cookie.getName())) return cookie.getValue();
-        }
-        return null;
+        response.addHeader(
+                HttpHeaders.SET_COOKIE,
+                ResponseCookie.from(vaultCookieName, "")
+                        .httpOnly(true)
+                        .secure(secureCookie)
+                        .sameSite("Strict")
+                        .path("/api/vault")
+                        .maxAge(Duration.ZERO)
+                        .build()
+                        .toString());
     }
 
     private ResponseCookie sessionCookie(String value, Duration maxAge) {

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import {
   AppWindow,
+  ArrowUpRight,
+  GitBranch,
   Globe2,
   Plus,
 } from '@lucide/vue'
@@ -8,37 +10,89 @@ import { computed, ref, watch } from 'vue'
 
 import ShortcutDialog from '@/components/business/workbench/ShortcutDialog.vue'
 import ShortcutTile from '@/components/business/workbench/ShortcutTile.vue'
+import WorkbenchTokenUsage from '@/components/business/workbench/WorkbenchTokenUsage.vue'
 import WorkbenchTimePanel from '@/components/business/workbench/WorkbenchTimePanel.vue'
+import UiButton from '@/components/ui/UiButton.vue'
+import { openHostApplication } from '@/api/hostApplications'
 import {
   shortcutIconUrls,
+  sortApplicationsByUsage,
+  sortWebsitesByUsage,
   websiteHostname,
 } from '@/services/localShortcuts'
 import { useAuthStore } from '@/stores/useAuthStore'
+import { useGitRepositoryStore } from '@/stores/useGitRepositoryStore'
 import { useShortcutStore } from '@/stores/useShortcutStore'
+import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
+import type { GitRepository } from '@/types/gitRepository'
 import type {
   ApplicationShortcut,
   ShortcutInput,
   ShortcutMode,
   WebsiteShortcut,
 } from '@/types/shortcut'
+import { openWebsiteUrl } from '@/utils/openWebsite'
 
 const emit = defineEmits<{
   notify: [message: string]
+  openCalendar: [date: string]
+  openGitRepositories: []
 }>()
 
 const session = useAuthStore()
 const shortcuts = useShortcutStore()
+const gitRepositories = useGitRepositoryStore()
+const workspaces = useWorkspaceStore()
 const dialogMode = ref<ShortcutMode | null>(null)
 const editingShortcut = ref<
   WebsiteShortcut | ApplicationShortcut | null
 >(null)
 
-const websiteCount = computed(() => shortcuts.websites.length)
-const applicationCount = computed(() => shortcuts.applications.length)
+const topWebsites = computed(() =>
+  sortWebsitesByUsage(
+    shortcuts.websites.filter(
+      (website) =>
+        website.workspaceId === workspaces.activeWorkspaceId,
+    ),
+  ).slice(0, 10),
+)
+const topApplications = computed(() =>
+  sortApplicationsByUsage(
+    shortcuts.applications.filter(
+      (application) =>
+        application.workspaceId === workspaces.activeWorkspaceId,
+    ),
+  ).slice(0, 5),
+)
+const websiteCount = computed(() => topWebsites.value.length)
+const websiteCategories = computed(
+  () =>
+    shortcuts.categoriesByWorkspace[workspaces.activeWorkspaceId] ?? [],
+)
+const applicationCount = computed(() => topApplications.value.length)
+const topGitRepositories = computed(() =>
+  gitRepositories.repositories
+    .filter(
+      (repository) =>
+        repository.workspaceId === workspaces.activeWorkspaceId,
+    )
+    .slice()
+    .sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt),
+    )
+    .slice(0, 6),
+)
+const gitRepositoryCount = computed(
+  () => topGitRepositories.value.length,
+)
 
 watch(
   () => session.email,
-  (email) => shortcuts.load(email),
+  (email) => {
+    shortcuts.load(email)
+    gitRepositories.load(email)
+    workspaces.load(email)
+  },
   { immediate: true },
 )
 
@@ -63,24 +117,21 @@ function editApplication(application: ApplicationShortcut) {
 }
 
 async function openWebsite(website: WebsiteShortcut) {
-  if (window.workCoveDesktop) {
-    const error = await window.workCoveDesktop.openExternal(website.url)
-    if (error) emit('notify', `无法打开网址：${error}`)
+  const error = await openWebsiteUrl(website.url)
+  if (error) {
+    emit('notify', `无法打开网址：${error}`)
     return
   }
-
-  const opened = window.open(website.url, '_blank', 'noopener,noreferrer')
-  if (!opened) emit('notify', '浏览器阻止了新窗口，请检查弹窗权限')
+  shortcuts.recordWebsiteClick(website.id)
 }
 
 async function openApplication(application: ApplicationShortcut) {
-  if (!window.workCoveDesktop) {
-    emit('notify', '本地软件需要在 WorkCove 桌面应用中启动')
+  const error = await openHostApplication(application.path)
+  if (error) {
+    emit('notify', `无法启动：${error}`)
     return
   }
-
-  const error = await window.workCoveDesktop.openPath(application.path)
-  if (error) emit('notify', `无法启动：${error}`)
+  shortcuts.recordApplicationOpen(application.id)
 }
 
 function closeDialog() {
@@ -89,9 +140,26 @@ function closeDialog() {
 }
 
 function saveShortcut(input: ShortcutInput) {
-  shortcuts.saveShortcut(input)
+  shortcuts.saveShortcut({
+    ...input,
+    workspaceId: workspaces.activeWorkspaceId,
+  })
   emit('notify', input.id ? '快捷方式已更新' : '快捷方式已添加')
   closeDialog()
+}
+
+function gitRepositoryDetail(repository: GitRepository) {
+  const status = gitRepositories.statuses[repository.id]
+  return [
+    repository.category,
+    status?.branch
+      ? `分支 ${status.branch}`
+      : repository.source === 'remote'
+        ? '远程仓库'
+        : repository.path,
+  ]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 function removeShortcut(id: string) {
@@ -103,24 +171,41 @@ function removeShortcut(id: string) {
 
 <template>
   <section class="workbench-home">
-    <WorkbenchTimePanel />
+    <WorkbenchTimePanel
+      @notify="emit('notify', $event)"
+      @open-calendar="emit('openCalendar', $event)"
+    />
+    <WorkbenchTokenUsage />
 
     <div class="shortcut-layout">
-      <section class="shortcut-section" aria-labelledby="website-section-title">
+      <section
+        class="shortcut-section shortcut-section--websites"
+        aria-labelledby="website-section-title"
+      >
         <header class="shortcut-section__header">
           <span class="shortcut-section__icon">
             <Globe2 :size="17" />
           </span>
           <div>
-            <p>WEB SHORTCUTS</p>
             <h2 id="website-section-title">常用网址</h2>
           </div>
-          <span class="shortcut-section__count">{{ websiteCount }}</span>
+          <div class="shortcut-section__actions">
+            <span class="shortcut-section__count">{{ websiteCount }}</span>
+            <button
+              class="shortcut-section__add"
+              type="button"
+              aria-label="添加常用网址"
+              title="添加常用网址"
+              @click="addWebsite"
+            >
+              <Plus :size="15" />
+            </button>
+          </div>
         </header>
 
-        <div class="shortcut-grid">
+        <div v-if="topWebsites.length" class="shortcut-grid">
           <ShortcutTile
-            v-for="website in shortcuts.websites"
+            v-for="website in topWebsites"
             :key="website.id"
             :name="website.name"
             :detail="websiteHostname(website.url)"
@@ -129,17 +214,23 @@ function removeShortcut(id: string) {
             @open="openWebsite(website)"
             @edit="editWebsite(website)"
           />
-          <button class="shortcut-add-tile" type="button" @click="addWebsite">
-            <span class="shortcut-add-tile__icon">
-              <Plus :size="18" />
-            </span>
-            <span>添加常用网址</span>
-          </button>
+        </div>
+        <div v-else class="shortcut-empty">
+          <span class="shortcut-empty__icon">
+            <Globe2 :size="20" />
+          </span>
+          <span class="shortcut-empty__copy">
+            <strong>暂无常用网址</strong>
+          </span>
+          <UiButton size="sm" @click="addWebsite">
+            <Plus :size="13" />
+            添加网址
+          </UiButton>
         </div>
       </section>
 
       <section
-        class="shortcut-section"
+        class="shortcut-section shortcut-section--applications"
         aria-labelledby="application-section-title"
       >
         <header class="shortcut-section__header">
@@ -147,15 +238,28 @@ function removeShortcut(id: string) {
             <AppWindow :size="17" />
           </span>
           <div>
-            <p>LOCAL APPLICATIONS</p>
-            <h2 id="application-section-title">常用本地软件</h2>
+            <h2 id="application-section-title">常用 App</h2>
           </div>
-          <span class="shortcut-section__count">{{ applicationCount }}</span>
+          <div class="shortcut-section__actions">
+            <span class="shortcut-section__count">{{ applicationCount }}</span>
+            <button
+              class="shortcut-section__add"
+              type="button"
+              aria-label="添加本地软件"
+              title="添加本地软件"
+              @click="addApplication"
+            >
+              <Plus :size="15" />
+            </button>
+          </div>
         </header>
 
-        <div class="shortcut-grid">
+        <div
+          v-if="topApplications.length"
+          class="shortcut-grid shortcut-grid--applications"
+        >
           <ShortcutTile
-            v-for="application in shortcuts.applications"
+            v-for="application in topApplications"
             :key="application.id"
             :name="application.name"
             :detail="application.path"
@@ -164,16 +268,82 @@ function removeShortcut(id: string) {
             @open="openApplication(application)"
             @edit="editApplication(application)"
           />
-          <button
-            class="shortcut-add-tile"
-            type="button"
-            @click="addApplication"
-          >
-            <span class="shortcut-add-tile__icon">
-              <Plus :size="18" />
+        </div>
+        <div v-else class="shortcut-empty">
+          <span class="shortcut-empty__icon">
+            <AppWindow :size="20" />
+          </span>
+          <span class="shortcut-empty__copy">
+            <strong>暂无常用 App</strong>
+          </span>
+          <UiButton size="sm" @click="addApplication">
+            <Plus :size="13" />
+            添加应用
+          </UiButton>
+        </div>
+      </section>
+
+      <section
+        class="shortcut-section shortcut-section--git"
+        aria-labelledby="git-section-title"
+      >
+        <header class="shortcut-section__header">
+          <span class="shortcut-section__icon">
+            <GitBranch :size="17" />
+          </span>
+          <div>
+            <h2 id="git-section-title">常用 Git</h2>
+          </div>
+          <div class="shortcut-section__actions">
+            <span class="shortcut-section__count">
+              {{ gitRepositoryCount }}
             </span>
-            <span>添加本地软件</span>
+            <button
+              class="shortcut-section__add"
+              type="button"
+              aria-label="打开 Git 仓库"
+              title="打开 Git 仓库"
+              @click="emit('openGitRepositories')"
+            >
+              <ArrowUpRight :size="15" />
+            </button>
+          </div>
+        </header>
+
+        <div
+          v-if="topGitRepositories.length"
+          class="git-shortcut-grid"
+        >
+          <button
+            v-for="repository in topGitRepositories"
+            :key="repository.id"
+            class="git-shortcut"
+            type="button"
+            :aria-label="`打开 Git 仓库 ${repository.name}`"
+            @click="emit('openGitRepositories')"
+          >
+            <span class="git-shortcut__icon">
+              <GitBranch :size="14" />
+            </span>
+            <span class="git-shortcut__copy">
+              <strong>{{ repository.name }}</strong>
+              <small :title="gitRepositoryDetail(repository)">
+                {{ gitRepositoryDetail(repository) }}
+              </small>
+            </span>
           </button>
+        </div>
+        <div v-else class="shortcut-empty shortcut-empty--git">
+          <span class="shortcut-empty__icon">
+            <GitBranch :size="20" />
+          </span>
+          <span class="shortcut-empty__copy">
+            <strong>暂无 Git 仓库</strong>
+          </span>
+          <UiButton size="sm" @click="emit('openGitRepositories')">
+            <ArrowUpRight :size="13" />
+            去添加
+          </UiButton>
         </div>
       </section>
     </div>
@@ -182,6 +352,7 @@ function removeShortcut(id: string) {
       v-if="dialogMode"
       :mode="dialogMode"
       :shortcut="editingShortcut"
+      :categories="websiteCategories"
       @close="closeDialog"
       @save="saveShortcut"
       @remove="removeShortcut"
@@ -193,35 +364,37 @@ function removeShortcut(id: string) {
 .workbench-home {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  animation: workbench-enter 240ms ease both;
+  gap: var(--space-5);
+  animation: workbench-enter var(--duration-window) var(--ease-apple) both;
 }
 
 .shortcut-layout {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: var(--space-3);
+}
+
+.shortcut-section--websites {
+  grid-column: 1 / -1;
 }
 
 .shortcut-section {
   display: flex;
   min-width: 0;
-  padding: 17px;
+  padding: var(--space-3) var(--space-4);
   flex-direction: column;
-  background: rgb(252 253 254 / 92%);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow:
-    0 1px 2px rgb(31 35 40 / 4%),
-    inset 0 1px 0 rgb(255 255 255 / 72%);
+  background: var(--canvas-raised);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
 }
 
 .shortcut-section__header {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
-  padding-bottom: 14px;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--line-soft);
 }
 
@@ -229,32 +402,23 @@ function removeShortcut(id: string) {
   display: grid;
   width: 32px;
   height: 32px;
-  color: #3f4851;
-  background: #f0f2f4;
-  box-shadow: inset 0 0 0 1px rgb(31 35 40 / 5%);
-  border-radius: 7px;
+  color: var(--icon);
+  background: var(--surface-inset);
+  box-shadow: inset 0 0 0 0.5px var(--asset-tile-border);
+  border-radius: var(--radius-control);
   place-items: center;
 }
 
 .shortcut-section__icon--app {
-  color: #3f4851;
-  background: #f0f2f4;
-}
-
-.shortcut-section__header p {
-  margin: 0 0 4px;
-  color: var(--text-subtle);
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
-  font-size: 7px;
-  font-weight: 700;
-  letter-spacing: 0.11em;
+  color: var(--icon);
+  background: var(--surface-inset);
 }
 
 .shortcut-section__header h2 {
   margin: 0;
   color: var(--text);
-  font-size: 14px;
-  font-weight: 620;
+  font-size: var(--font-title);
+  font-weight: var(--weight-emphasis);
 }
 
 .shortcut-section__count {
@@ -263,122 +427,212 @@ function removeShortcut(id: string) {
   height: 22px;
   padding: 0 5px;
   color: var(--text-subtle);
-  font-family: "SFMono-Regular", "SF Mono", "JetBrains Mono", monospace;
-  font-size: 8px;
-  background: #f0f2f4;
-  border-radius: 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--surface-inset);
+  border-radius: var(--radius-badge);
   place-items: center;
+}
+
+.shortcut-section__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.shortcut-section__add {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--text-muted);
+  background: transparent;
+  border-radius: var(--radius-control);
+  place-items: center;
+  transition:
+    color var(--duration-fast) var(--ease-apple),
+    background var(--duration-fast) var(--ease-apple);
+}
+
+.shortcut-section__add:hover {
+  color: var(--accent);
+  background: var(--hover-bg);
 }
 
 .shortcut-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 8px 6px;
-  padding-top: 15px;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: var(--space-1) var(--space-1);
+  padding-top: var(--space-4);
 }
 
-.shortcut-add-tile {
+.shortcut-grid--applications {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.git-shortcut-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: minmax(38px, auto);
+  gap: var(--space-1) var(--space-2);
+  padding-top: var(--space-3);
+}
+
+.git-shortcut {
   display: flex;
   min-width: 0;
-  min-height: 94px;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 8px 4px;
-  color: var(--text-subtle);
-  font-size: 9px;
-  background: transparent;
-  border: 0;
-  border-radius: 7px;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+  background: var(--surface-inset);
+  border-radius: var(--radius-control);
+  transition: background var(--duration-fast) var(--ease-apple);
+}
+
+.git-shortcut:hover {
+  background: var(--hover-bg);
+}
+
+.git-shortcut:focus-visible {
+  outline: 2px solid var(--system-blue);
+  outline-offset: 1px;
+}
+
+.git-shortcut__icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  color: var(--icon);
+  background: var(--asset-tile-bg);
+  border-radius: var(--radius-control);
+  place-items: center;
+}
+
+.git-shortcut__copy {
+  display: flex;
+  min-width: 0;
   flex-direction: column;
 }
 
-.shortcut-add-tile:hover {
-  color: var(--accent);
-  background: rgb(9 105 218 / 3%);
+.git-shortcut__copy strong,
+.git-shortcut__copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.shortcut-add-tile__icon {
+.git-shortcut__copy strong {
+  color: var(--text);
+  font-size: var(--font-caption);
+  font-weight: var(--weight-emphasis);
+  line-height: 1.35;
+}
+
+.git-shortcut__copy small {
+  color: var(--text-subtle);
+  font-size: var(--font-caption);
+  line-height: 1.35;
+}
+
+.shortcut-empty {
+  display: flex;
+  min-height: 110px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-3);
+}
+
+.shortcut-empty__icon {
   display: grid;
-  width: 52px;
-  height: 52px;
+  width: 38px;
+  height: 38px;
   flex: 0 0 auto;
-  color: #3f4851;
-  background: #f0f2f4;
-  border: 1px solid rgb(31 35 40 / 5%);
-  border-radius: 12px;
+  color: var(--icon);
+  background: var(--surface-inset);
+  border-radius: var(--radius-panel);
   place-items: center;
-  transition:
-    color 140ms ease,
-    background 140ms ease,
-    border-color 140ms ease;
 }
 
-.shortcut-add-tile:hover .shortcut-add-tile__icon {
-  color: var(--accent);
-  background: #eef6ff;
-  border-color: rgb(9 105 218 / 18%);
+.shortcut-empty__copy {
+  min-width: 0;
 }
 
-html[data-theme="dark"] {
-  .shortcut-section {
-    background: rgb(22 27 34 / 86%);
-    box-shadow:
-      0 1px 2px rgb(0 0 0 / 22%),
-      inset 0 1px 0 rgb(255 255 255 / 4%);
+.shortcut-empty__copy strong {
+  color: var(--text-muted);
+  font-size: var(--font-body);
+  font-weight: var(--weight-emphasis);
+}
+
+.shortcut-empty--git {
+  min-height: 148px;
+}
+
+@media (max-width: 1100px) {
+  .shortcut-layout {
+    grid-template-columns: 1fr;
   }
 
-  .shortcut-section__count {
-    background: #21262d;
-  }
-
-  .shortcut-section__icon {
-    color: #c9d1d9;
-    background: #21262d;
-    box-shadow: inset 0 0 0 1px rgb(240 246 252 / 6%);
-  }
-
-  .shortcut-add-tile:hover {
-    color: #79c0ff;
-    background: rgb(56 139 253 / 5%);
-  }
-
-  .shortcut-add-tile__icon {
-    color: #c9d1d9;
-    background: #21262d;
-    border-color: rgb(240 246 252 / 6%);
-  }
-
-  .shortcut-add-tile:hover .shortcut-add-tile__icon {
-    color: #79c0ff;
-    background: rgb(56 139 253 / 10%);
-    border-color: rgb(88 166 255 / 18%);
+  .shortcut-section--websites {
+    grid-column: auto;
   }
 }
 
 @media (max-width: 1050px) {
   .shortcut-grid {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+
+  .shortcut-grid--applications {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 700px) {
   .workbench-home {
-    gap: 16px;
+    gap: var(--space-4);
   }
 
   .shortcut-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .shortcut-grid--applications {
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
   .shortcut-section__header {
     grid-template-columns: 34px minmax(0, 1fr) auto;
   }
+
+  .shortcut-empty {
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 520px) {
   .shortcut-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .shortcut-grid--applications {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .git-shortcut-grid {
+    gap: var(--space-1);
+  }
+
+  .git-shortcut {
+    padding-inline: var(--space-1);
+  }
+
+  .shortcut-empty {
+    min-height: 96px;
+    gap: var(--space-2);
+    padding: var(--space-3) 0;
   }
 }
 

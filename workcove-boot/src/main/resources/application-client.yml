@@ -1,0 +1,12 @@
+spring:
+  datasource:
+    url: ${WORKCOVE_DB_URL:jdbc:mysql://127.0.0.1:3306/workcove_client?characterEncoding=UTF-8&connectionTimeZone=UTC&useSSL=false&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true}
+
+workcove:
+  auth:
+    cookie-name: ${WORKCOVE_AUTH_COOKIE_NAME:workcove_client_session}
+  web:
+    allowed-origins: ${WORKCOVE_WEB_ALLOWED_ORIGINS:http://127.0.0.1:8890}
+  vault:
+    cookie-name: ${WORKCOVE_VAULT_COOKIE_NAME:workcove_client_vault}
+    allowed-origins: ${WORKCOVE_VAULT_ALLOWED_ORIGINS:http://127.0.0.1:8890}

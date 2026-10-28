@@ -83,12 +83,12 @@ async function maximizeWindow() {
   place-items: center;
   color: rgb(0 0 0 / 0%);
   border: 0;
-  border-radius: 999px;
+  border-radius: 50%;
   box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 14%);
   cursor: default;
   transition:
-    color 120ms ease,
-    filter 120ms ease;
+    color var(--duration-fast) var(--ease-apple),
+    filter var(--duration-fast) var(--ease-apple);
 }
 
 .traffic-light svg {
@@ -102,15 +102,15 @@ async function maximizeWindow() {
 }
 
 .traffic-light--close {
-  background: #ff5f57;
+  background: var(--traffic-close);
 }
 
 .traffic-light--minimize {
-  background: #febc2e;
+  background: var(--traffic-minimize);
 }
 
 .traffic-light--maximize {
-  background: #28c840;
+  background: var(--traffic-zoom);
 }
 
 .traffic-light:active {
@@ -118,7 +118,7 @@ async function maximizeWindow() {
 }
 
 .traffic-light:focus-visible {
-  outline: 2px solid rgb(31 41 38 / 42%);
+  outline: 2px solid var(--system-blue);
   outline-offset: 2px;
 }
 

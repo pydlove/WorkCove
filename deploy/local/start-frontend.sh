@@ -8,7 +8,7 @@ LOG_DIR="$PROJECT_DIR/log"
 PID_FILE="$LOG_DIR/frontend.pid"
 LOG_FILE="$LOG_DIR/frontend.log"
 INSTALL_LOG="$LOG_DIR/frontend-install.log"
-APP_URL="http://127.0.0.1:32581/login"
+APP_URL="http://localhost:32581/login"
 
 mkdir -p "$LOG_DIR"
 
@@ -22,6 +22,15 @@ if [ -f "$PID_FILE" ]; then
 fi
 
 if lsof -nP -iTCP:32581 -sTCP:LISTEN >/dev/null 2>&1; then
+  EXISTING_PID="$(lsof -tiTCP:32581 -sTCP:LISTEN | head -n 1)"
+  if curl -fsS "$APP_URL" >/dev/null 2>&1; then
+    if [ -n "$EXISTING_PID" ]; then
+      echo "$EXISTING_PID" >"$PID_FILE"
+    fi
+    echo "前端服务已在运行 (PID: ${EXISTING_PID:-未知})"
+    echo "访问地址: $APP_URL"
+    exit 0
+  fi
   echo "端口 32581 已被其他进程占用，请先运行 ./deploy/local/status.sh"
   exit 1
 fi
@@ -48,7 +57,8 @@ PID="$(cat "$PID_FILE")"
 
 for _ in {1..20}; do
   if curl -fsS "$APP_URL" >/dev/null 2>&1; then
-    echo "前端服务启动成功 (PID: $PID)"
+  echo "前端服务启动成功 (PID: $PID)"
+  echo "访问地址: $APP_URL"
     echo "日志: $LOG_FILE"
     exit 0
   fi
