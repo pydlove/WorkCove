@@ -4536,51 +4536,51 @@ onBeforeUnmount(() => {
             :key="task.id"
             class="codex-turn"
           >
-            <div class="codex-user-message">
-              <p v-if="task.displayPrompt || task.prompt">
-                {{ task.displayPrompt || task.prompt }}
-              </p>
-              <div
-                v-if="task.attachments?.length"
-                class="codex-message-attachments"
-              >
-                <span
-                  v-for="attachment in task.attachments"
-                  :key="attachment.id"
+            <div class="codex-user-turn">
+              <div class="codex-user-message">
+                <p v-if="task.displayPrompt || task.prompt">
+                  {{ task.displayPrompt || task.prompt }}
+                </p>
+                <div
+                  v-if="task.attachments?.length"
+                  class="codex-message-attachments"
                 >
-                  <FileImage
-                    v-if="attachment.kind === 'image'"
-                    :size="13"
-                  />
-                  <FileText v-else :size="13" />
-                  <span :title="attachment.name">{{ attachment.name }}</span>
-                  <small>{{ formatFileSize(attachment.size) }}</small>
-                </span>
-              </div>
-              <div class="codex-user-message__footer">
+                  <span
+                    v-for="attachment in task.attachments"
+                    :key="attachment.id"
+                  >
+                    <FileImage
+                      v-if="attachment.kind === 'image'"
+                      :size="13"
+                    />
+                    <FileText v-else :size="13" />
+                    <span :title="attachment.name">{{ attachment.name }}</span>
+                    <small>{{ formatFileSize(attachment.size) }}</small>
+                  </span>
+                </div>
                 <time>{{ formatTime(task.startedAt) }}</time>
-                <button
-                  type="button"
-                  :class="{
-                    'codex-user-message__note--saved':
-                      taskNoteExists(task),
-                  }"
-                  :disabled="taskNoteExists(task)"
-                  :title="
-                    taskNoteExists(task)
-                      ? '该任务已在速记中'
-                      : '记录问题并标记为待验证'
-                  "
-                  @click="addTaskToNotes(task)"
-                >
-                  <NotebookPen :size="12" />
-                  {{
-                    taskNoteExists(task)
-                      ? '已加入速记'
-                      : '加入速记'
-                  }}
-                </button>
               </div>
+              <button
+                class="codex-user-note"
+                :class="{
+                  'codex-user-note--saved': taskNoteExists(task),
+                }"
+                type="button"
+                :disabled="taskNoteExists(task)"
+                :title="
+                  taskNoteExists(task)
+                    ? '该任务已在速记中'
+                    : '记录问题并标记为待验证'
+                "
+                @click="addTaskToNotes(task)"
+              >
+                <NotebookPen :size="12" />
+                {{
+                  taskNoteExists(task)
+                    ? '已加入速记'
+                    : '加入速记'
+                }}
+              </button>
             </div>
 
             <div v-if="task.plan.length" class="codex-plan">
@@ -7377,9 +7377,17 @@ onBeforeUnmount(() => {
   gap: 18px;
 }
 
-.codex-user-message {
+.codex-user-turn {
+  display: flex;
   align-self: flex-end;
   max-width: min(72%, 580px);
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.codex-user-message {
+  align-self: stretch;
   padding: 10px 14px;
   color: var(--text);
   background: var(--surface-secondary);
@@ -7394,20 +7402,14 @@ onBeforeUnmount(() => {
 }
 
 .codex-user-message time {
-  display: inline;
+  display: block;
+  margin-top: var(--space-1);
   color: var(--text-subtle);
   font-size: var(--font-caption);
+  text-align: right;
 }
 
-.codex-user-message__footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  margin-top: var(--space-1);
-}
-
-.codex-user-message__footer button {
+.codex-user-note {
   display: inline-flex;
   height: 24px;
   align-items: center;
@@ -7426,24 +7428,24 @@ onBeforeUnmount(() => {
     transform var(--duration-fast) var(--ease-apple);
 }
 
-.codex-user-message:hover .codex-user-message__footer button,
-.codex-user-message:focus-within .codex-user-message__footer button,
-.codex-user-message__footer button:focus-visible {
+.codex-user-turn:hover .codex-user-note,
+.codex-user-turn:focus-within .codex-user-note,
+.codex-user-note:focus-visible {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);
 }
 
-.codex-user-message__footer button:hover:not(:disabled) {
+.codex-user-note:hover:not(:disabled) {
   color: var(--text);
   background: var(--hover-bg);
 }
 
-.codex-user-message__footer button:disabled {
+.codex-user-note:disabled {
   cursor: default;
 }
 
-.codex-user-message__footer .codex-user-message__note--saved {
+.codex-user-note--saved {
   color: var(--system-green);
   background: color-mix(
     in srgb,
@@ -7458,7 +7460,7 @@ onBeforeUnmount(() => {
 }
 
 @media (hover: none) {
-  .codex-user-message__footer button {
+  .codex-user-note {
     opacity: 1;
     pointer-events: auto;
     transform: none;
@@ -9584,7 +9586,7 @@ onBeforeUnmount(() => {
     padding: var(--space-4) var(--space-3);
   }
 
-  .codex-user-message {
+  .codex-user-turn {
     max-width: 88%;
   }
 
