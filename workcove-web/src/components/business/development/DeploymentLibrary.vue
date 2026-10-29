@@ -4,13 +4,11 @@ import {
   Clock3,
   FileCode2,
   ListChecks,
-  LoaderCircle,
   Pencil,
   Play,
   Plus,
   Rocket,
   ScrollText,
-  Search,
   Server,
   Trash2,
 } from '@lucide/vue'
@@ -30,7 +28,9 @@ import WorkspaceTransferDialog, {
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiConfirmDialog from '@/components/ui/UiConfirmDialog.vue'
+import UiFidgetSpinner from '@/components/ui/UiFidgetSpinner.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
+import UiSearchInput from '@/components/ui/UiSearchInput.vue'
 import { usePagination } from '@/composables/usePagination'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useDeploymentStore } from '@/stores/useDeploymentStore'
@@ -59,6 +59,7 @@ const selectedDeploymentIds = ref<string[]>([])
 const batchTransferMode = ref<WorkspaceTransferMode | null>(null)
 const deleteTargets = ref<DeploymentConfig[]>([])
 const runningId = ref('')
+const runTarget = ref<DeploymentConfig | null>(null)
 const runsTarget = ref<DeploymentConfig | null>(null)
 
 const workspaceDeployments = computed(() =>
@@ -114,9 +115,16 @@ watch(
 watch(
   () => workspaces.activeWorkspaceId,
   () => {
+    dialogOpen.value = false
+    editingDeployment.value = null
+    transferDeployment.value = null
     selectionMode.value = false
     selectedDeploymentIds.value = []
+    batchTransferMode.value = null
+    deleteTargets.value = []
+    runningId.value = ''
     runsTarget.value = null
+    runTarget.value = null
     void loadServers(true)
   },
 )
@@ -230,6 +238,23 @@ async function runDeployment(deployment: DeploymentConfig) {
   } finally {
     runningId.value = ''
   }
+}
+
+function requestRunDeployment(deployment: DeploymentConfig) {
+  if (runningId.value) return
+  if (!serverOf(deployment)) {
+    emit('notify', '请先编辑部署并选择当前工作空间中的服务器')
+    editDeployment(deployment)
+    return
+  }
+  runTarget.value = deployment
+}
+
+async function confirmRunDeployment() {
+  const deployment = runTarget.value
+  if (!deployment) return
+  await runDeployment(deployment)
+  runTarget.value = null
 }
 
 function toggleSelectionMode() {
@@ -367,15 +392,11 @@ function handleDeploymentBatchTransfer(
       <span class="deployment-toolbar__count">
         {{ filteredDeployments.length }} 个部署配置
       </span>
-      <label class="deployment-search">
-        <Search :size="15" aria-hidden="true" />
-        <input
-          v-model="searchQuery"
-          type="search"
-          aria-label="搜索部署"
-          placeholder="搜索名称、服务器、目录或脚本"
-        />
-      </label>
+      <UiSearchInput
+        v-model="searchQuery"
+        label="搜索部署"
+        placeholder="搜索名称、服务器、目录或脚本"
+      />
       <UiButton @click="toggleSelectionMode">
         <ListChecks :size="14" />
         {{ selectionMode ? '退出批量' : '批量' }}
@@ -468,11 +489,10 @@ function handleDeploymentBatchTransfer(
               ? `运行 ${deployment.name}`
               : '请先选择服务器'
           "
-          @click="runDeployment(deployment)"
+          @click="requestRunDeployment(deployment)"
         >
-          <LoaderCircle
+          <UiFidgetSpinner
             v-if="runningId === deployment.id"
-            class="deployment-spin"
             :size="13"
           />
           <Play v-else :size="13" />
@@ -566,6 +586,22 @@ function handleDeploymentBatchTransfer(
       @close="runsTarget = null"
     />
 
+    <UiConfirmDialog
+      v-if="runTarget"
+      :title="`运行部署「${runTarget.name}」？`"
+      :description="`将在 ${serverOf(runTarget)?.username || ''}@${serverOf(runTarget)?.host || ''}:${serverOf(runTarget)?.port || ''} 的 ${runTarget.remoteDirectory} 目录执行脚本。`"
+      warning="脚本会立即在远端服务器执行，可能修改服务、配置或数据，请确认后继续。"
+      confirm-label="运行部署"
+      busy-label="正在执行…"
+      :busy="Boolean(runningId)"
+      @close="runTarget = null"
+      @confirm="confirmRunDeployment"
+    >
+      <span>
+        执行文件：{{ runTarget.scriptFilename }}
+      </span>
+    </UiConfirmDialog>
+
     <WorkspaceTransferDialog
       v-if="transferDeployment"
       :item-label="`部署「${transferDeployment.name}」`"
@@ -634,39 +670,6 @@ function handleDeploymentBatchTransfer(
   flex: 1;
   color: var(--text-muted);
   font-size: var(--font-caption);
-}
-
-.deployment-search {
-  display: flex;
-  width: min(100%, 280px);
-  height: var(--control-md);
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px;
-  color: var(--text-subtle);
-  background: var(--control-bg);
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-control);
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / 4%);
-}
-
-.deployment-search:focus-within {
-  border-color: var(--system-blue);
-  box-shadow: var(--focus-ring);
-}
-
-.deployment-search input {
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-  color: var(--text);
-  font-size: var(--font-body);
-  background: transparent;
-  border: 0;
-}
-
-.deployment-search input:focus-visible {
-  outline: none;
 }
 
 .deployment-list {
@@ -835,10 +838,6 @@ function handleDeploymentBatchTransfer(
   cursor: default;
 }
 
-.deployment-spin {
-  animation: deployment-spin 0.85s linear infinite;
-}
-
 .deployment-row__actions {
   display: flex;
   align-items: center;
@@ -908,12 +907,6 @@ function handleDeploymentBatchTransfer(
   gap: var(--space-2);
 }
 
-@keyframes deployment-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 @media (max-width: 760px) {
   .deployment-toolbar {
     align-items: stretch;
@@ -924,11 +917,6 @@ function handleDeploymentBatchTransfer(
     display: flex;
     flex-basis: 100%;
     align-items: center;
-  }
-
-  .deployment-search {
-    width: auto;
-    flex: 1;
   }
 
   .deployment-row {

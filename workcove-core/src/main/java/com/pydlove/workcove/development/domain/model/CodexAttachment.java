@@ -4,6 +4,7 @@ import java.nio.file.Path;
 
 public record CodexAttachment(
         String id,
+        String workspaceId,
         String name,
         String contentType,
         long size,

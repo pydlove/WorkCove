@@ -37,6 +37,7 @@ const newName = ref('')
 const newIconImage = ref('')
 const newIconProcessing = ref(false)
 const editingWorkspace = ref<Workspace | null>(null)
+const editingName = ref('')
 const editingIconImage = ref('')
 const editingIconProcessing = ref(false)
 const errorMessage = ref('')
@@ -94,27 +95,55 @@ function createWorkspace() {
   emit('notify', '工作空间已创建')
 }
 
-function startEditingIcon(workspace: Workspace) {
+function startEditingWorkspace(workspace: Workspace) {
   open.value = false
   editingWorkspace.value = workspace
+  editingName.value = workspace.name
   editingIconImage.value = workspace.iconImage
   editingIconProcessing.value = false
+  errorMessage.value = ''
 }
 
-function saveWorkspaceIcon() {
+function closeEditingWorkspace() {
+  if (editingIconProcessing.value) return
+  editingWorkspace.value = null
+  editingName.value = ''
+  editingIconImage.value = ''
+  errorMessage.value = ''
+}
+
+function saveWorkspace() {
   if (editingIconProcessing.value) return
   const workspace = editingWorkspace.value
   if (!workspace) return
-  const saved = workspaces.updateWorkspaceIcon(
+  const name = editingName.value.trim()
+  if (!name) {
+    errorMessage.value = '请输入工作空间名称'
+    return
+  }
+  if ([...name].length > 40) {
+    errorMessage.value = '工作空间名称不能超过 40 个字符'
+    return
+  }
+  if (
+    workspaces.workspaces.some(
+      (item) => item.id !== workspace.id && item.name === name,
+    )
+  ) {
+    errorMessage.value = '这个工作空间名称已经存在'
+    return
+  }
+  const saved = workspaces.updateWorkspace(
     workspace.id,
+    name,
     editingIconImage.value,
   )
   if (!saved) {
-    emit('notify', '工作空间不存在')
+    errorMessage.value = '无法更新工作空间'
     return
   }
-  editingWorkspace.value = null
-  emit('notify', '工作空间图标已更新')
+  closeEditingWorkspace()
+  emit('notify', '工作空间已更新')
 }
 
 function handlePointerDown(event: PointerEvent) {
@@ -207,9 +236,9 @@ onBeforeUnmount(() => {
           class="workspace-switcher__edit"
           type="button"
           role="menuitem"
-          :aria-label="`设置 ${workspace.name} 的图标`"
-          :title="`设置 ${workspace.name} 的图标`"
-          @click="startEditingIcon(workspace)"
+          :aria-label="`编辑工作空间 ${workspace.name}`"
+          :title="`编辑工作空间 ${workspace.name}`"
+          @click="startEditingWorkspace(workspace)"
         >
           <Pencil :size="12" />
         </button>
@@ -270,30 +299,57 @@ onBeforeUnmount(() => {
 
     <UiDialog
       v-if="editingWorkspace"
-      title="设置工作空间图标"
-      :description="`为「${editingWorkspace.name}」上传一张方形图片作为图标。`"
+      title="编辑工作空间"
+      description="修改工作空间名称，并可上传一张方形图片作为图标。"
       height="compact"
-      @close="editingWorkspace = null"
+      initial-focus="#workspace-editing-name"
+      @close="closeEditingWorkspace"
     >
-      <div class="workspace-icon-dialog">
-        <WorkspaceIconPicker
-          v-model:image="editingIconImage"
-          v-model:processing="editingIconProcessing"
-          :fallback-icon="editingWorkspace.icon"
-          :fallback-tone="editingWorkspace.iconTone"
-        />
-      </div>
+      <form
+        id="workspace-edit-form"
+        class="workspace-edit"
+        @submit.prevent="saveWorkspace"
+      >
+        <UiFormField
+          label="名称"
+          control-id="workspace-editing-name"
+          required
+        >
+          <UiInput
+            id="workspace-editing-name"
+            v-model="editingName"
+            size="lg"
+            maxlength="40"
+            aria-label="工作空间名称"
+            placeholder="例如：个人项目"
+          />
+        </UiFormField>
+        <UiFormField label="图标">
+          <WorkspaceIconPicker
+            v-model:image="editingIconImage"
+            v-model:processing="editingIconProcessing"
+            :fallback-icon="editingWorkspace.icon"
+            :fallback-tone="editingWorkspace.iconTone"
+          />
+        </UiFormField>
+        <p v-if="errorMessage" role="alert">{{ errorMessage }}</p>
+      </form>
       <template #footer>
-        <UiButton size="lg" @click="editingWorkspace = null">
+        <UiButton
+          size="lg"
+          :disabled="editingIconProcessing"
+          @click="closeEditingWorkspace"
+        >
           取消
         </UiButton>
         <UiButton
           variant="primary"
           size="lg"
+          type="submit"
+          form="workspace-edit-form"
           :disabled="editingIconProcessing"
-          @click="saveWorkspaceIcon"
         >
-          {{ editingIconProcessing ? '正在处理图片…' : '保存图标' }}
+          {{ editingIconProcessing ? '正在处理图片…' : '保存更改' }}
         </UiButton>
       </template>
     </UiDialog>
@@ -476,14 +532,15 @@ onBeforeUnmount(() => {
 }
 
 .workspace-create,
-.workspace-icon-dialog {
+.workspace-edit {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
   padding: 0 var(--space-5);
 }
 
-.workspace-create > p {
+.workspace-create > p,
+.workspace-edit > p {
   margin: calc(-1 * var(--space-1)) 0 0;
   color: var(--system-red);
   font-size: var(--font-caption);
@@ -528,7 +585,7 @@ onBeforeUnmount(() => {
   }
 
   .workspace-create,
-  .workspace-icon-dialog {
+  .workspace-edit {
     padding: 0 var(--space-4);
   }
 }

@@ -63,6 +63,13 @@ class DeploymentExecutionServiceTest {
     }
 
     @Test
+    void rejectsServerFromAnotherUser() {
+        assertThrows(
+                DomainException.class,
+                () -> service.execute(99L, command("default")));
+    }
+
+    @Test
     void mapsTimeoutToDeploymentResult() {
         gateway.timeout = true;
 
@@ -140,17 +147,23 @@ class DeploymentExecutionServiceTest {
         private boolean saved;
 
         @Override
-        public List<ManagedServer> findByOwnerId(long ownerId) {
+        public List<ManagedServer> findByOwnerIdAndWorkspaceId(
+                long ownerId,
+                String workspaceId) {
             return server.getOwnerId() == ownerId
+                    && server.getWorkspaceId().equals(workspaceId)
                     ? List.of(server)
                     : List.of();
         }
 
         @Override
-        public Optional<ManagedServer> findByIdAndOwnerId(
+        public Optional<ManagedServer> findByIdAndOwnerIdAndWorkspaceId(
                 long id,
-                long ownerId) {
-            return server.getId() == id && server.getOwnerId() == ownerId
+                long ownerId,
+                String workspaceId) {
+            return server.getId() == id
+                    && server.getOwnerId() == ownerId
+                    && server.getWorkspaceId().equals(workspaceId)
                     ? Optional.of(server)
                     : Optional.empty();
         }
@@ -163,7 +176,10 @@ class DeploymentExecutionServiceTest {
         }
 
         @Override
-        public void deleteByIdAndOwnerId(long id, long ownerId) {
+        public void deleteByIdAndOwnerIdAndWorkspaceId(
+                long id,
+                long ownerId,
+                String workspaceId) {
         }
     }
 }

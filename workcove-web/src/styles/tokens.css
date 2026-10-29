@@ -20,6 +20,7 @@
   --font-caption: 11px;
   --font-body: 13px;
   --font-title: 15px;
+  --font-dialog-title-prominent: 18px;
   --font-metric: 22px;
   --font-display: 28px;
   --font-hero: 34px;
@@ -27,6 +28,7 @@
   --line-caption: 14px;
   --line-body: 18px;
   --line-title: 22px;
+  --line-dialog-title-prominent: 26px;
   --weight-regular: 400;
   --weight-emphasis: 500;
   --weight-strong: 600;
@@ -44,7 +46,7 @@
   --codex-send-surface: #1d1e20;
   --codex-send-foreground: #ffffff;
   --codex-session-active: #f0f0f1;
-  --codex-message-text: #1a1c20;
+  --codex-message-text: #0a0b0d;
   --codex-message-muted: #808182;
   --codex-message-subtle: #b0b0b1;
   --codex-inline-code-bg: #ececed;
@@ -70,6 +72,7 @@
   --accent: var(--system-blue);
   --accent-strong: var(--system-blue-hover);
   --accent-soft: #e8f2ff;
+  --accent-contrast: #ffffff;
   --success: var(--system-green);
   --coral: var(--system-red);
   --amber: var(--system-orange);
@@ -81,6 +84,7 @@
   --sidebar: rgb(247 247 248 / 88%);
   --material: rgb(246 246 246 / 72%);
   --window-material: rgb(246 247 248 / 94%);
+  --canvas-inverse: #111815;
   --hover-bg: rgb(0 0 0 / 3%);
   --selection-bg: rgb(0 122 255 / 12%);
   --selection-label: #ffffff;
@@ -96,6 +100,23 @@
   --rest-screen-text: #f5f7f4;
   --rest-screen-muted: rgb(255 255 255 / 55%);
   --rest-screen-line: rgb(255 255 255 / 12%);
+  --screensaver-deep-forest-bg: #111815;
+  --screensaver-deep-forest-text: #f5f7f4;
+  --screensaver-deep-forest-muted: rgb(255 255 255 / 55%);
+  --screensaver-deep-forest-line: rgb(255 255 255 / 12%);
+  --screensaver-graphite-bg: #171717;
+  --screensaver-graphite-text: #f7f7f7;
+  --screensaver-graphite-muted: rgb(255 255 255 / 52%);
+  --screensaver-graphite-line: rgb(255 255 255 / 11%);
+  --screensaver-morning-mist-bg: #edf1ec;
+  --screensaver-morning-mist-text: #1f2925;
+  --screensaver-morning-mist-muted: rgb(31 41 37 / 58%);
+  --screensaver-morning-mist-line: rgb(31 41 37 / 12%);
+  --screensaver-deep-ocean-bg: #0d1b24;
+  --screensaver-deep-ocean-text: #f1f7fa;
+  --screensaver-deep-ocean-muted: rgb(241 247 250 / 56%);
+  --screensaver-deep-ocean-line: rgb(241 247 250 / 13%);
+  --screensaver-image-scrim: rgb(5 12 9 / 48%);
 
   /* Controls */
   --control-bg: #ffffff;
@@ -106,6 +127,8 @@
   --segmented-track: rgb(118 118 128 / 14%);
   --field-bg: var(--control-bg);
   --field-border: var(--control-border);
+  --control-inset-shadow: inset 0 1px 2px rgb(0 0 0 / 4%);
+  --search-field-width: 280px;
 
   /* Dropdowns */
   --dropdown-bg: var(--canvas-raised);
@@ -114,6 +137,8 @@
   --dropdown-shadow: var(--shadow-popover);
   --dropdown-item-height: 32px;
   --dropdown-item-radius: var(--radius-control);
+  --action-menu-width: 248px;
+  --action-menu-max-height: 320px;
 
   /* Window controls */
   --traffic-close: #ff5f57;
@@ -141,6 +166,7 @@
   --radius-panel: 10px;
   --radius-window: 12px;
   --radius-card: 16px;
+  --radius-round: 50%;
 
   /* Four-pixel spacing scale */
   --space-1: 4px;
@@ -170,6 +196,21 @@
   --duration-fast: 120ms;
   --duration-popover: 160ms;
   --duration-window: 200ms;
+  --fidget-spinner-duration: 720ms;
+  --fidget-spinner-reduced-duration: 2s;
+  --fidget-spinner-easing: linear;
+  --fidget-spinner-stroke: 1.5px;
+  --fidget-spinner-arm-width: 2px;
+  --fidget-spinner-arm-top: 23%;
+  --fidget-spinner-arm-height: 25%;
+  --fidget-spinner-lobe-top: 2%;
+  --fidget-spinner-lobe-offset: 36%;
+  --fidget-spinner-lobe-size: 28%;
+  --fidget-spinner-hub-offset: 37%;
+  --fidget-spinner-hub-size: 26%;
+  --fidget-spinner-tint: 16%;
+  --fidget-spinner-arm-opacity: 0.82;
+  --loading-control-opacity: 0.86;
   --z-titlebar: 20;
   --z-overlay: 80;
   --z-popover: 90;
@@ -189,6 +230,36 @@ html[data-font="avenir"] {
   --font-sans:
     "Avenir Next", Avenir, -apple-system, BlinkMacSystemFont,
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+html[data-font="misans"] {
+  --font-sans:
+    "MiSans VF", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "PingFang SC", "Hiragino Sans GB", sans-serif;
+}
+
+html[data-font="noto-sans"] {
+  --font-sans:
+    "Noto Sans SC", -apple-system, BlinkMacSystemFont, "PingFang SC",
+    "Hiragino Sans GB", sans-serif;
+}
+
+html[data-font="hiragino"] {
+  --font-sans:
+    "Hiragino Sans GB", -apple-system, BlinkMacSystemFont, "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+}
+
+html[data-font="wenkai"] {
+  --font-sans:
+    "LXGW WenKai TC", "Kaiti SC", -apple-system, BlinkMacSystemFont,
+    "PingFang SC", serif;
+}
+
+html[data-font="noto-serif"] {
+  --font-sans:
+    "Noto Serif SC", "Songti SC", -apple-system, BlinkMacSystemFont,
+    "PingFang SC", serif;
 }
 
 html[data-theme="dark"] {
@@ -230,6 +301,7 @@ html[data-theme="dark"] {
   --selection-bg: rgb(10 132 255 / 24%);
   --surface-secondary: #1c2128;
   --surface-inset: #21262d;
+  --canvas-inverse: #0b0d0c;
   --asset-tile-bg: #e6e8ec;
   --asset-tile-border: rgb(0 0 0 / 12%);
   --asset-tile-icon: rgb(0 0 0 / 54%);
@@ -240,6 +312,7 @@ html[data-theme="dark"] {
   --control-bg: rgb(255 255 255 / 7%);
   --control-border: rgb(255 255 255 / 13%);
   --control-shadow: 0 0 0 0.5px rgb(255 255 255 / 9%);
+  --control-inset-shadow: inset 0 1px 2px rgb(0 0 0 / 18%);
   --segmented-track: rgb(118 118 128 / 24%);
 
   --shadow-control: 0 0 0 0.5px rgb(255 255 255 / 9%);

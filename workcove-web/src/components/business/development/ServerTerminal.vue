@@ -80,6 +80,7 @@ function websocketUrl() {
     window.location.href,
   )
   url.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  url.searchParams.set('workspaceId', props.server.workspaceId)
   const dimensions = fitAddon?.proposeDimensions()
   url.searchParams.set('cols', String(dimensions?.cols ?? 120))
   url.searchParams.set('rows', String(dimensions?.rows ?? 32))

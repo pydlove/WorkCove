@@ -48,6 +48,10 @@ button:disabled {
   opacity: 0.4;
 }
 
+button[disabled]:disabled:has(.ui-fidget-spinner) {
+  opacity: var(--loading-control-opacity);
+}
+
 /*
  * Row action icons stay visually quiet until hover. The trash icon is
  * destructive everywhere, so it always carries the system danger color.

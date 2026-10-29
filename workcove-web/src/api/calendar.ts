@@ -29,8 +29,10 @@ function requestBody(input: CalendarEventInput) {
   }
 }
 
-export const listCalendarEvents = () =>
-  get<CalendarEvent[]>('/calendar/events')
+export const listCalendarEvents = (workspaceId: string) =>
+  get<CalendarEvent[]>(
+    `/calendar/events?workspaceId=${encodeURIComponent(workspaceId)}`,
+  )
 
 export const createCalendarEvent = (input: CalendarEventInput) =>
   postJsonWithHeaders<CalendarEvent>(
@@ -46,42 +48,60 @@ export const updateCalendarEvent = (input: CalendarEventInput) =>
     ACTION_HEADER,
   )
 
-export const deleteCalendarEvent = (id: string) =>
+export const deleteCalendarEvent = (
+  id: string,
+  workspaceId: string,
+) =>
   deleteNoContentWithHeaders(
-    `/calendar/events/${encodeURIComponent(id)}`,
+    `/calendar/events/${encodeURIComponent(id)}?workspaceId=${encodeURIComponent(workspaceId)}`,
     ACTION_HEADER,
   )
 
-export const getCalendarReminderSettings = () =>
+export const getCalendarReminderSettings = (workspaceId: string) =>
   get<CalendarReminderSettings & { configured: boolean }>(
-    '/calendar/reminder-settings',
+    `/calendar/reminder-settings?workspaceId=${encodeURIComponent(workspaceId)}`,
   )
 
 export const updateCalendarReminderSettings = (
+  workspaceId: string,
   settings: CalendarReminderSettings,
 ) =>
   putJsonWithHeaders<
     CalendarReminderSettings & { configured: boolean }
-  >('/calendar/reminder-settings', settings, ACTION_HEADER)
-
-export const listCalendarNotifications = (limit = 20) =>
-  get<CalendarNotification[]>(
-    `/calendar/notifications?limit=${Math.max(1, Math.min(limit, 100))}`,
+  >(
+    '/calendar/reminder-settings',
+    { workspaceId, ...settings },
+    ACTION_HEADER,
   )
 
-export const getUnreadNotificationCount = () =>
-  get<{ count: number }>('/calendar/notifications/unread-count')
+export const listCalendarNotifications = (
+  workspaceId: string,
+  limit = 20,
+) =>
+  get<CalendarNotification[]>(
+    `/calendar/notifications?workspaceId=${encodeURIComponent(workspaceId)}&limit=${Math.max(1, Math.min(limit, 100))}`,
+  )
 
-export const markCalendarNotificationRead = (id: number) =>
+export const getUnreadNotificationCount = (workspaceId: string) =>
+  get<{ count: number }>(
+    `/calendar/notifications/unread-count?workspaceId=${encodeURIComponent(workspaceId)}`,
+  )
+
+export const markCalendarNotificationRead = (
+  id: number,
+  workspaceId: string,
+) =>
   postJsonNoContentWithHeaders(
-    `/calendar/notifications/${id}/read`,
+    `/calendar/notifications/${id}/read?workspaceId=${encodeURIComponent(workspaceId)}`,
     {},
     ACTION_HEADER,
   )
 
-export const markAllCalendarNotificationsRead = () =>
+export const markAllCalendarNotificationsRead = (
+  workspaceId: string,
+) =>
   postJsonNoContentWithHeaders(
-    '/calendar/notifications/read-all',
+    `/calendar/notifications/read-all?workspaceId=${encodeURIComponent(workspaceId)}`,
     {},
     ACTION_HEADER,
   )

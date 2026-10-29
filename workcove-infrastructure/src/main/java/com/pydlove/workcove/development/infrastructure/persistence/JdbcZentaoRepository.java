@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pydlove.workcove.development.domain.model.ZentaoBug;
+import com.pydlove.workcove.development.domain.model.ZentaoBuild;
 import com.pydlove.workcove.development.domain.model.ZentaoConnection;
 import com.pydlove.workcove.development.domain.repository.ZentaoRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -22,6 +23,8 @@ public class JdbcZentaoRepository implements ZentaoRepository {
 
     private static final RowMapper<ZentaoBug> BUG_MAPPER =
             JdbcZentaoRepository::mapBug;
+    private static final RowMapper<ZentaoBuild> BUILD_MAPPER =
+            JdbcZentaoRepository::mapBuild;
     private static final TypeReference<List<String>> STRING_LIST =
             new TypeReference<>() {
             };
@@ -147,13 +150,13 @@ public class JdbcZentaoRepository implements ZentaoRepository {
                     INSERT INTO zentao_bug (
                         owner_id, workspace_id, remote_id, project_id,
                         project_name, product_id, product_name, title,
-                        severity, priority, status, steps, opened_by,
+                        severity, priority, status, confirmed, steps, opened_by,
                         opened_date, assigned_to, active, local_deleted,
                         local_resolved, local_status, resolution,
                         solution_text, reason_text, pushed_at,
                         last_synced_at, created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     bug.ownerId(),
                     bug.workspaceId(),
@@ -166,6 +169,7 @@ public class JdbcZentaoRepository implements ZentaoRepository {
                     bug.severity(),
                     bug.priority(),
                     bug.status(),
+                    bug.confirmed(),
                     bug.steps(),
                     bug.openedBy(),
                     bug.openedDate(),
@@ -192,6 +196,7 @@ public class JdbcZentaoRepository implements ZentaoRepository {
                         severity = ?,
                         priority = ?,
                         status = ?,
+                        confirmed = ?,
                         steps = ?,
                         opened_by = ?,
                         opened_date = ?,
@@ -215,6 +220,7 @@ public class JdbcZentaoRepository implements ZentaoRepository {
                     bug.severity(),
                     bug.priority(),
                     bug.status(),
+                    bug.confirmed(),
                     bug.steps(),
                     bug.openedBy(),
                     bug.openedDate(),
@@ -311,6 +317,127 @@ public class JdbcZentaoRepository implements ZentaoRepository {
                 workspaceId);
     }
 
+    @Override
+    public List<ZentaoBuild> findBuilds(
+            long ownerId,
+            String workspaceId) {
+        return jdbc.query(
+                """
+                SELECT *
+                FROM zentao_build
+                WHERE owner_id = ? AND workspace_id = ?
+                ORDER BY build_date DESC, updated_at DESC, id DESC
+                """,
+                BUILD_MAPPER,
+                ownerId,
+                workspaceId);
+    }
+
+    @Override
+    public Optional<ZentaoBuild> findBuildByRemote(
+            long ownerId,
+            String workspaceId,
+            String projectId,
+            String remoteId) {
+        return jdbc.query(
+                """
+                SELECT *
+                FROM zentao_build
+                WHERE owner_id = ?
+                  AND workspace_id = ?
+                  AND project_id = ?
+                  AND remote_id = ?
+                """,
+                BUILD_MAPPER,
+                ownerId,
+                workspaceId,
+                projectId,
+                remoteId).stream().findFirst();
+    }
+
+    @Override
+    public ZentaoBuild saveBuild(ZentaoBuild build) {
+        if (build.id() == null) {
+            jdbc.update(
+                    """
+                    INSERT INTO zentao_build (
+                        owner_id, workspace_id, remote_id, project_id,
+                        project_name, product_id, product_name, execution_id,
+                        name, status, builder, build_date, description,
+                        scm_revision, last_synced_at, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    build.ownerId(),
+                    build.workspaceId(),
+                    build.remoteId(),
+                    build.projectId(),
+                    build.projectName(),
+                    build.productId(),
+                    build.productName(),
+                    build.executionId(),
+                    build.name(),
+                    build.status(),
+                    build.builder(),
+                    build.buildDate(),
+                    build.description(),
+                    build.scmRevision(),
+                    timestamp(build.lastSyncedAt()),
+                    timestamp(build.createdAt()),
+                    timestamp(build.updatedAt()));
+        } else {
+            jdbc.update(
+                    """
+                    UPDATE zentao_build
+                    SET project_name = ?,
+                        product_id = ?,
+                        product_name = ?,
+                        execution_id = ?,
+                        name = ?,
+                        status = ?,
+                        builder = ?,
+                        build_date = ?,
+                        description = ?,
+                        scm_revision = ?,
+                        last_synced_at = ?,
+                        updated_at = ?
+                    WHERE id = ? AND owner_id = ? AND workspace_id = ?
+                    """,
+                    build.projectName(),
+                    build.productId(),
+                    build.productName(),
+                    build.executionId(),
+                    build.name(),
+                    build.status(),
+                    build.builder(),
+                    build.buildDate(),
+                    build.description(),
+                    build.scmRevision(),
+                    timestamp(build.lastSyncedAt()),
+                    timestamp(build.updatedAt()),
+                    build.id(),
+                    build.ownerId(),
+                    build.workspaceId());
+        }
+        if (build.id() != null) return build;
+        return findBuildByRemote(
+                build.ownerId(),
+                build.workspaceId(),
+                build.projectId(),
+                build.remoteId()).orElseThrow();
+    }
+
+    @Override
+    public void deleteBuilds(long ownerId, String workspaceId) {
+        jdbc.update(
+                """
+                DELETE FROM zentao_build
+                WHERE owner_id = ? AND workspace_id = ?
+                """,
+                ownerId,
+                workspaceId);
+    }
+
     private ZentaoConnection mapConnection(
             ResultSet result,
             int rowNumber) throws SQLException {
@@ -343,6 +470,7 @@ public class JdbcZentaoRepository implements ZentaoRepository {
                 result.getString("severity"),
                 result.getString("priority"),
                 result.getString("status"),
+                result.getBoolean("confirmed"),
                 result.getString("steps"),
                 result.getString("opened_by"),
                 result.getString("opened_date"),
@@ -355,6 +483,30 @@ public class JdbcZentaoRepository implements ZentaoRepository {
                 result.getString("solution_text"),
                 result.getString("reason_text"),
                 instant(result, "pushed_at"),
+                instant(result, "last_synced_at"),
+                instant(result, "created_at"),
+                instant(result, "updated_at"));
+    }
+
+    private static ZentaoBuild mapBuild(
+            ResultSet result,
+            int rowNumber) throws SQLException {
+        return new ZentaoBuild(
+                result.getLong("id"),
+                result.getLong("owner_id"),
+                result.getString("workspace_id"),
+                result.getString("remote_id"),
+                result.getString("project_id"),
+                result.getString("project_name"),
+                result.getString("product_id"),
+                result.getString("product_name"),
+                result.getString("execution_id"),
+                result.getString("name"),
+                result.getString("status"),
+                result.getString("builder"),
+                result.getString("build_date"),
+                result.getString("description"),
+                result.getString("scm_revision"),
                 instant(result, "last_synced_at"),
                 instant(result, "created_at"),
                 instant(result, "updated_at"));

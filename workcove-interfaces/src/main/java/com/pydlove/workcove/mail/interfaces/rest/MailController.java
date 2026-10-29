@@ -136,6 +136,20 @@ public class MailController {
                 body.offset()));
     }
 
+    @PostMapping("/check-inbox")
+    public MailMessagePageResponse checkInbox(
+            @RequestHeader(value = "X-WorkCove-Action", required = false)
+            String action,
+            @RequestBody CheckInboxRequest body,
+            HttpServletRequest request) {
+        validateAction(action);
+        return MailMessagePageResponse.from(mailService.checkInbox(
+                currentUserId(request),
+                body.workspaceId(),
+                body.accountId(),
+                body.limit() == null ? 20 : body.limit()));
+    }
+
     @PostMapping("/sync")
     public MailSyncResponse sync(
             @RequestHeader(value = "X-WorkCove-Action", required = false)
@@ -397,5 +411,11 @@ public class MailController {
         if (!ACTION.equals(action)) {
             throw new DomainException("不支持的邮件操作");
         }
+    }
+
+    public record CheckInboxRequest(
+            String workspaceId,
+            long accountId,
+            Integer limit) {
     }
 }

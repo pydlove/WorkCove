@@ -1,6 +1,6 @@
 {
   "name": "workcove-web",
-  "version": "0.2.5",
+  "version": "0.2.8",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,8 +9,21 @@
     "check:ui": "node scripts/check-ui-conventions.mjs",
     "check:isolation": "node scripts/check-user-isolation.mjs",
     "typecheck": "vue-tsc --noEmit",
+    "test:work-directory-insights": "node --experimental-strip-types --test tests/workDirectoryInsights.test.ts",
     "test:zentao-test": "node --experimental-strip-types --test tests/zentaoTestResult.test.ts",
     "test:zentao-resolution": "node --experimental-strip-types --test tests/zentaoResolution.test.ts",
+    "test:zentao-test-navigation": "node --experimental-strip-types --test tests/zentaoTestNavigation.test.ts",
+    "test:zentao-repair": "node --experimental-strip-types --test tests/zentaoTestRepair.test.ts",
+    "test:code-review": "node --experimental-strip-types --test tests/codeReview.test.ts",
+    "test:codex-git-policy": "node --experimental-strip-types --test tests/codexGitPolicy.test.ts",
+    "test:codex-commit-prompt": "node --experimental-strip-types --test tests/codexCommitPrompt.test.ts",
+    "test:mail-notifications": "node --experimental-strip-types --test tests/mailNotifications.test.ts",
+    "test:test-environments": "node --experimental-strip-types --test tests/testEnvironment.test.ts",
+    "test:work-tasks": "node --experimental-strip-types --test tests/workTaskExecution.test.ts",
+    "test:builtin-mcp": "node --experimental-strip-types --test tests/builtinMcp.test.ts",
+    "test:wellness-timing": "node --experimental-strip-types --test tests/wellnessTiming.test.ts",
+    "test:text-urls": "node --experimental-strip-types --test tests/textUrls.test.ts",
+    "test:vault-preferences": "node --experimental-strip-types --test tests/vaultPreferences.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {

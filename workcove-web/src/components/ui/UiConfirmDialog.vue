@@ -64,7 +64,7 @@ function close() {
       <UiButton
         variant="danger"
         size="lg"
-        :disabled="busy"
+        :loading="busy"
         @click="emit('confirm')"
       >
         {{ busy ? busyLabel : confirmLabel }}

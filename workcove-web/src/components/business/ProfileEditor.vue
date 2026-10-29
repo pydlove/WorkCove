@@ -12,6 +12,7 @@ import {
 import { computed, reactive, ref, watch } from 'vue'
 
 import UiConfirmDialog from '@/components/ui/UiConfirmDialog.vue'
+import UiFidgetSpinner from '@/components/ui/UiFidgetSpinner.vue'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { fileToSquareWebp } from '@/utils/image'
 
@@ -334,7 +335,8 @@ async function saveProfile() {
             type="submit"
             :disabled="!isDirty || saving"
           >
-            <Save :size="15" />
+            <UiFidgetSpinner v-if="saving" :size="14" />
+            <Save v-else :size="15" />
             {{ saving ? '保存中…' : '保存资料' }}
           </button>
         </div>

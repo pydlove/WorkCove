@@ -1,7 +1,9 @@
 package com.pydlove.workcove.development.interfaces.rest;
 
+import com.pydlove.workcove.development.domain.model.LocalDirectorySummary;
 import com.pydlove.workcove.development.domain.port.DirectoryPicker;
 import com.pydlove.workcove.development.domain.port.IdeLauncher;
+import com.pydlove.workcove.development.domain.port.LocalDirectoryInspector;
 import com.pydlove.workcove.identity.application.command.AuthService;
 import com.pydlove.workcove.identity.interfaces.security.SessionCookieReader;
 import com.pydlove.workcove.shared.domain.DomainException;
@@ -19,21 +21,26 @@ public class DevelopmentDirectoryController {
     private static final String CHOOSE_DIRECTORY_ACTION = "choose-directory";
     private static final String OPEN_DIRECTORY_ACTION = "open-directory";
     private static final String OPEN_WITH_IDEA_ACTION = "open-with-idea";
+    private static final String INSPECT_DIRECTORY_ACTION =
+            "inspect-directory";
 
     private final AuthService authService;
     private final SessionCookieReader sessionCookieReader;
     private final DirectoryPicker directoryPicker;
     private final IdeLauncher ideLauncher;
+    private final LocalDirectoryInspector localDirectoryInspector;
 
     public DevelopmentDirectoryController(
             AuthService authService,
             SessionCookieReader sessionCookieReader,
             DirectoryPicker directoryPicker,
-            IdeLauncher ideLauncher) {
+            IdeLauncher ideLauncher,
+            LocalDirectoryInspector localDirectoryInspector) {
         this.authService = authService;
         this.sessionCookieReader = sessionCookieReader;
         this.directoryPicker = directoryPicker;
         this.ideLauncher = ideLauncher;
+        this.localDirectoryInspector = localDirectoryInspector;
     }
 
     @PostMapping("/directory-picker")
@@ -71,9 +78,26 @@ public class DevelopmentDirectoryController {
         ideLauncher.openProject(body.path());
     }
 
+    @PostMapping("/directory-summary")
+    public LocalDirectorySummary directorySummary(
+            @RequestHeader(value = "X-WorkCove-Action", required = false) String action,
+            @RequestBody DirectoryPathRequest body,
+            HttpServletRequest request) {
+        authService.currentSession(sessionCookieReader.readToken(request));
+        if (!INSPECT_DIRECTORY_ACTION.equals(action)) {
+            throw new DomainException("不支持的本地目录操作");
+        }
+        long threshold = body.largeFileThresholdBytes() == null
+                ? LocalDirectoryInspector.DEFAULT_LARGE_FILE_THRESHOLD_BYTES
+                : body.largeFileThresholdBytes();
+        return localDirectoryInspector.inspect(body.path(), threshold);
+    }
+
     public record DirectoryPickerResponse(String path) {
     }
 
-    public record DirectoryPathRequest(String path) {
+    public record DirectoryPathRequest(
+            String path,
+            Long largeFileThresholdBytes) {
     }
 }

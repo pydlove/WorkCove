@@ -15,6 +15,7 @@ public record ZentaoBug(
         String severity,
         String priority,
         String status,
+        boolean confirmed,
         String steps,
         String openedBy,
         String openedDate,

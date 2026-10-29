@@ -25,6 +25,7 @@ class CalendarServiceTest {
     private static final Instant NOW =
             Instant.parse("2026-10-27T01:00:00Z");
     private static final long OWNER_ID = 42L;
+    private static final String WORKSPACE_ID = "workspace-1";
 
     private final InMemoryCalendarRepository repository =
             new InMemoryCalendarRepository();
@@ -85,9 +86,50 @@ class CalendarServiceTest {
                 DomainException.class,
                 () -> service.saveReminderSettings(
                         OWNER_ID,
+                        WORKSPACE_ID,
                         false,
                         false,
                         10));
+    }
+
+    @Test
+    void isolatesEventsAndDeletionByWorkspace() {
+        CalendarService.CalendarEventView saved = service.saveEvent(
+                OWNER_ID,
+                new CalendarService.CalendarEventInput(
+                        null,
+                        WORKSPACE_ID,
+                        "空间一会议",
+                        LocalDate.of(2026, 10, 28),
+                        LocalTime.of(10, 0),
+                        null,
+                        "",
+                        "blue",
+                        true,
+                        false,
+                        10));
+
+        assertEquals(1, service.events(OWNER_ID, WORKSPACE_ID).size());
+        assertEquals(0, service.events(OWNER_ID, "workspace-2").size());
+        assertThrows(
+                DomainException.class,
+                () -> service.saveEvent(
+                        OWNER_ID,
+                        new CalendarService.CalendarEventInput(
+                                saved.id(),
+                                "workspace-2",
+                                "越权修改",
+                                LocalDate.of(2026, 10, 29),
+                                LocalTime.of(11, 0),
+                                null,
+                                "",
+                                "red",
+                                true,
+                                false,
+                                10)));
+
+        service.deleteEvent(OWNER_ID, "workspace-2", saved.id());
+        assertEquals(1, repository.events.size());
     }
 
     private static final class InMemoryCalendarRepository
@@ -97,18 +139,25 @@ class CalendarServiceTest {
         private final List<CalendarReminder> reminders = new ArrayList<>();
 
         @Override
-        public List<CalendarEvent> findEvents(long ownerId) {
+        public List<CalendarEvent> findEvents(
+                long ownerId,
+                String workspaceId) {
             return events.stream()
                     .filter((event) -> event.ownerId() == ownerId)
+                    .filter((event) ->
+                            event.workspaceId().equals(workspaceId))
                     .toList();
         }
 
         @Override
         public Optional<CalendarEvent> findEvent(
                 long ownerId,
+                String workspaceId,
                 String eventKey) {
             return events.stream()
                     .filter((event) -> event.ownerId() == ownerId)
+                    .filter((event) ->
+                            event.workspaceId().equals(workspaceId))
                     .filter((event) -> event.eventKey().equals(eventKey))
                     .findFirst();
         }
@@ -142,15 +191,20 @@ class CalendarServiceTest {
         }
 
         @Override
-        public void deleteEvent(long ownerId, String eventKey) {
+        public void deleteEvent(
+                long ownerId,
+                String workspaceId,
+                String eventKey) {
             events.removeIf((event) ->
                     event.ownerId() == ownerId
+                            && event.workspaceId().equals(workspaceId)
                             && event.eventKey().equals(eventKey));
         }
 
         @Override
         public Optional<CalendarReminderSettings> findReminderSettings(
-                long ownerId) {
+                long ownerId,
+                String workspaceId) {
             return Optional.empty();
         }
 
@@ -193,18 +247,22 @@ class CalendarServiceTest {
         @Override
         public List<InAppNotification> findNotifications(
                 long ownerId,
+                String workspaceId,
                 int limit) {
             return List.of();
         }
 
         @Override
-        public int countUnreadNotifications(long ownerId) {
+        public int countUnreadNotifications(
+                long ownerId,
+                String workspaceId) {
             return 0;
         }
 
         @Override
         public void markNotificationRead(
                 long ownerId,
+                String workspaceId,
                 long notificationId,
                 Instant readAt) {
         }
@@ -212,6 +270,7 @@ class CalendarServiceTest {
         @Override
         public void markAllNotificationsRead(
                 long ownerId,
+                String workspaceId,
                 Instant readAt) {
         }
     }

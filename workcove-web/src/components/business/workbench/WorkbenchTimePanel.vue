@@ -149,9 +149,9 @@ function dateKey(date: Date) {
 }
 
 watch(
-  () => auth.email,
-  (email) => {
-    void calendar.load(email).catch((error) => {
+  () => [auth.email, workspaces.activeWorkspaceId] as const,
+  ([email, workspaceId]) => {
+    void calendar.load(email, workspaceId).catch((error) => {
       emit(
         'notify',
         error instanceof Error

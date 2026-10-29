@@ -22,8 +22,8 @@ import {
 import WellnessReminderSettingsDialog from '@/components/business/workbench/WellnessReminderSettingsDialog.vue'
 import { useWellnessStore } from '@/stores/useWellnessStore'
 import {
-  lastWellnessAction,
   localDateKey,
+  wellnessReminderBaseline,
 } from '@/utils/wellness'
 
 interface ReminderItem {
@@ -54,31 +54,47 @@ const todaySchedule = computed(() =>
     (day) => day.day === currentWorkday.value,
   ),
 )
+const withinWorkSchedule = computed(() => {
+  const schedule = todaySchedule.value
+  if (!schedule?.enabled) return false
+  const currentMinutes =
+    now.value.getHours() * 60 + now.value.getMinutes()
+  return (
+    currentMinutes >= localMinutes(schedule.startTime) &&
+    currentMinutes < localMinutes(schedule.endTime)
+  )
+})
+const activeWorkStartedAt = computed(() => {
+  const active = wellness.data.activeWork
+  return active &&
+    localDateKey(active.startedAt) === today.value
+    ? active.startedAt
+    : null
+})
 const workStartedToday = computed(
   () =>
-    Boolean(wellness.data.activeWork) ||
+    Boolean(activeWorkStartedAt.value) ||
     wellness.data.workSessions.some(
       (work) => localDateKey(work.startedAt) === today.value,
     ),
 )
+const healthRemindersActive = computed(
+  () =>
+    Boolean(activeWorkStartedAt.value) &&
+    withinWorkSchedule.value,
+)
+const waterReminderBaseline = computed(() =>
+  wellnessReminderBaseline(wellness.data, ['water'], now.value),
+)
+const movementReminderBaseline = computed(() =>
+  wellnessReminderBaseline(wellness.data, ['stand'], now.value),
+)
+const restroomReminderBaseline = computed(() =>
+  wellnessReminderBaseline(wellness.data, ['restroom'], now.value),
+)
 const reminderItems = computed<ReminderItem[]>(() => {
   if (wellness.data.activeRest) return []
 
-  const lastWater = lastWellnessAction(
-    wellness.data,
-    ['water'],
-    today.value,
-  )
-  const lastMovement = lastWellnessAction(
-    wellness.data,
-    ['stand'],
-    today.value,
-  )
-  const lastRestroom = lastWellnessAction(
-    wellness.data,
-    ['restroom'],
-    today.value,
-  )
   const settings = wellness.data.reminderSettings
   const items: Array<ReminderItem | null> = [
     workReminder({
@@ -99,7 +115,8 @@ const reminderItems = computed<ReminderItem[]>(() => {
       type: 'water',
       label: '喝水',
       icon: Droplets,
-      lastAt: lastWater?.occurredAt,
+      enabled: healthRemindersActive.value,
+      baselineAt: waterReminderBaseline.value,
       intervalMinutes: settings.waterMinutes,
       message: (minutes) =>
         `距上次喝水已 ${minutes} 分钟，补充少量水分。`,
@@ -108,7 +125,8 @@ const reminderItems = computed<ReminderItem[]>(() => {
       type: 'movement',
       label: '工位活动',
       icon: Footprints,
-      lastAt: lastMovement?.occurredAt,
+      enabled: healthRemindersActive.value,
+      baselineAt: movementReminderBaseline.value,
       intervalMinutes: settings.movementMinutes,
       message: (minutes) =>
         `已连续专注 ${minutes} 分钟，做几下扭腰、伸展或肩颈放松。`,
@@ -117,7 +135,8 @@ const reminderItems = computed<ReminderItem[]>(() => {
       type: 'restroom',
       label: '如厕提示',
       icon: DoorOpen,
-      lastAt: lastRestroom?.occurredAt,
+      enabled: healthRemindersActive.value,
+      baselineAt: restroomReminderBaseline.value,
       intervalMinutes: settings.restroomMinutes,
       message: (minutes) =>
         `距上次如厕已 ${minutes} 分钟，有尿意就及时去，无需强忍。`,
@@ -152,19 +171,19 @@ function dueItem(options: {
   type: ReminderItem['type']
   label: string
   icon: Component
-  lastAt: string | undefined
+  enabled?: boolean
+  baselineAt: number | null
   intervalMinutes: number
   message: (minutes: number) => string
 }) {
-  const baseline =
-    options.lastAt ??
-    wellness.data.startedAtByDate[today.value]
-  if (!baseline) return null
+  if (options.enabled === false) return null
+  const baseline = options.baselineAt
+  if (baseline === null) return null
 
   const elapsedMinutes = Math.max(
     0,
     Math.floor(
-      (now.value.getTime() - new Date(baseline).getTime()) / 60_000,
+      (now.value.getTime() - baseline) / 60_000,
     ),
   )
   const key = `${options.type}:${baseline}`
@@ -184,6 +203,11 @@ function dueItem(options: {
   } satisfies ReminderItem
 }
 
+function localMinutes(value: string) {
+  const [hour, minute] = value.split(':').map(Number)
+  return hour * 60 + minute
+}
+
 function workReminder(options: {
   type: 'clockIn' | 'clockOut'
   label: string
@@ -195,7 +219,7 @@ function workReminder(options: {
     return null
   }
   if (options.type === 'clockIn' && workStartedToday.value) return null
-  if (options.type === 'clockOut' && !wellness.data.activeWork) return null
+  if (options.type === 'clockOut' && !activeWorkStartedAt.value) return null
 
   const target = localTime(now.value, options.time)
   const remindAt =
@@ -254,10 +278,16 @@ function handleSettingsSaved() {
 }
 
 onMounted(() => {
-  if (wellness.ownerEmail) wellness.ensureDay(now.value)
+  if (wellness.ownerEmail) {
+    wellness.ensureDay(now.value)
+    wellness.closeStaleSessions(now.value)
+  }
   clockTimer = window.setInterval(() => {
     now.value = new Date()
-    if (wellness.ownerEmail) wellness.ensureDay(now.value)
+    if (wellness.ownerEmail) {
+      wellness.ensureDay(now.value)
+      wellness.closeStaleSessions(now.value)
+    }
   }, 30_000)
 })
 

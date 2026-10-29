@@ -32,8 +32,10 @@ public class ManagedServerService {
     }
 
     public List<ManagedServerView> list(long ownerId, String workspaceId) {
-        return repository.findByOwnerId(ownerId).stream()
-                .filter(server -> server.getWorkspaceId().equals(workspaceId))
+        return repository.findByOwnerIdAndWorkspaceId(
+                        ownerId,
+                        workspaceId)
+                .stream()
                 .map(ManagedServerView::from)
                 .toList();
     }
@@ -60,10 +62,10 @@ public class ManagedServerService {
             String workspaceId,
             long id,
             ManagedServerCommand command) {
-        ManagedServer existing = requireServer(ownerId, id);
-        if (!existing.getWorkspaceId().equals(workspaceId)) {
-            throw new DomainException("服务器不存在或无权访问");
-        }
+        ManagedServer existing = requireServer(
+                ownerId,
+                workspaceId,
+                id);
         String passwordCiphertext = command.password() == null
                 || command.password().isBlank()
                 ? existing.getPasswordCiphertext()
@@ -78,9 +80,12 @@ public class ManagedServerService {
         return ManagedServerView.from(repository.save(updated));
     }
 
-    public void delete(long ownerId, long id) {
-        requireServer(ownerId, id);
-        repository.deleteByIdAndOwnerId(id, ownerId);
+    public void delete(long ownerId, String workspaceId, long id) {
+        requireServer(ownerId, workspaceId, id);
+        repository.deleteByIdAndOwnerIdAndWorkspaceId(
+                id,
+                ownerId,
+                workspaceId);
     }
 
     public ManagedServerView copyToWorkspace(
@@ -88,7 +93,10 @@ public class ManagedServerService {
             String sourceWorkspaceId,
             long id,
             String targetWorkspaceId) {
-        ManagedServer existing = requireServer(ownerId, id);
+        ManagedServer existing = requireServer(
+                ownerId,
+                sourceWorkspaceId,
+                id);
         if (!existing.getWorkspaceId().equals(sourceWorkspaceId)
                 || existing.getWorkspaceId().equals(targetWorkspaceId)) {
             throw new DomainException("服务器不存在或无权访问");
@@ -105,7 +113,10 @@ public class ManagedServerService {
             String sourceWorkspaceId,
             long id,
             String targetWorkspaceId) {
-        ManagedServer existing = requireServer(ownerId, id);
+        ManagedServer existing = requireServer(
+                ownerId,
+                sourceWorkspaceId,
+                id);
         if (!existing.getWorkspaceId().equals(sourceWorkspaceId)
                 || existing.getWorkspaceId().equals(targetWorkspaceId)) {
             throw new DomainException("服务器不存在或无权访问");
@@ -118,9 +129,10 @@ public class ManagedServerService {
 
     public ServerLauncher.LaunchResult open(
             long ownerId,
+            String workspaceId,
             long id,
             ServerTool tool) {
-        ManagedServer server = requireServer(ownerId, id);
+        ManagedServer server = requireServer(ownerId, workspaceId, id);
         String password = credentialCipher.decrypt(server.getPasswordCiphertext());
         return serverLauncher.open(
                 new ServerLauncher.ServerConnection(
@@ -131,8 +143,14 @@ public class ManagedServerService {
                 tool);
     }
 
-    private ManagedServer requireServer(long ownerId, long id) {
-        return repository.findByIdAndOwnerId(id, ownerId)
+    private ManagedServer requireServer(
+            long ownerId,
+            String workspaceId,
+            long id) {
+        return repository.findByIdAndOwnerIdAndWorkspaceId(
+                        id,
+                        ownerId,
+                        workspaceId)
                 .orElseThrow(() -> new DomainException("服务器不存在或无权访问"));
     }
 

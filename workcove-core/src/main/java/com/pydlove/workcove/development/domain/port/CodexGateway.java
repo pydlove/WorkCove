@@ -33,6 +33,12 @@ public interface CodexGateway {
             String reasoningEffort,
             List<String> writableRoots);
 
+    Map<String, Object> steerTurn(
+            String threadId,
+            String expectedTurnId,
+            String text,
+            List<CodexAttachment> attachments);
+
     Map<String, Object> listModels();
 
     Map<String, Object> interruptTurn(String threadId, String turnId);

@@ -15,8 +15,13 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 public final class FileCodexAttachmentStore implements CodexAttachmentStore {
+
+    private static final Pattern ATTACHMENT_ID =
+            Pattern.compile("[0-9a-fA-F-]{36}");
 
     private final Path root;
     private final Map<String, CodexAttachment> attachments =
@@ -36,15 +41,20 @@ public final class FileCodexAttachmentStore implements CodexAttachmentStore {
     @Override
     public CodexAttachment store(
             long ownerId,
+            String workspaceId,
             String name,
             String contentType,
             long size,
             InputStream content) throws IOException {
         String id = UUID.randomUUID().toString();
         Path ownerDirectory = ownerDirectory(ownerId);
-        Files.createDirectories(ownerDirectory);
+        Path workspaceDirectory = workspaceDirectory(
+                ownerId,
+                workspaceId);
+        Files.createDirectories(workspaceDirectory);
         restrictDirectory(ownerDirectory);
-        Path directory = ownerDirectory.resolve(id);
+        restrictDirectory(workspaceDirectory);
+        Path directory = workspaceDirectory.resolve(id);
         Files.createDirectories(directory);
         restrictDirectory(directory);
         Path target = directory.resolve(name).normalize();
@@ -63,11 +73,12 @@ public final class FileCodexAttachmentStore implements CodexAttachmentStore {
             }
             CodexAttachment attachment = new CodexAttachment(
                     id,
+                    workspaceId,
                     name,
                     contentType,
                     written,
                     target.toAbsolutePath().normalize());
-            attachments.put(key(ownerId, id), attachment);
+            attachments.put(key(ownerId, workspaceId, id), attachment);
             return attachment;
         } catch (IOException exception) {
             Files.deleteIfExists(target);
@@ -76,25 +87,84 @@ public final class FileCodexAttachmentStore implements CodexAttachmentStore {
     }
 
     @Override
-    public Optional<CodexAttachment> find(long ownerId, String attachmentId) {
+    public Optional<CodexAttachment> find(
+            long ownerId,
+            String workspaceId,
+            String attachmentId) {
         if (attachmentId == null || attachmentId.isBlank()) {
             return Optional.empty();
         }
-        CodexAttachment attachment =
-                attachments.get(key(ownerId, attachmentId.trim()));
-        if (attachment == null
-                || !attachment.path().startsWith(ownerDirectory(ownerId))) {
+        String safeId = attachmentId.trim();
+        if (!ATTACHMENT_ID.matcher(safeId).matches()) {
             return Optional.empty();
         }
-        return Optional.of(attachment);
+        CodexAttachment attachment =
+                attachments.get(key(
+                        ownerId,
+                        workspaceId,
+                        safeId));
+        Path workspaceDirectory =
+                workspaceDirectory(ownerId, workspaceId);
+        if (attachment != null
+                && attachment.path().startsWith(workspaceDirectory)) {
+            return Optional.of(attachment);
+        }
+        Path directory = workspaceDirectory.resolve(safeId).normalize();
+        if (!directory.startsWith(workspaceDirectory)
+                || !Files.isDirectory(directory)
+                || Files.isSymbolicLink(directory)) {
+            return Optional.empty();
+        }
+        try (Stream<Path> files = Files.list(directory)) {
+            Path file = files
+                    .filter((path) -> Files.isRegularFile(path)
+                            && !Files.isSymbolicLink(path))
+                    .findFirst()
+                    .orElse(null);
+            if (file == null) return Optional.empty();
+            String contentType = Files.probeContentType(file);
+            CodexAttachment recovered = new CodexAttachment(
+                    safeId,
+                    workspaceId,
+                    file.getFileName().toString(),
+                    contentType == null || contentType.isBlank()
+                            ? "application/octet-stream"
+                            : contentType,
+                    Files.size(file),
+                    file.toAbsolutePath().normalize());
+            attachments.put(
+                    key(ownerId, workspaceId, safeId),
+                    recovered);
+            return Optional.of(recovered);
+        } catch (IOException exception) {
+            return Optional.empty();
+        }
     }
 
     private Path ownerDirectory(long ownerId) {
         return root.resolve(Long.toString(ownerId)).normalize();
     }
 
-    private String key(long ownerId, String attachmentId) {
-        return ownerId + ":" + attachmentId;
+    private Path workspaceDirectory(
+            long ownerId,
+            String workspaceId) {
+        Path workspace = Path.of(workspaceId);
+        if (workspace.isAbsolute()
+                || workspace.getNameCount() != 1
+                || ".".equals(workspaceId)
+                || "..".equals(workspaceId)) {
+            throw new IllegalArgumentException("工作空间无效");
+        }
+        return ownerDirectory(ownerId)
+                .resolve(workspace)
+                .normalize();
+    }
+
+    private String key(
+            long ownerId,
+            String workspaceId,
+            String attachmentId) {
+        return ownerId + ":" + workspaceId + ":" + attachmentId;
     }
 
     private void restrictDirectory(Path path) {

@@ -8,7 +8,9 @@ import com.pydlove.workcove.development.application.ManagedServerService;
 import com.pydlove.workcove.development.application.SftpService;
 import com.pydlove.workcove.development.application.SogouInputStatsService;
 import com.pydlove.workcove.development.application.SshTerminalService;
+import com.pydlove.workcove.development.application.TestEnvironmentService;
 import com.pydlove.workcove.development.application.UserLocalStateService;
+import com.pydlove.workcove.development.application.WorkFileSearchService;
 import com.pydlove.workcove.development.application.ZentaoService;
 import com.pydlove.workcove.development.application.ZentaoTestEvidenceService;
 import com.pydlove.workcove.development.domain.port.CredentialCipher;
@@ -17,6 +19,7 @@ import com.pydlove.workcove.development.domain.port.CodexGateway;
 import com.pydlove.workcove.development.domain.port.DirectoryPicker;
 import com.pydlove.workcove.development.domain.port.GitRepositoryGateway;
 import com.pydlove.workcove.development.domain.port.IdeLauncher;
+import com.pydlove.workcove.development.domain.port.LocalDirectoryInspector;
 import com.pydlove.workcove.development.domain.port.RemoteDeploymentGateway;
 import com.pydlove.workcove.development.domain.port.ApplicationHost;
 import com.pydlove.workcove.development.domain.port.ServerLauncher;
@@ -25,11 +28,15 @@ import com.pydlove.workcove.development.domain.port.SogouInputStatsGateway;
 import com.pydlove.workcove.development.domain.port.SshTerminalGateway;
 import com.pydlove.workcove.development.domain.port.ZentaoGateway;
 import com.pydlove.workcove.development.domain.port.ZentaoTestEvidenceStore;
+import com.pydlove.workcove.development.domain.port.WorkFileSearchGateway;
 import com.pydlove.workcove.development.domain.repository.ManagedServerRepository;
+import com.pydlove.workcove.development.domain.repository.TestEnvironmentRepository;
 import com.pydlove.workcove.development.domain.repository.ZentaoRepository;
 import com.pydlove.workcove.development.domain.repository.UserLocalStateRepository;
 import com.pydlove.workcove.development.infrastructure.MacDirectoryPicker;
 import com.pydlove.workcove.development.infrastructure.FileCodexAttachmentStore;
+import com.pydlove.workcove.development.infrastructure.FileSystemDirectoryInspector;
+import com.pydlove.workcove.development.infrastructure.FileSystemWorkFileSearchGateway;
 import com.pydlove.workcove.development.infrastructure.FileZentaoTestEvidenceStore;
 import com.pydlove.workcove.development.infrastructure.MacApplicationHost;
 import com.pydlove.workcove.development.infrastructure.MacIdeLauncher;
@@ -53,6 +60,22 @@ public class DevelopmentConfiguration {
     @Bean
     public DirectoryPicker directoryPicker() {
         return new MacDirectoryPicker();
+    }
+
+    @Bean
+    public LocalDirectoryInspector localDirectoryInspector() {
+        return new FileSystemDirectoryInspector();
+    }
+
+    @Bean
+    public WorkFileSearchGateway workFileSearchGateway() {
+        return new FileSystemWorkFileSearchGateway();
+    }
+
+    @Bean
+    public WorkFileSearchService workFileSearchService(
+            WorkFileSearchGateway workFileSearchGateway) {
+        return new WorkFileSearchService(workFileSearchGateway);
     }
 
     @Bean
@@ -108,6 +131,17 @@ public class DevelopmentConfiguration {
         return new ZentaoTestEvidenceService(
                 repository,
                 evidenceStore);
+    }
+
+    @Bean
+    public TestEnvironmentService testEnvironmentService(
+            TestEnvironmentRepository repository,
+            CredentialCipher credentialCipher,
+            @Qualifier("clock") java.time.Clock clock) {
+        return new TestEnvironmentService(
+                repository,
+                credentialCipher,
+                clock);
     }
 
     @Bean

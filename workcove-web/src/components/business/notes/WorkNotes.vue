@@ -8,7 +8,6 @@ import {
   NotebookPen,
   Pin,
   Plus,
-  Search,
   Star,
   Tag,
   Trash2,
@@ -26,8 +25,10 @@ import {
 
 import UiButton from '@/components/ui/UiButton.vue'
 import UiConfirmDialog from '@/components/ui/UiConfirmDialog.vue'
+import UiFidgetSpinner from '@/components/ui/UiFidgetSpinner.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
+import UiSearchInput from '@/components/ui/UiSearchInput.vue'
 import UiSegmentedControl from '@/components/ui/UiSegmentedControl.vue'
 import { usePagination } from '@/composables/usePagination'
 import { useAuthStore } from '@/stores/useAuthStore'
@@ -647,10 +648,6 @@ function tagClick(tag: string) {
   selectedTag.value = selectedTag.value === tag ? '' : tag
 }
 
-function clearSearch() {
-  searchQuery.value = ''
-}
-
 function noteDateKey(value: string) {
   return new Date(value).toDateString()
 }
@@ -756,23 +753,12 @@ defineExpose({ startComposer })
         </button>
       </header>
 
-      <div class="notes-timeline__search">
-        <Search :size="14" aria-hidden="true" />
-        <input
-          v-model="searchQuery"
-          type="search"
-          aria-label="搜索随笔"
-          placeholder="搜索内容、标题或标签"
-        />
-        <button
-          v-if="searchQuery"
-          type="button"
-          aria-label="清除搜索"
-          @click="clearSearch"
-        >
-          <X :size="13" />
-        </button>
-      </div>
+      <UiSearchInput
+        v-model="searchQuery"
+        class="notes-search"
+        label="搜索随笔"
+        placeholder="搜索内容、标题或标签"
+      />
 
       <UiSegmentedControl
         v-model="filter"
@@ -911,7 +897,8 @@ defineExpose({ startComposer })
       <template v-if="hasEditor">
         <header class="notes-detail__toolbar">
           <div class="notes-save-state">
-            <Check v-if="saveState === 'saved'" :size="13" />
+            <UiFidgetSpinner v-if="saveState === 'saving'" :size="12" />
+            <Check v-else-if="saveState === 'saved'" :size="13" />
             <Clock3 v-else :size="13" />
             {{ saveStatusText }}
           </div>
@@ -1250,43 +1237,9 @@ defineExpose({ startComposer })
   background: var(--hover-bg);
 }
 
-.notes-timeline__search {
-  display: flex;
-  height: var(--control-md);
-  align-items: center;
-  gap: 6px;
+.notes-search {
+  width: calc(100% - var(--space-6));
   margin: 0 var(--space-3) var(--space-3);
-  padding: 0 var(--space-2);
-  color: var(--text-subtle);
-  background: var(--field-bg);
-  border: 1px solid var(--field-border);
-  border-radius: var(--radius-control);
-}
-
-.notes-timeline__search:focus-within {
-  border-color: var(--system-blue);
-  box-shadow: var(--focus-ring);
-}
-
-.notes-timeline__search input {
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-  color: var(--text);
-  font-size: var(--font-caption);
-  background: transparent;
-  border: 0;
-}
-
-.notes-timeline__search button {
-  display: grid;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  color: var(--text-subtle);
-  background: transparent;
-  border-radius: var(--radius-badge);
-  place-items: center;
 }
 
 .notes-filter {

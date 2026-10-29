@@ -10,10 +10,14 @@ public interface CodexAttachmentStore {
 
     CodexAttachment store(
             long ownerId,
+            String workspaceId,
             String name,
             String contentType,
             long size,
             InputStream content) throws IOException;
 
-    Optional<CodexAttachment> find(long ownerId, String attachmentId);
+    Optional<CodexAttachment> find(
+            long ownerId,
+            String workspaceId,
+            String attachmentId);
 }

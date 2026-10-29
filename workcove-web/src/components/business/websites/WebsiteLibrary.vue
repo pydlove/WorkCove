@@ -8,7 +8,6 @@ import {
   ListChecks,
   Pencil,
   Plus,
-  Search,
   Settings2,
 } from '@lucide/vue'
 import {
@@ -22,6 +21,7 @@ import {
 import ShortcutDialog from '@/components/business/workbench/ShortcutDialog.vue'
 import ShortcutVisual from '@/components/business/workbench/ShortcutVisual.vue'
 import WebsiteCategoryDialog from '@/components/business/websites/WebsiteCategoryDialog.vue'
+import EmbeddedBrowserDialog from '@/components/business/websites/EmbeddedBrowserDialog.vue'
 import WorkspaceBatchBar from '@/components/business/workspaces/WorkspaceBatchBar.vue'
 import WorkspaceTransferDialog, {
   type WorkspaceTransferMode,
@@ -30,6 +30,7 @@ import UiButton from '@/components/ui/UiButton.vue'
 import UiCategorySelect from '@/components/ui/UiCategorySelect.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
+import UiSearchInput from '@/components/ui/UiSearchInput.vue'
 import { usePagination } from '@/composables/usePagination'
 import {
   DEFAULT_WEBSITE_CATEGORY,
@@ -71,6 +72,10 @@ const categoryOrder = ref<string[]>([])
 const draggingCategory = ref('')
 const dragOverCategory = ref('')
 const dragPointerId = ref<number | null>(null)
+const embeddedWebsite = ref<WebsiteShortcut | null>(null)
+const supportsEmbeddedBrowser = Boolean(
+  window.workCoveDesktop?.openEmbeddedBrowser,
+)
 
 const categories = computed(
   () =>
@@ -135,8 +140,14 @@ watch(
 watch(
   () => workspaces.activeWorkspaceId,
   () => {
+    websiteDialogOpen.value = false
+    editingWebsite.value = null
+    transferWebsite.value = null
+    batchTransferMode.value = null
+    categoryManagerOpen.value = false
     selectionMode.value = false
     selectedWebsiteIds.value = []
+    selectedCategory.value = '全部'
   },
 )
 
@@ -415,6 +426,11 @@ function moveCategoryByKeyboard(
 }
 
 async function openWebsite(website: WebsiteShortcut) {
+  if (supportsEmbeddedBrowser) {
+    embeddedWebsite.value = website
+    shortcuts.recordWebsiteClick(website.id)
+    return
+  }
   const error = await openWebsiteUrl(website.url)
   if (error) {
     emit('notify', `无法打开网址：${error}`)
@@ -430,15 +446,11 @@ async function openWebsite(website: WebsiteShortcut) {
       <span class="website-toolbar__count">
         {{ filteredWebsites.length }} 个网址
       </span>
-      <label class="website-search">
-        <Search :size="15" aria-hidden="true" />
-        <input
-          v-model="searchQuery"
-          type="search"
-          aria-label="搜索网址"
-          placeholder="搜索名称或网址"
-        />
-      </label>
+      <UiSearchInput
+        v-model="searchQuery"
+        label="搜索网址"
+        placeholder="搜索名称或网址"
+      />
       <UiButton @click="toggleSelectionMode">
         <ListChecks :size="14" />
         {{ selectionMode ? '退出批量' : '批量' }}
@@ -637,6 +649,15 @@ async function openWebsite(website: WebsiteShortcut) {
       @remove="removeWebsite"
     />
 
+    <EmbeddedBrowserDialog
+      v-if="embeddedWebsite"
+      :url="embeddedWebsite.url"
+      :title="embeddedWebsite.name"
+      :workspace-id="embeddedWebsite.workspaceId"
+      @close="embeddedWebsite = null"
+      @notify="emit('notify', $event)"
+    />
+
     <WorkspaceTransferDialog
       v-if="transferWebsite"
       :item-label="`网址「${transferWebsite.name}」`"
@@ -684,39 +705,6 @@ async function openWebsite(website: WebsiteShortcut) {
   flex: 1;
   color: var(--text-muted);
   font-size: var(--font-caption);
-}
-
-.website-search {
-  display: flex;
-  width: min(100%, 240px);
-  height: var(--control-md);
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px;
-  color: var(--text-subtle);
-  background: var(--control-bg);
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-control);
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / 4%);
-}
-
-.website-search:focus-within {
-  border-color: var(--system-blue);
-  box-shadow: var(--focus-ring);
-}
-
-.website-search input {
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-  color: var(--text);
-  font-size: var(--font-body);
-  background: transparent;
-  border: 0;
-}
-
-.website-search input:focus-visible {
-  outline: none;
 }
 
 .website-library__body {
@@ -1037,11 +1025,6 @@ async function openWebsite(website: WebsiteShortcut) {
     display: flex;
     flex-basis: 100%;
     align-items: center;
-  }
-
-  .website-search {
-    width: auto;
-    flex: 1;
   }
 
   .website-row {

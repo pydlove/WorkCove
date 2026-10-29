@@ -2,7 +2,6 @@
 import {
   Activity,
   CircleAlert,
-  LoaderCircle,
   RefreshCw,
 } from '@lucide/vue'
 import {
@@ -14,6 +13,7 @@ import {
 } from 'vue'
 
 import { PRODUCT_NAME } from '@/brand'
+import UiFidgetSpinner from '@/components/ui/UiFidgetSpinner.vue'
 import UiSegmentedControl from '@/components/ui/UiSegmentedControl.vue'
 import { loadTokenUsage } from '@/services/tokenUsage'
 import { useAuthStore } from '@/stores/useAuthStore'
@@ -170,16 +170,14 @@ function formatUpdated(value: string | undefined) {
           :disabled="loading"
           @click="refreshUsage"
         >
-          <RefreshCw
-            :class="{ 'token-usage-panel__spin': loading }"
-            :size="14"
-          />
+          <UiFidgetSpinner v-if="loading" :size="14" />
+          <RefreshCw v-else :size="14" />
         </button>
       </div>
     </header>
 
     <div v-if="loading && !snapshot" class="token-usage-panel__loading">
-      <LoaderCircle class="token-usage-panel__spin" :size="16" />
+      <UiFidgetSpinner :size="16" />
       正在读取 Token 用量…
     </div>
 
@@ -469,16 +467,6 @@ function formatUpdated(value: string | undefined) {
 .token-usage-panel__error button {
   color: var(--system-blue);
   font-size: var(--font-caption);
-}
-
-.token-usage-panel__spin {
-  animation: token-usage-spin 900ms linear infinite;
-}
-
-@keyframes token-usage-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 @media (max-width: 760px) {

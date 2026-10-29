@@ -12,21 +12,18 @@ import {
   FolderPlus,
   Inbox,
   ListFilter,
-  LoaderCircle,
   Mail,
   MailOpen,
   Paperclip,
   Plus,
   RefreshCw,
   Reply,
-  Search,
   Send,
   Settings2,
   SquarePen,
   Star,
   Trash2,
 } from '@lucide/vue'
-import DOMPurify from 'dompurify'
 import {
   computed,
   onBeforeUnmount,
@@ -41,11 +38,14 @@ import MailAccountIcon from '@/components/business/mail/MailAccountIcon.vue'
 import MailComposeDialog from '@/components/business/mail/MailComposeDialog.vue'
 import type { MailComposeMode } from '@/components/business/mail/MailComposeDialog.vue'
 import MailFolderCreateDialog from '@/components/business/mail/MailFolderCreateDialog.vue'
+import MailHtmlBody from '@/components/business/mail/MailHtmlBody.vue'
 import MailRulesDialog from '@/components/business/mail/MailRulesDialog.vue'
 import { mailExportUrl } from '@/api/mail'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiConfirmDialog from '@/components/ui/UiConfirmDialog.vue'
+import UiFidgetSpinner from '@/components/ui/UiFidgetSpinner.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
+import UiSearchInput from '@/components/ui/UiSearchInput.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import {
   loadMailExpandedAccount,
@@ -144,76 +144,6 @@ const filteredMessages = computed(() => {
       .includes(query),
   )
 })
-const renderedMessage = computed(() => {
-  const message = mail.activeMessage
-  if (!message || !message.html) return ''
-  const sanitized = DOMPurify.sanitize(message.content, {
-    ALLOWED_TAGS: [
-      'a',
-      'b',
-      'blockquote',
-      'br',
-      'code',
-      'div',
-      'em',
-      'h1',
-      'h2',
-      'h3',
-      'h4',
-      'hr',
-      'i',
-      'img',
-      'li',
-      'ol',
-      'p',
-      'pre',
-      'span',
-      'strong',
-      'table',
-      'tbody',
-      'td',
-      'th',
-      'thead',
-      'tr',
-      'u',
-      'ul',
-    ],
-    ALLOWED_ATTR: [
-      'alt',
-      'colspan',
-      'href',
-      'rowspan',
-      'title',
-    ],
-    FORBID_TAGS: [
-      'audio',
-      'button',
-      'embed',
-      'form',
-      'iframe',
-      'input',
-      'object',
-      'script',
-      'style',
-      'video',
-    ],
-  })
-  const template = document.createElement('template')
-  template.innerHTML = sanitized
-  template.content.querySelectorAll('a').forEach((link) => {
-    link.target = '_blank'
-    link.rel = 'noopener noreferrer nofollow'
-  })
-  template.content.querySelectorAll('img').forEach((image) => {
-    const placeholder = document.createElement('span')
-    placeholder.className = 'mail-image-placeholder'
-    placeholder.textContent = image.alt
-      ? `图片已隐藏：${image.alt}`
-      : '邮件图片已隐藏'
-    image.replaceWith(placeholder)
-  })
-  return template.innerHTML
-})
 const reading = computed(() => Boolean(mail.activeMessage))
 const recipientCount = computed(
   () =>
@@ -230,6 +160,17 @@ watch(
   () => `${auth.email}\n${workspaces.activeWorkspaceId}`,
   async () => {
     searchQuery.value = ''
+    accountDialogOpen.value = false
+    editingAccount.value = null
+    deleteTarget.value = null
+    composeMode.value = null
+    composeMessage.value = null
+    contextMenu.value = null
+    contextSubmenu.value = null
+    accountContextMenu.value = null
+    folderCreateAccount.value = null
+    rulesAccount.value = null
+    expandedAccountId.value = null
     const storedExpandedAccountId =
       auth.email && workspaces.activeWorkspaceId
         ? loadMailExpandedAccount(
@@ -805,18 +746,13 @@ function folderIcon(role: MailFolderRole): Component {
         </UiButton>
         <UiButton
           size="sm"
-          :disabled="
-            !mail.activeAccountId ||
-            mail.loadingInbox ||
-            mail.syncing
-          "
+          :disabled="!mail.activeAccountId"
+          :loading="mail.loadingInbox || mail.syncing"
           @click="refreshInbox"
         >
           <RefreshCw
+            v-if="!mail.loadingInbox && !mail.syncing"
             :size="13"
-            :class="{
-              'mail-spin': mail.loadingInbox || mail.syncing,
-            }"
           />
           {{ mail.syncing ? '同步中' : '刷新' }}
         </UiButton>
@@ -928,7 +864,7 @@ function folderIcon(role: MailFolderRole): Component {
                 v-if="mail.loadingFolders && mail.folders.length === 0"
                 class="mail-folders__loading"
               >
-                <LoaderCircle class="mail-spin" :size="14" />
+                <UiFidgetSpinner :size="14" />
                 正在读取目录…
               </div>
               <div
@@ -966,7 +902,7 @@ function folderIcon(role: MailFolderRole): Component {
               class="mail-account-folders"
             >
               <div class="mail-folders__loading">
-                <LoaderCircle class="mail-spin" :size="14" />
+                <UiFidgetSpinner :size="14" />
                 正在切换邮箱…
               </div>
             </div>
@@ -993,15 +929,12 @@ function folderIcon(role: MailFolderRole): Component {
               }}
             </span>
           </div>
-          <label>
-            <Search :size="13" />
-            <input
-              v-model="searchQuery"
-              type="search"
-              aria-label="搜索邮件"
-              placeholder="搜索邮件"
-            />
-          </label>
+          <UiSearchInput
+            v-model="searchQuery"
+            class="mail-list-search"
+            label="搜索邮件"
+            placeholder="搜索邮件"
+          />
         </header>
 
         <p v-if="mail.error" class="mail-inline-error" role="alert">
@@ -1047,7 +980,7 @@ function folderIcon(role: MailFolderRole): Component {
           v-else-if="mail.loadingInbox || mail.syncing"
           class="mail-list-state"
         >
-          <LoaderCircle class="mail-spin" :size="22" />
+          <UiFidgetSpinner :size="22" />
           <span>
             {{
               mail.syncing
@@ -1092,7 +1025,7 @@ function folderIcon(role: MailFolderRole): Component {
         </button>
 
         <div v-if="mail.loadingMessage" class="mail-reader__state">
-          <LoaderCircle class="mail-spin" :size="24" />
+          <UiFidgetSpinner :size="24" />
           <span>正在打开邮件…</span>
         </div>
 
@@ -1190,11 +1123,11 @@ function folderIcon(role: MailFolderRole): Component {
           </header>
 
           <div class="mail-reader__body">
-            <div
+            <MailHtmlBody
               v-if="mail.activeMessage.html"
-              class="mail-html"
-              v-html="renderedMessage"
-            ></div>
+              :html="mail.activeMessage.content"
+              :title="mail.activeMessage.subject"
+            />
             <pre v-else class="mail-plain">{{
               mail.activeMessage.content
             }}</pre>
@@ -1841,32 +1774,10 @@ function folderIcon(role: MailFolderRole): Component {
   font-size: var(--font-caption);
 }
 
-.mail-list-toolbar label {
-  display: flex;
-  min-width: 0;
+.mail-list-search {
+  width: auto;
   flex: 1;
-  align-items: center;
-  gap: 4px;
-  padding: 0 6px;
   margin-left: auto;
-  background: var(--field-bg);
-  border: 1px solid var(--field-border);
-  border-radius: var(--radius-control);
-}
-
-.mail-list-toolbar input {
-  width: 100%;
-  min-width: 0;
-  height: 24px;
-  padding: 0;
-  color: var(--text);
-  font-size: var(--font-caption);
-  background: transparent;
-  border: 0;
-}
-
-.mail-list-toolbar input:focus {
-  outline: none;
 }
 
 .mail-inline-error {
@@ -2176,56 +2087,6 @@ function folderIcon(role: MailFolderRole): Component {
   overflow-wrap: anywhere;
 }
 
-.mail-html {
-  color: var(--text);
-  font-size: var(--font-body);
-  line-height: 1.75;
-  overflow-wrap: anywhere;
-}
-
-.mail-html :deep(p) {
-  margin: 0 0 var(--space-3);
-}
-
-.mail-html :deep(a) {
-  color: var(--accent);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.mail-html :deep(blockquote) {
-  padding-left: var(--space-3);
-  margin: var(--space-3) 0;
-  color: var(--text-muted);
-  border-left: 2px solid var(--line);
-}
-
-.mail-html :deep(table) {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.mail-html :deep(th),
-.mail-html :deep(td) {
-  padding: 4px 6px;
-  border: 1px solid var(--line-soft);
-}
-
-.mail-html :deep(pre),
-.mail-html :deep(code) {
-  font-family: var(--font-mono);
-  white-space: pre-wrap;
-}
-
-.mail-html :deep(.mail-image-placeholder) {
-  display: inline-flex;
-  padding: 2px 6px;
-  color: var(--text-subtle);
-  font-size: var(--font-caption);
-  background: var(--surface-inset);
-  border-radius: var(--radius-badge);
-}
-
 .mail-attachments {
   flex: 0 0 auto;
   padding: var(--space-3) var(--space-5);
@@ -2401,16 +2262,6 @@ function folderIcon(role: MailFolderRole): Component {
   color: var(--system-red);
 }
 
-.mail-spin {
-  animation: mail-spin 800ms linear infinite;
-}
-
-@keyframes mail-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 @media (max-width: 1100px) {
   .mail-layout {
     grid-template-columns: 174px 280px minmax(0, 1fr);
@@ -2504,11 +2355,6 @@ function folderIcon(role: MailFolderRole): Component {
     flex-direction: column;
     gap: var(--space-1);
     padding: var(--space-2) var(--space-3);
-  }
-
-  .mail-list-toolbar label {
-    width: 100%;
-    margin-left: 0;
   }
 
   .mail-reader__header,

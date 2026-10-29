@@ -19,3 +19,16 @@ export interface WorkDirectoryInput {
   category: string
   description: string
 }
+
+export interface LocalDirectorySummary {
+  path: string
+  fileCount: number
+  directoryCount: number
+  totalBytes: number
+  largeFileCount: number
+  largeFileThresholdBytes: number
+  lastModifiedAt: string | null
+  inaccessibleCount: number
+  truncated: boolean
+  scanDurationMs: number
+}

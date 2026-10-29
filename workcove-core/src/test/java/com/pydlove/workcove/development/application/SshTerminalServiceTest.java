@@ -59,6 +59,7 @@ class SshTerminalServiceTest {
                 DomainException.class,
                 () -> service.open(
                         OWNER_ID,
+                        "default",
                         SERVER_ID,
                         10,
                         32,
@@ -67,6 +68,7 @@ class SshTerminalServiceTest {
                 DomainException.class,
                 () -> service.open(
                         OWNER_ID,
+                        "default",
                         SERVER_ID,
                         120,
                         300,
@@ -80,6 +82,21 @@ class SshTerminalServiceTest {
                 DomainException.class,
                 () -> service.open(
                         20L,
+                        "default",
+                        SERVER_ID,
+                        120,
+                        32,
+                        listener()));
+        assertEquals(0, gateway.openCalls);
+    }
+
+    @Test
+    void rejectsServersFromAnotherWorkspace() {
+        assertThrows(
+                DomainException.class,
+                () -> service.open(
+                        OWNER_ID,
+                        "workspace-b",
                         SERVER_ID,
                         120,
                         32,
@@ -91,6 +108,7 @@ class SshTerminalServiceTest {
     void trustsAndReusesTheObservedHostKey() {
         SshTerminalService.TerminalConnection first = service.open(
                 OWNER_ID,
+                "default",
                 SERVER_ID,
                 120,
                 32,
@@ -102,6 +120,7 @@ class SshTerminalServiceTest {
 
         SshTerminalService.TerminalConnection second = service.open(
                 OWNER_ID,
+                "default",
                 SERVER_ID,
                 120,
                 32,
@@ -120,6 +139,7 @@ class SshTerminalServiceTest {
                 IllegalStateException.class,
                 () -> service.open(
                         OWNER_ID,
+                        "default",
                         SERVER_ID,
                         120,
                         32,
@@ -202,19 +222,25 @@ class SshTerminalServiceTest {
         }
 
         @Override
-        public List<ManagedServer> findByOwnerId(long ownerId) {
+        public List<ManagedServer> findByOwnerIdAndWorkspaceId(
+                long ownerId,
+                String workspaceId) {
             return servers.stream()
                     .filter((server) -> server.getOwnerId() == ownerId)
+                    .filter((server) ->
+                            server.getWorkspaceId().equals(workspaceId))
                     .toList();
         }
 
         @Override
-        public Optional<ManagedServer> findByIdAndOwnerId(
+        public Optional<ManagedServer> findByIdAndOwnerIdAndWorkspaceId(
                 long id,
-                long ownerId) {
+                long ownerId,
+                String workspaceId) {
             return servers.stream()
                     .filter((server) -> server.getId() == id
-                            && server.getOwnerId() == ownerId)
+                            && server.getOwnerId() == ownerId
+                            && server.getWorkspaceId().equals(workspaceId))
                     .findFirst();
         }
 
@@ -230,9 +256,13 @@ class SshTerminalServiceTest {
         }
 
         @Override
-        public void deleteByIdAndOwnerId(long id, long ownerId) {
+        public void deleteByIdAndOwnerIdAndWorkspaceId(
+                long id,
+                long ownerId,
+                String workspaceId) {
             servers.removeIf((server) -> server.getId() == id
-                    && server.getOwnerId() == ownerId);
+                    && server.getOwnerId() == ownerId
+                    && server.getWorkspaceId().equals(workspaceId));
         }
     }
 }

@@ -5,10 +5,12 @@ import {
   onBeforeUnmount,
   onMounted,
   ref,
+  type CSSProperties,
 } from 'vue'
 
 import UiButton from '@/components/ui/UiButton.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
+import { useScreensaverStore } from '@/stores/useScreensaverStore'
 import { formatWellnessDuration } from '@/utils/wellness'
 
 const props = defineProps<{
@@ -19,9 +21,36 @@ const emit = defineEmits<{
   continue: []
 }>()
 
+const screensaver = useScreensaverStore()
 const now = ref(Date.now())
 let timer: number | null = null
 let previousOverflow = ''
+
+const dialogSurfaceStyle = computed<CSSProperties>(() => {
+  const resolvedId = screensaver.resolvedId
+  const presetId =
+    resolvedId === 'custom' ? 'deep-forest' : resolvedId
+  const style: Record<string, string> = {
+    '--rest-screen-text': `var(--screensaver-${presetId}-text)`,
+    '--rest-screen-muted': `var(--screensaver-${presetId}-muted)`,
+    '--rest-screen-line': `var(--screensaver-${presetId}-line)`,
+    backgroundColor: `var(--screensaver-${presetId}-bg)`,
+  }
+
+  if (resolvedId === 'custom' && screensaver.customImageDataUrl) {
+    style.backgroundImage = [
+      'linear-gradient(',
+      'var(--screensaver-image-scrim),',
+      'var(--screensaver-image-scrim)',
+      `), url("${screensaver.customImageDataUrl}")`,
+    ].join('')
+    style.backgroundPosition = 'center'
+    style.backgroundRepeat = 'no-repeat'
+    style.backgroundSize = 'cover'
+  }
+
+  return style as CSSProperties
+})
 
 const elapsedMs = computed(() =>
   Math.max(0, now.value - new Date(props.startedAt).getTime()),
@@ -76,6 +105,7 @@ onBeforeUnmount(() => {
     title="休息中"
     description="离开屏幕，放松眼睛，或起身走动一会儿。"
     variant="screensaver"
+    :surface-style="dialogSurfaceStyle"
     initial-focus="#wellness-continue-work"
     @close="continueWork"
   >

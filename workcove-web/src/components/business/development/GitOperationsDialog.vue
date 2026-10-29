@@ -11,7 +11,6 @@ import {
   GitCommitHorizontal,
   GitMerge,
   History,
-  LoaderCircle,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -35,6 +34,7 @@ import UiButton from '@/components/ui/UiButton.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiConfirmDialog from '@/components/ui/UiConfirmDialog.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
+import UiFidgetSpinner from '@/components/ui/UiFidgetSpinner.vue'
 import UiSegmentedControl from '@/components/ui/UiSegmentedControl.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import type {
@@ -51,6 +51,12 @@ import type {
 type OperationTab = 'operations' | 'branches' | 'history'
 type FeedbackTone = 'success' | 'warning' | 'error'
 type CommitTone = 'blue' | 'red' | 'orange' | 'green' | 'gray'
+type ConfirmableGitOperationType =
+  | 'PULL'
+  | 'PUSH'
+  | 'MERGE'
+  | 'ABORT_MERGE'
+  | 'CONTINUE_MERGE'
 
 interface CommitPresentation {
   type: string
@@ -58,6 +64,11 @@ interface CommitPresentation {
   scope: string
   summary: string
   tone: CommitTone
+}
+
+interface PendingGitOperation {
+  type: ConfirmableGitOperationType
+  input: Omit<Partial<GitOperationInput>, 'path' | 'type'>
 }
 
 const COMMIT_TYPE_META: Record<
@@ -107,6 +118,7 @@ const branchSearch = ref('')
 const newBranchName = ref('')
 const selectedMergeBranch = ref('')
 const mergeDialogOpen = ref(false)
+const pendingOperation = ref<PendingGitOperation | null>(null)
 const commitMessage = ref('')
 const operationBusy = ref<GitOperationType | ''>('')
 const branchBusyName = ref('')
@@ -214,6 +226,51 @@ const changedFiles = computed(() => {
 const changedFileItems = computed(
   () => props.status?.changedFiles ?? [],
 )
+const operationConfirmation = computed(() => {
+  const pending = pendingOperation.value
+  if (!pending) return null
+  if (pending.type === 'MERGE') {
+    return {
+      title: '确认合并分支？',
+      description: `将「${pending.input.sourceBranch || ''}」合并到「${currentBranchName.value}」。`,
+      warning:
+        '合并会修改当前分支，并可能产生冲突或新增合并提交，请确认后继续。',
+      confirmLabel: '确认合并',
+    }
+  }
+  if (pending.type === 'PULL') {
+    return {
+      title: '确认拉取远端更新？',
+      description: `将远端更新拉取并合并到「${currentBranchName.value}」。`,
+      warning:
+        '拉取可能改写当前工作区并产生合并冲突，请确认后继续。',
+      confirmLabel: '确认拉取',
+    }
+  }
+  if (pending.type === 'PUSH') {
+    return {
+      title: '确认推送本地提交？',
+      description: `将「${currentBranchName.value}」的本地提交推送到远端。`,
+      warning:
+        '推送会更新远端分支，团队成员会看到这些提交，请确认后继续。',
+      confirmLabel: '确认推送',
+    }
+  }
+  if (pending.type === 'ABORT_MERGE') {
+    return {
+      title: '确认中止合并？',
+      description: '当前合并进度和已解决的冲突内容将被放弃。',
+      warning: '中止后需要重新发起合并，请确认后继续。',
+      confirmLabel: '中止合并',
+    }
+  }
+  return {
+    title: '确认完成合并？',
+    description: `将当前冲突处理结果提交到「${currentBranchName.value}」。`,
+    warning: '继续后会创建合并提交，请确认冲突已经全部解决。',
+    confirmLabel: '完成合并',
+  }
+})
 
 function changedFileLabel(file: GitChangedFile) {
   if (file.conflicted) return '冲突'
@@ -331,6 +388,27 @@ async function runOperation(
   }
 }
 
+function requestOperationConfirmation(
+  type: ConfirmableGitOperationType,
+  input: Omit<Partial<GitOperationInput>, 'path' | 'type'> = {},
+) {
+  if (busy.value) return
+  pendingOperation.value = {
+    type,
+    input: { ...input },
+  }
+}
+
+async function confirmOperation() {
+  const pending = pendingOperation.value
+  if (!pending) return
+  const result = await runOperation(pending.type, pending.input)
+  pendingOperation.value = null
+  if (pending.type === 'MERGE' && result?.success) {
+    mergeDialogOpen.value = false
+  }
+}
+
 function createBranch() {
   const branchName = newBranchName.value.trim()
   if (!branchName) {
@@ -398,8 +476,7 @@ async function mergeSelectedBranch() {
     feedback.value = '请选择要合并的分支'
     return
   }
-  const result = await runOperation('MERGE', { sourceBranch })
-  if (result) mergeDialogOpen.value = false
+  requestOperationConfirmation('MERGE', { sourceBranch })
 }
 
 function stageAll() {
@@ -489,7 +566,7 @@ function commitPresentation(subject: string): CommitPresentation {
     size="wide"
     height="tall"
     scroll-mode="body"
-    :suspended="Boolean(pendingDeleteBranch)"
+    :suspended="Boolean(pendingDeleteBranch || pendingOperation)"
     @close="emit('close')"
   >
     <div class="git-operations">
@@ -535,15 +612,14 @@ function commitPresentation(subject: string): CommitPresentation {
         />
         <UiButton
           size="sm"
-          :disabled="loadingBranches || loadingHistory || busy"
+          :loading="loadingBranches || loadingHistory"
+          :disabled="busy"
           title="刷新分支和提交记录"
           @click="refreshRepositoryData"
         >
           <RefreshCw
+            v-if="!loadingBranches && !loadingHistory"
             :size="13"
-            :class="{
-              'git-operations__spin': loadingBranches || loadingHistory,
-            }"
           />
           刷新
         </UiButton>
@@ -595,7 +671,7 @@ function commitPresentation(subject: string): CommitPresentation {
             <UiButton
               size="sm"
               :disabled="busy"
-              @click="runOperation('ABORT_MERGE')"
+              @click="requestOperationConfirmation('ABORT_MERGE')"
             >
               <RotateCcw :size="13" />
               中止合并
@@ -612,7 +688,7 @@ function commitPresentation(subject: string): CommitPresentation {
               size="sm"
               variant="primary"
               :disabled="busy"
-              @click="runOperation('CONTINUE_MERGE')"
+              @click="requestOperationConfirmation('CONTINUE_MERGE')"
             >
               <Check :size="13" />
               继续合并
@@ -632,44 +708,41 @@ function commitPresentation(subject: string): CommitPresentation {
               </header>
               <div class="git-operations__button-row">
                 <UiButton
+                  :loading="operationBusy === 'FETCH'"
                   :disabled="busy"
                   @click="runOperation('FETCH')"
                 >
-                  <LoaderCircle
-                    v-if="operationBusy === 'FETCH'"
-                    class="git-operations__spin"
+                  <ArrowDownToLine
+                    v-if="operationBusy !== 'FETCH'"
                     :size="14"
                   />
-                  <ArrowDownToLine v-else :size="14" />
                   Fetch
                 </UiButton>
                 <UiButton
+                  :loading="operationBusy === 'PULL'"
                   :disabled="busy || mergeInProgress"
-                  @click="runOperation('PULL')"
+                  @click="requestOperationConfirmation('PULL')"
                 >
-                  <LoaderCircle
-                    v-if="operationBusy === 'PULL'"
-                    class="git-operations__spin"
+                  <Download
+                    v-if="operationBusy !== 'PULL'"
                     :size="14"
                   />
-                  <Download v-else :size="14" />
                   Pull
                 </UiButton>
                 <UiButton
+                  :loading="operationBusy === 'PUSH'"
                   :disabled="busy || mergeInProgress"
                   @click="
-                    runOperation('PUSH', {
+                    requestOperationConfirmation('PUSH', {
                       branchName: currentBranchName,
                       setUpstream: pushSetUpstream,
                     })
                   "
                 >
-                  <LoaderCircle
-                    v-if="operationBusy === 'PUSH'"
-                    class="git-operations__spin"
+                  <Upload
+                    v-if="operationBusy !== 'PUSH'"
                     :size="14"
                   />
-                  <Upload v-else :size="14" />
                   Push
                 </UiButton>
               </div>
@@ -761,15 +834,14 @@ function commitPresentation(subject: string): CommitPresentation {
                 </div>
               </div>
               <UiButton
+                :loading="operationBusy === 'STAGE_ALL'"
                 :disabled="changedFiles === 0 || busy"
                 @click="stageAll"
               >
-                <LoaderCircle
-                  v-if="operationBusy === 'STAGE_ALL'"
-                  class="git-operations__spin"
+                <Plus
+                  v-if="operationBusy !== 'STAGE_ALL'"
                   :size="14"
                 />
-                <Plus v-else :size="14" />
                 暂存全部变更
               </UiButton>
               <textarea
@@ -782,6 +854,7 @@ function commitPresentation(subject: string): CommitPresentation {
               />
               <UiButton
                 variant="primary"
+                :loading="operationBusy === 'COMMIT'"
                 :disabled="
                   !commitMessage.trim() ||
                   !status?.staged ||
@@ -790,12 +863,10 @@ function commitPresentation(subject: string): CommitPresentation {
                 "
                 @click="commitChanges"
               >
-                <LoaderCircle
-                  v-if="operationBusy === 'COMMIT'"
-                  class="git-operations__spin"
+                <GitCommitHorizontal
+                  v-if="operationBusy !== 'COMMIT'"
                   :size="14"
                 />
-                <GitCommitHorizontal v-else :size="14" />
                 创建提交
               </UiButton>
             </section>
@@ -814,15 +885,14 @@ function commitPresentation(subject: string): CommitPresentation {
             />
             <UiButton
               variant="primary"
+              :loading="operationBusy === 'CREATE_BRANCH'"
               :disabled="!newBranchName.trim() || busy"
               @click="createBranch"
             >
-              <LoaderCircle
-                v-if="operationBusy === 'CREATE_BRANCH'"
-                class="git-operations__spin"
+              <Plus
+                v-if="operationBusy !== 'CREATE_BRANCH'"
                 :size="14"
               />
-              <Plus v-else :size="14" />
               创建并切换
             </UiButton>
           </section>
@@ -874,15 +944,14 @@ function commitPresentation(subject: string): CommitPresentation {
               <UiButton
                 v-if="!branch.current && !branch.remote"
                 size="sm"
+                :loading="branchBusyName === branch.name"
                 :disabled="busy"
                 @click="switchBranch(branch)"
               >
-                <LoaderCircle
-                  v-if="branchBusyName === branch.name"
-                  class="git-operations__spin"
+                <GitBranch
+                  v-if="branchBusyName !== branch.name"
                   :size="13"
                 />
-                <GitBranch v-else :size="13" />
                 切换
               </UiButton>
               <span v-else-if="branch.current" class="is-current-label">
@@ -902,7 +971,8 @@ function commitPresentation(subject: string): CommitPresentation {
             </article>
           </div>
           <div v-else class="git-operations__empty">
-            <GitBranch :size="24" />
+            <UiFidgetSpinner v-if="loadingBranches" :size="24" />
+            <GitBranch v-else :size="24" />
             <p>{{ loadingBranches ? '正在读取分支…' : '没有匹配的分支' }}</p>
           </div>
         </template>
@@ -959,7 +1029,8 @@ function commitPresentation(subject: string): CommitPresentation {
             </article>
           </div>
           <div v-else class="git-operations__empty">
-            <History :size="24" />
+            <UiFidgetSpinner v-if="loadingHistory" :size="24" />
+            <History v-else :size="24" />
             <p>
               {{ loadingHistory ? '正在读取提交记录…' : '暂无提交记录' }}
             </p>
@@ -986,6 +1057,7 @@ function commitPresentation(subject: string): CommitPresentation {
     :description="`选择要合并到 ${currentBranchName} 的来源分支。`"
     height="compact"
     initial-focus="#git-merge-source-branch"
+    :suspended="Boolean(pendingOperation)"
     @close="closeMergeDialog"
   >
     <form
@@ -1026,22 +1098,33 @@ function commitPresentation(subject: string): CommitPresentation {
         size="lg"
         type="submit"
         form="git-merge-form"
+        :loading="operationBusy === 'MERGE'"
         :disabled="
           !selectedMergeBranch ||
           mergeOptions.length === 0 ||
           busy
         "
       >
-        <LoaderCircle
-          v-if="operationBusy === 'MERGE'"
-          class="git-operations__spin"
+        <GitMerge
+          v-if="operationBusy !== 'MERGE'"
           :size="14"
         />
-        <GitMerge v-else :size="14" />
         {{ operationBusy === 'MERGE' ? '正在合并…' : '合并' }}
       </UiButton>
     </template>
   </UiDialog>
+
+  <UiConfirmDialog
+    v-if="pendingOperation && operationConfirmation"
+    :title="operationConfirmation.title"
+    :description="operationConfirmation.description"
+    :warning="operationConfirmation.warning"
+    :confirm-label="operationConfirmation.confirmLabel"
+    busy-label="处理中…"
+    :busy="busy"
+    @close="pendingOperation = null"
+    @confirm="confirmOperation"
+  />
 
   <UiConfirmDialog
     v-if="pendingDeleteBranch"
@@ -1968,16 +2051,6 @@ function commitPresentation(subject: string): CommitPresentation {
   margin: 0;
   color: var(--text-subtle);
   font-size: var(--font-caption);
-}
-
-.git-operations__spin {
-  animation: git-operations-spin 800ms linear infinite;
-}
-
-@keyframes git-operations-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 @media (max-width: 640px) {

@@ -30,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 public class VaultService {
 
@@ -40,6 +41,8 @@ public class VaultService {
     private static final String PURPOSE_AUTHENTICATION = "authentication";
     private static final Duration CHALLENGE_TTL = Duration.ofMinutes(2);
     private static final int CHALLENGE_BYTES = 32;
+    private static final Set<Integer> ALLOWED_UNLOCK_MINUTES =
+            Set.of(5, 15, 30, 60, 120, 240);
 
     private final VaultEntryRepository entryRepository;
     private final VaultCategoryRepository categoryRepository;
@@ -108,6 +111,13 @@ public class VaultService {
     }
 
     public UnlockGrant unlockWithPassword(long ownerId, String password) {
+        return unlockWithPassword(ownerId, password, null);
+    }
+
+    public UnlockGrant unlockWithPassword(
+            long ownerId,
+            String password,
+            Integer unlockMinutes) {
         if (password == null || password.isEmpty()) {
             throw new AuthenticationException("请输入登录密码");
         }
@@ -116,7 +126,7 @@ public class VaultService {
         if (!passwordHasher.matches(password, user.getPasswordHash())) {
             throw new AuthenticationException("登录密码不正确");
         }
-        return issueUnlock(ownerId);
+        return issueUnlock(ownerId, unlockTtl(unlockMinutes));
     }
 
     public void lock(long ownerId, String rawToken) {
@@ -133,33 +143,48 @@ public class VaultService {
         }
     }
 
-    public List<VaultEntryView> entries(long ownerId, String rawToken) {
+    public List<VaultEntryView> entries(
+            long ownerId,
+            String workspaceId,
+            String rawToken) {
         requireUnlocked(ownerId, rawToken);
-        return entryRepository.findEntriesByOwnerId(ownerId).stream()
+        String scope = workspaceId(workspaceId);
+        return entryRepository
+                .findEntriesByOwnerIdAndWorkspaceId(ownerId, scope).stream()
                 .map(VaultEntryView::from)
                 .toList();
     }
 
-    public List<VaultCategoryView> categories(long ownerId, String rawToken) {
+    public List<VaultCategoryView> categories(
+            long ownerId,
+            String workspaceId,
+            String rawToken) {
         requireUnlocked(ownerId, rawToken);
-        return synchronizedCategories(ownerId).stream()
+        return synchronizedCategories(ownerId, workspaceId(workspaceId)).stream()
                 .map(VaultCategoryView::from)
                 .toList();
     }
 
     public VaultCategoryView addCategory(
             long ownerId,
+            String workspaceId,
             String rawToken,
             String rawName) {
         requireUnlocked(ownerId, rawToken);
+        String scope = workspaceId(workspaceId);
         String name = categoryName(rawName);
         if (categoryRepository
-                .findCategoryByNameAndOwnerId(name, ownerId)
+                .findCategoryByNameAndOwnerIdAndWorkspaceId(
+                        name,
+                        ownerId,
+                        scope)
                 .isPresent()) {
             throw new DomainException("这个分类已经存在");
         }
         List<VaultCategory> categories =
-                categoryRepository.findCategoriesByOwnerId(ownerId);
+                categoryRepository.findCategoriesByOwnerIdAndWorkspaceId(
+                        ownerId,
+                        scope);
         int sortOrder = categories.stream()
                 .mapToInt(VaultCategory::sortOrder)
                 .max()
@@ -169,6 +194,7 @@ public class VaultService {
                 new VaultCategory(
                         null,
                         ownerId,
+                        scope,
                         name,
                         sortOrder,
                         now,
@@ -178,12 +204,17 @@ public class VaultService {
 
     public VaultCategoryView renameCategory(
             long ownerId,
+            String workspaceId,
             String rawToken,
             long categoryId,
             String rawName) {
         requireUnlocked(ownerId, rawToken);
+        String scope = workspaceId(workspaceId);
         VaultCategory category = categoryRepository
-                .findCategoryByIdAndOwnerId(categoryId, ownerId)
+                .findCategoryByIdAndOwnerIdAndWorkspaceId(
+                        categoryId,
+                        ownerId,
+                        scope)
                 .orElseThrow(() -> new DomainException(
                         "分类不存在或无权访问"));
         String nextName = categoryName(rawName);
@@ -191,31 +222,40 @@ public class VaultService {
             return VaultCategoryView.from(category);
         }
         if (categoryRepository
-                .findCategoryByNameAndOwnerId(nextName, ownerId)
+                .findCategoryByNameAndOwnerIdAndWorkspaceId(
+                        nextName,
+                        ownerId,
+                        scope)
                 .isPresent()) {
             throw new DomainException("这个分类已经存在");
         }
         Instant now = clock.instant();
         categoryRepository.renameCategory(
                 ownerId,
+                scope,
                 category.id(),
                 category.name(),
                 nextName,
                 now);
         return new VaultCategoryView(
                 category.id(),
+                category.workspaceId(),
                 nextName,
                 category.sortOrder());
     }
 
     public void deleteCategory(
             long ownerId,
+            String workspaceId,
             String rawToken,
             long categoryId,
             long fallbackCategoryId) {
         requireUnlocked(ownerId, rawToken);
+        String scope = workspaceId(workspaceId);
         List<VaultCategory> categories =
-                categoryRepository.findCategoriesByOwnerId(ownerId);
+                categoryRepository.findCategoriesByOwnerIdAndWorkspaceId(
+                        ownerId,
+                        scope);
         if (categories.size() <= 1) {
             throw new DomainException("至少保留一个密码分类");
         }
@@ -234,26 +274,37 @@ public class VaultService {
         }
         categoryRepository.deleteCategoryAndReassignEntries(
                 ownerId,
+                scope,
                 category.id(),
                 category.name(),
                 fallback.name(),
                 clock.instant());
     }
 
-    public String revealPassword(long ownerId, long entryId, String rawToken) {
+    public String revealPassword(
+            long ownerId,
+            String workspaceId,
+            long entryId,
+            String rawToken) {
         requireUnlocked(ownerId, rawToken);
+        String scope = workspaceId(workspaceId);
         VaultEntry entry = entryRepository
-                .findByIdAndOwnerId(entryId, ownerId)
+                .findByIdAndOwnerIdAndWorkspaceId(
+                        entryId,
+                        ownerId,
+                        scope)
                 .orElseThrow(() -> new DomainException("密码条目不存在或无权访问"));
         return credentialCipher.decrypt(entry.passwordCiphertext());
     }
 
     public VaultEntryView saveEntry(
             long ownerId,
+            String workspaceId,
             String rawToken,
             Long entryId,
             VaultEntryInput input) {
         requireUnlocked(ownerId, rawToken);
+        String scope = workspaceId(workspaceId);
         Objects.requireNonNull(input, "密码条目");
         String name = required(input.name(), "条目名称", 100);
         String username = optional(input.username(), "用户名", 255);
@@ -270,12 +321,15 @@ public class VaultService {
 
         VaultEntry existing = entryId == null
                 ? null
-                : entryRepository.findByIdAndOwnerId(entryId, ownerId)
+                : entryRepository.findByIdAndOwnerIdAndWorkspaceId(
+                        entryId,
+                        ownerId,
+                        scope)
                         .orElseThrow(() -> new DomainException(
                                 "密码条目不存在或无权访问"));
         if (category.isEmpty()) {
             category = existing == null
-                    ? synchronizedCategories(ownerId).stream()
+                    ? synchronizedCategories(ownerId, scope).stream()
                             .findFirst()
                             .map(VaultCategory::name)
                             .orElse(DEFAULT_CATEGORY)
@@ -284,7 +338,7 @@ public class VaultService {
         if ((password == null || password.isEmpty()) && existing == null) {
             throw new DomainException("请输入要保存的密码");
         }
-        ensureCategory(ownerId, category);
+        ensureCategory(ownerId, scope, category);
         String ciphertext = password == null || password.isEmpty()
                 ? existing.passwordCiphertext()
                 : credentialCipher.encrypt(password);
@@ -292,6 +346,7 @@ public class VaultService {
         VaultEntry saved = entryRepository.save(new VaultEntry(
                 existing == null ? null : existing.id(),
                 ownerId,
+                scope,
                 name,
                 username,
                 ciphertext,
@@ -303,12 +358,96 @@ public class VaultService {
         return VaultEntryView.from(saved);
     }
 
-    public void deleteEntry(long ownerId, long entryId, String rawToken) {
+    public VaultEntryView copyEntry(
+            long ownerId,
+            String sourceWorkspaceId,
+            String rawToken,
+            long entryId,
+            String targetWorkspaceId) {
         requireUnlocked(ownerId, rawToken);
-        entryRepository.findByIdAndOwnerId(entryId, ownerId)
+        String source = workspaceId(sourceWorkspaceId);
+        String target = workspaceId(targetWorkspaceId);
+        if (source.equals(target)) {
+            throw new DomainException("目标工作空间不能与当前空间相同");
+        }
+        VaultEntry entry = entryRepository
+                .findByIdAndOwnerIdAndWorkspaceId(
+                        entryId,
+                        ownerId,
+                        source)
                 .orElseThrow(() -> new DomainException(
                         "密码条目不存在或无权访问"));
-        entryRepository.deleteByIdAndOwnerId(entryId, ownerId);
+        ensureCategory(ownerId, target, entry.category());
+        Instant now = clock.instant();
+        VaultEntry copied = entryRepository.save(new VaultEntry(
+                null,
+                ownerId,
+                target,
+                entry.name(),
+                entry.username(),
+                entry.passwordCiphertext(),
+                entry.url(),
+                entry.category(),
+                entry.notes(),
+                now,
+                now));
+        return VaultEntryView.from(copied);
+    }
+
+    public VaultEntryView moveEntry(
+            long ownerId,
+            String sourceWorkspaceId,
+            String rawToken,
+            long entryId,
+            String targetWorkspaceId) {
+        requireUnlocked(ownerId, rawToken);
+        String source = workspaceId(sourceWorkspaceId);
+        String target = workspaceId(targetWorkspaceId);
+        if (source.equals(target)) {
+            throw new DomainException("目标工作空间不能与当前空间相同");
+        }
+        VaultEntry entry = entryRepository
+                .findByIdAndOwnerIdAndWorkspaceId(
+                        entryId,
+                        ownerId,
+                        source)
+                .orElseThrow(() -> new DomainException(
+                        "密码条目不存在或无权访问"));
+        ensureCategory(ownerId, target, entry.category());
+        Instant now = clock.instant();
+        entryRepository.moveToWorkspace(
+                entryId,
+                ownerId,
+                source,
+                target,
+                entry.category(),
+                now);
+        return VaultEntryView.from(
+                entryRepository.findByIdAndOwnerIdAndWorkspaceId(
+                                entryId,
+                                ownerId,
+                                target)
+                        .orElseThrow(() -> new DomainException(
+                                "密码条目移动失败")));
+    }
+
+    public void deleteEntry(
+            long ownerId,
+            String workspaceId,
+            long entryId,
+            String rawToken) {
+        requireUnlocked(ownerId, rawToken);
+        String scope = workspaceId(workspaceId);
+        entryRepository.findByIdAndOwnerIdAndWorkspaceId(
+                        entryId,
+                        ownerId,
+                        scope)
+                .orElseThrow(() -> new DomainException(
+                        "密码条目不存在或无权访问"));
+        entryRepository.deleteByIdAndOwnerIdAndWorkspaceId(
+                entryId,
+                ownerId,
+                scope);
     }
 
     public RegistrationOptions passkeyRegistrationOptions(
@@ -380,6 +519,22 @@ public class VaultService {
             String responseJson,
             String origin,
             String rpId) {
+        return finishPasskeyAuthentication(
+                ownerId,
+                credentialId,
+                responseJson,
+                origin,
+                rpId,
+                null);
+    }
+
+    public UnlockGrant finishPasskeyAuthentication(
+            long ownerId,
+            String credentialId,
+            String responseJson,
+            String origin,
+            String rpId,
+            Integer unlockMinutes) {
         VaultPasskey passkey = passkeyRepository
                 .findByCredentialIdAndOwnerId(credentialId, ownerId)
                 .orElseThrow(() -> new AuthenticationException(
@@ -401,41 +556,62 @@ public class VaultService {
                 ownerId,
                 verified.signCount(),
                 clock.instant());
-        return issueUnlock(ownerId);
+        return issueUnlock(ownerId, unlockTtl(unlockMinutes));
     }
 
-    private List<VaultCategory> synchronizedCategories(long ownerId) {
+    private List<VaultCategory> synchronizedCategories(
+            long ownerId,
+            String workspaceId) {
         List<VaultCategory> stored =
-                categoryRepository.findCategoriesByOwnerId(ownerId);
+                categoryRepository.findCategoriesByOwnerIdAndWorkspaceId(
+                        ownerId,
+                        workspaceId);
         if (stored.isEmpty()) {
-            ensureCategory(ownerId, DEFAULT_CATEGORY);
+            ensureCategory(ownerId, workspaceId, DEFAULT_CATEGORY);
         }
 
         Map<String, VaultCategory> known = new LinkedHashMap<>();
         stored.forEach((category) -> known.put(category.name(), category));
-        entryRepository.findEntriesByOwnerId(ownerId).stream()
+        entryRepository.findEntriesByOwnerIdAndWorkspaceId(
+                        ownerId,
+                        workspaceId).stream()
                 .map(VaultEntry::category)
                 .filter((name) -> !name.isBlank())
                 .filter((name) -> !known.containsKey(name))
                 .distinct()
                 .forEach((name) -> {
-                    VaultCategory created = ensureCategory(ownerId, name);
+                    VaultCategory created = ensureCategory(
+                            ownerId,
+                            workspaceId,
+                            name);
                     known.put(created.name(), created);
                 });
 
-        return categoryRepository.findCategoriesByOwnerId(ownerId).stream()
+        return categoryRepository
+                .findCategoriesByOwnerIdAndWorkspaceId(
+                        ownerId,
+                        workspaceId).stream()
                 .sorted(Comparator
                         .comparingInt(VaultCategory::sortOrder)
                         .thenComparing(VaultCategory::id))
                 .toList();
     }
 
-    private VaultCategory ensureCategory(long ownerId, String name) {
+    private VaultCategory ensureCategory(
+            long ownerId,
+            String workspaceId,
+            String name) {
         return categoryRepository
-                .findCategoryByNameAndOwnerId(name, ownerId)
+                .findCategoryByNameAndOwnerIdAndWorkspaceId(
+                        name,
+                        ownerId,
+                        workspaceId)
                 .orElseGet(() -> {
                     List<VaultCategory> current =
-                            categoryRepository.findCategoriesByOwnerId(ownerId);
+                            categoryRepository
+                                    .findCategoriesByOwnerIdAndWorkspaceId(
+                                            ownerId,
+                                            workspaceId);
                     int sortOrder = current.stream()
                             .mapToInt(VaultCategory::sortOrder)
                             .max()
@@ -445,6 +621,7 @@ public class VaultService {
                             new VaultCategory(
                                     null,
                                     ownerId,
+                                    workspaceId,
                                     name,
                                     sortOrder,
                                     now,
@@ -468,7 +645,17 @@ public class VaultService {
                         "密码库已锁定，请重新验证"));
     }
 
-    private UnlockGrant issueUnlock(long ownerId) {
+    private Duration unlockTtl(Integer unlockMinutes) {
+        if (unlockMinutes == null) return unlockTtl;
+        if (!ALLOWED_UNLOCK_MINUTES.contains(unlockMinutes)) {
+            throw new DomainException("不支持的密码库自动上锁时长");
+        }
+        return Duration.ofMinutes(unlockMinutes);
+    }
+
+    private UnlockGrant issueUnlock(
+            long ownerId,
+            Duration effectiveUnlockTtl) {
         Instant now = clock.instant();
         unlockRepository.deleteExpiredUnlockSessions(ownerId, now);
         String rawToken = tokenCodec.generateRawToken();
@@ -477,7 +664,7 @@ public class VaultService {
                         null,
                         ownerId,
                         tokenCodec.hash(rawToken).value(),
-                        now.plus(unlockTtl),
+                        now.plus(effectiveUnlockTtl),
                         now));
         return new UnlockGrant(rawToken, session.expiresAt());
     }
@@ -561,6 +748,14 @@ public class VaultService {
         return normalized;
     }
 
+    private static String workspaceId(String value) {
+        String normalized = required(value, "工作空间", 64);
+        if (normalized.chars().anyMatch(Character::isISOControl)) {
+            throw new DomainException("工作空间标识无效");
+        }
+        return normalized;
+    }
+
     public record UnlockGrant(
             String rawToken,
             Instant expiresAt) {
@@ -583,12 +778,14 @@ public class VaultService {
 
     public record VaultCategoryView(
             long id,
+            String workspaceId,
             String name,
             int sortOrder) {
 
         static VaultCategoryView from(VaultCategory category) {
             return new VaultCategoryView(
                     category.id(),
+                    category.workspaceId(),
                     category.name(),
                     category.sortOrder());
         }
@@ -596,6 +793,7 @@ public class VaultService {
 
     public record VaultEntryView(
             long id,
+            String workspaceId,
             String name,
             String username,
             String url,
@@ -606,6 +804,7 @@ public class VaultService {
         static VaultEntryView from(VaultEntry entry) {
             return new VaultEntryView(
                     entry.id(),
+                    entry.workspaceId(),
                     entry.name(),
                     entry.username(),
                     entry.url(),

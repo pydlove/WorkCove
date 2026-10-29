@@ -126,12 +126,17 @@ export function stageShell({
 }) {
   fs.rmSync(destination, { recursive: true, force: true })
   fs.mkdirSync(destination, { recursive: true })
-  for (const filename of [
-    'main.js',
-    'preload.js',
-    'ccSwitchUsage.js',
-    'runtime-manager.js',
-  ]) {
+  const shellFiles = fs.readdirSync(projectDirectory, {
+    withFileTypes: true,
+  })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.js'))
+    .map((entry) => entry.name)
+  for (const filename of ['main.js', 'preload.js']) {
+    if (!shellFiles.includes(filename)) {
+      throw new Error(`客户端壳缺少必需文件：${filename}`)
+    }
+  }
+  for (const filename of shellFiles) {
     fs.copyFileSync(
       path.join(projectDirectory, filename),
       path.join(destination, filename),

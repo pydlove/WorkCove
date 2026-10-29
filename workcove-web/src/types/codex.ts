@@ -9,16 +9,29 @@ export type CodexTaskStatus =
 
 export type CodexActivityType =
   | 'command'
+  | 'fileRead'
   | 'fileChange'
   | 'tool'
+  | 'toolLoad'
   | 'plan'
   | 'webSearch'
+  | 'imageView'
+  | 'contextCompaction'
   | 'reasoning'
   | 'other'
 
 export interface CodexPlanStep {
   step: string
   status: 'pending' | 'inProgress' | 'completed'
+}
+
+export interface CodexFileChange {
+  path: string
+  kind: 'add' | 'update' | 'delete' | 'unknown'
+  additions: number
+  deletions: number
+  diff: string
+  reverted?: boolean
 }
 
 export interface CodexActivity {
@@ -30,6 +43,7 @@ export interface CodexActivity {
   startedAt: string
   completedAt: string | null
   output: string
+  fileChanges?: CodexFileChange[]
 }
 
 export interface CodexMessageTimelineEntry {
@@ -42,6 +56,13 @@ export interface CodexMessageTimelineEntry {
   completedAt: string | null
 }
 
+export interface CodexUserMessageTimelineEntry {
+  id: string
+  kind: 'userMessage'
+  text: string
+  createdAt: string
+}
+
 export interface CodexActivityTimelineEntry {
   id: string
   kind: 'activity'
@@ -50,6 +71,7 @@ export interface CodexActivityTimelineEntry {
 
 export type CodexTimelineEntry =
   | CodexMessageTimelineEntry
+  | CodexUserMessageTimelineEntry
   | CodexActivityTimelineEntry
 
 export interface CodexTaskAttachment {
@@ -85,6 +107,8 @@ export interface CodexTask {
   model?: string
   reasoningEffort?: string
   accessMode?: CodexAccessMode
+  gitBranchMode?: 'current' | 'create'
+  developmentBranch?: string
   zentaoBugId?: number
   zentaoBugIds?: number[]
   zentaoLocalSavedAt?: string | null
@@ -96,11 +120,30 @@ export interface CodexTask {
   zentaoTestWorkspaceId?: string
   zentaoTestRunId?: string
   zentaoTestEvidenceDirectory?: string
+  zentaoTestEnvironmentName?: string
+  zentaoTestEnvironmentUrl?: string
   zentaoTestResultSavedAt?: string | null
+  zentaoTestRepairTaskId?: string
+  zentaoTestRepairTriggeredAt?: string | null
+  userTaskId?: number
+  codeReviewId?: string
+  codeReviewMode?: 'initial' | 'repair'
   attachments?: CodexTaskAttachment[]
   activities: CodexActivity[]
   timeline?: CodexTimelineEntry[]
   plan: CodexPlanStep[]
+}
+
+export interface CodexTestRepairTaskPayload {
+  workspaceId: string
+  codexSessionId: string
+  codexTaskId: string
+  title: string
+  description: string
+  project: string
+  projectPath: string
+  bugId: number
+  remoteId: string
 }
 
 export interface CodexSession {
@@ -114,6 +157,7 @@ export interface CodexSession {
   model?: string
   reasoningEffort?: string
   status: CodexSessionStatus
+  unread?: boolean
   createdAt: string
   updatedAt: string
   activeTaskId: string

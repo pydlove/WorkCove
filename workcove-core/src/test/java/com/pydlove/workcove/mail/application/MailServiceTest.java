@@ -33,6 +33,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -58,7 +59,7 @@ class MailServiceTest {
             Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test
-    void savesAnEncryptedAccountAfterVerifyingBothServers() {
+    void savesAnEncryptedAccountWithoutBlockingOnServerVerification() {
         var account = service.saveAccount(
                 OWNER_ID,
                 WORKSPACE_ID,
@@ -67,8 +68,8 @@ class MailServiceTest {
         assertEquals("工作邮箱", account.displayName());
         assertTrue(account.hasPassword());
         assertFalse(account.toString().contains("secret"));
-        assertEquals("secret", gateway.verified.password());
         assertEquals(1, repository.accounts.size());
+        assertNull(gateway.verified);
         assertEquals(
                 "encrypted:secret",
                 repository.accounts.get(0).passwordCiphertext());
@@ -86,8 +87,10 @@ class MailServiceTest {
                 WORKSPACE_ID,
                 accountCommand(created.id(), ""));
 
-        assertEquals("secret", gateway.verified.password());
         assertEquals(1, repository.accounts.size());
+        assertEquals(
+                "encrypted:secret",
+                repository.accounts.get(0).passwordCiphertext());
     }
 
     @Test
@@ -105,6 +108,32 @@ class MailServiceTest {
                         created.id(),
                         "INBOX",
                         "1"));
+    }
+
+    @Test
+    void checksOnlyTheLatestInboxMessagesForNewMailNotifications() {
+        var account = service.saveAccount(
+                OWNER_ID,
+                WORKSPACE_ID,
+                accountCommand(null, "secret"));
+        gateway.messagesCalls = 0;
+
+        MailMessagePage page = service.checkInbox(
+                OWNER_ID,
+                WORKSPACE_ID,
+                account.id(),
+                20);
+
+        assertEquals("42", page.messages().get(0).uid());
+        assertEquals("INBOX", page.messages().get(0).folderPath());
+        assertEquals(1, gateway.messagesCalls);
+        assertThrows(
+                DomainException.class,
+                () -> service.checkInbox(
+                        OWNER_ID,
+                        "another-workspace",
+                        account.id(),
+                        20));
     }
 
     @Test
@@ -231,6 +260,43 @@ class MailServiceTest {
         assertEquals(1, page.total());
         assertEquals("42", page.messages().get(0).uid());
         assertEquals("邮件正文", detail.content());
+    }
+
+    @Test
+    void exposesInboxWhenNoFolderCacheExistsYet() {
+        MailAccount account = savedAccount();
+
+        List<MailFolder> folders = service.folders(
+                OWNER_ID,
+                WORKSPACE_ID,
+                account.id());
+
+        assertEquals(1, folders.size());
+        assertEquals("INBOX", folders.get(0).path());
+        assertEquals(MailFolderRole.INBOX, folders.get(0).role());
+    }
+
+    @Test
+    void returnsCachedMessageWhenTheServerIsTemporarilyUnavailable() {
+        MailAccount account = savedAccount();
+        gateway.syncedContent = "";
+        service.sync(
+                OWNER_ID,
+                WORKSPACE_ID,
+                account.id(),
+                "INBOX",
+                false);
+
+        gateway.failMessage = true;
+        MailMessageDetail detail = service.message(
+                OWNER_ID,
+                WORKSPACE_ID,
+                account.id(),
+                "INBOX",
+                "42");
+
+        assertEquals("测试邮件", detail.subject());
+        assertEquals("", detail.content());
     }
 
     @Test
@@ -364,6 +430,8 @@ class MailServiceTest {
         private String movedUid = "";
         private String movedTarget = "";
         private String syncedPreview = "邮件摘要";
+        private String syncedContent = "邮件正文";
+        private boolean failMessage;
         private int messagesCalls = 0;
 
         @Override
@@ -458,7 +526,7 @@ class MailServiceTest {
                             List.of(),
                             "测试邮件",
                             NOW,
-                            "邮件正文",
+                            syncedContent,
                             false,
                             false,
                             List.of())));
@@ -469,6 +537,9 @@ class MailServiceTest {
                 MailConnectionSettings settings,
                 String folderPath,
                 String uid) {
+            if (failMessage) {
+                throw new DomainException("邮箱服务暂时不可用");
+            }
             readUid = uid;
             return new MailMessageDetail(
                     "INBOX",
@@ -480,7 +551,7 @@ class MailServiceTest {
                     List.of(),
                     "测试邮件",
                     NOW,
-                    "邮件正文",
+                            "邮件正文",
                     false,
                     false,
                     List.of());

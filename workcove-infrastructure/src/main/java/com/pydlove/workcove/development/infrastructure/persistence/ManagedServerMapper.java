@@ -8,17 +8,21 @@ import java.util.List;
 @Mapper
 public interface ManagedServerMapper {
 
-    List<ManagedServerData> findByOwnerId(@Param("ownerId") long ownerId);
+    List<ManagedServerData> findByOwnerIdAndWorkspaceId(
+            @Param("ownerId") long ownerId,
+            @Param("workspaceId") String workspaceId);
 
-    ManagedServerData findByIdAndOwnerId(
+    ManagedServerData findByIdAndOwnerIdAndWorkspaceId(
             @Param("id") long id,
-            @Param("ownerId") long ownerId);
+            @Param("ownerId") long ownerId,
+            @Param("workspaceId") String workspaceId);
 
     int insert(ManagedServerData data);
 
     int update(ManagedServerData data);
 
-    int deleteByIdAndOwnerId(
+    int deleteByIdAndOwnerIdAndWorkspaceId(
             @Param("id") long id,
-            @Param("ownerId") long ownerId);
+            @Param("ownerId") long ownerId,
+            @Param("workspaceId") String workspaceId);
 }

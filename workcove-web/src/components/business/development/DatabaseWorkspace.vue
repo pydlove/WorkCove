@@ -7,7 +7,6 @@ import {
   Clock3,
   Copy,
   Database,
-  LoaderCircle,
   Pencil,
   Play,
   Plus,
@@ -29,7 +28,9 @@ import DatabaseConnectionDialog from '@/components/business/development/Database
 import clickhouseIcon from '@/assets/integrations/clickhouse.svg'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiConfirmDialog from '@/components/ui/UiConfirmDialog.vue'
+import UiFidgetSpinner from '@/components/ui/UiFidgetSpinner.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
+import UiSearchInput from '@/components/ui/UiSearchInput.vue'
 import mysqlIcon from '@/assets/integrations/mysql.svg'
 import { usePagination } from '@/composables/usePagination'
 import { useDatabaseStore } from '@/stores/useDatabaseStore'
@@ -80,6 +81,7 @@ const tableDataLoading = ref(false)
 const resultContext = ref('')
 let tableLoadGeneration = 0
 let schemaLoadGeneration = 0
+let queryLoadGeneration = 0
 let copyFeedbackTimer: number | null = null
 
 const filteredConnections = computed(() => {
@@ -140,6 +142,34 @@ watch(
   () => workspaces.activeWorkspaceId,
   (workspaceId) => {
     selectedId.value = null
+    dialogOpen.value = false
+    editingConnection.value = null
+    deleteTarget.value = null
+    loadError.value = ''
+    sql.value = 'SELECT 1'
+    executing.value = false
+    queryError.value = ''
+    queryResult.value = null
+    confirmExecuteOpen.value = false
+    queryVersion.value += 1
+    tableLoadGeneration += 1
+    schemaLoadGeneration += 1
+    queryLoadGeneration += 1
+    tables.value = []
+    databaseSchemas.value = []
+    schemasLoading.value = false
+    schemasError.value = ''
+    expandedDatabaseName.value = ''
+    tableSearchQuery.value = ''
+    tablesLoading.value = false
+    tablesError.value = ''
+    selectedTable.value = null
+    expandedTableName.value = ''
+    columns.value = []
+    columnsLoading.value = false
+    columnsError.value = ''
+    tableDataLoading.value = false
+    resultContext.value = ''
     void loadConnections(workspaceId, true)
   },
 )
@@ -259,6 +289,8 @@ function executeQuery() {
 async function performExecute() {
   const connection = selectedConnection.value
   if (!connection || executing.value) return
+  const workspaceId = workspaces.activeWorkspaceId
+  const generation = ++queryLoadGeneration
   confirmExecuteOpen.value = false
   executing.value = true
   queryError.value = ''
@@ -268,13 +300,32 @@ async function performExecute() {
     expandedDatabaseName.value = ''
     columns.value = []
     resultContext.value = ''
-    queryResult.value = await databases.execute(connection.id, sql.value)
+    const result = await databases.execute(connection.id, sql.value)
+    if (
+      generation !== queryLoadGeneration ||
+      workspaces.activeWorkspaceId !== workspaceId ||
+      selectedConnection.value?.id !== connection.id
+    ) {
+      return
+    }
+    queryResult.value = result
     queryVersion.value += 1
   } catch (error) {
-    queryResult.value = null
-    queryError.value = errorMessage(error)
+    if (
+      generation === queryLoadGeneration &&
+      workspaces.activeWorkspaceId === workspaceId &&
+      selectedConnection.value?.id === connection.id
+    ) {
+      queryResult.value = null
+      queryError.value = errorMessage(error)
+    }
   } finally {
-    executing.value = false
+    if (
+      generation === queryLoadGeneration &&
+      workspaces.activeWorkspaceId === workspaceId
+    ) {
+      executing.value = false
+    }
   }
 }
 
@@ -492,15 +543,11 @@ async function copyIdentifier(
       <span class="database-toolbar__count">
         {{ filteredConnections.length }} 个数据库连接
       </span>
-      <label class="database-search">
-        <Search :size="15" aria-hidden="true" />
-        <input
-          v-model="searchQuery"
-          type="search"
-          aria-label="搜索数据库连接"
-          placeholder="搜索名称、主机或数据库"
-        />
-      </label>
+      <UiSearchInput
+        v-model="searchQuery"
+        label="搜索数据库连接"
+        placeholder="搜索名称、主机或数据库"
+      />
       <UiButton variant="primary" @click="addConnection">
         <Plus :size="15" />
         添加连接
@@ -541,7 +588,7 @@ async function copyIdentifier(
           v-if="databases.loading && databases.connections.length === 0"
           class="database-connections__state"
         >
-          <LoaderCircle class="database-spin" :size="16" />
+          <UiFidgetSpinner :size="16" />
           正在读取连接…
         </div>
 
@@ -691,10 +738,8 @@ async function copyIdentifier(
                   :disabled="schemasLoading"
                   @click="loadSchemas()"
                 >
-                  <RefreshCw
-                    :class="{ 'database-spin': schemasLoading }"
-                    :size="12"
-                  />
+                  <UiFidgetSpinner v-if="schemasLoading" :size="12" />
+                  <RefreshCw v-else :size="12" />
                 </button>
               </header>
 
@@ -702,7 +747,7 @@ async function copyIdentifier(
                 v-if="schemasLoading"
                 class="database-schema__state"
               >
-                <LoaderCircle class="database-spin" :size="14" />
+                <UiFidgetSpinner :size="14" />
                 加载数据库…
               </div>
               <div
@@ -761,10 +806,7 @@ async function copyIdentifier(
                       v-if="tablesLoading"
                       class="database-schema__column-state"
                     >
-                      <LoaderCircle
-                        class="database-spin"
-                        :size="12"
-                      />
+                      <UiFidgetSpinner :size="12" />
                       加载表…
                     </div>
                     <div
@@ -837,10 +879,7 @@ async function copyIdentifier(
                           v-if="columnsLoading"
                           class="database-schema__column-state"
                         >
-                          <LoaderCircle
-                            class="database-spin"
-                            :size="12"
-                          />
+                          <UiFidgetSpinner :size="12" />
                           加载字段…
                         </div>
                         <div
@@ -920,15 +959,11 @@ async function copyIdentifier(
               <UiButton
                 variant="primary"
                 size="sm"
+                :loading="executing"
                 :disabled="executing || !sql.trim()"
                 @click="executeQuery"
               >
-                <LoaderCircle
-                  v-if="executing"
-                  class="database-spin"
-                  :size="13"
-                />
-                <Play v-else :size="13" />
+                <Play v-if="!executing" :size="13" />
                 {{ executing ? '执行中…' : '执行' }}
               </UiButton>
             </header>
@@ -966,7 +1001,7 @@ async function copyIdentifier(
               v-if="executing || tableDataLoading"
               class="database-query__state"
             >
-              <LoaderCircle class="database-spin" :size="16" />
+              <UiFidgetSpinner :size="16" />
               {{
                 tableDataLoading
                   ? '正在读取表数据…'
@@ -1151,42 +1186,6 @@ async function copyIdentifier(
   color: var(--text);
   font-size: var(--font-caption);
   font-weight: var(--weight-emphasis);
-}
-
-.database-search {
-  display: flex;
-  width: min(100%, 250px);
-  height: var(--control-md);
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px;
-  color: var(--text-subtle);
-  background: color-mix(
-    in srgb,
-    var(--surface-inset) 58%,
-    var(--canvas-raised)
-  );
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-control);
-}
-
-.database-search:focus-within {
-  border-color: var(--system-blue);
-  box-shadow: var(--focus-ring);
-}
-
-.database-search input {
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-  color: var(--text);
-  font-size: var(--font-body);
-  background: transparent;
-  border: 0;
-}
-
-.database-search input:focus-visible {
-  outline: none;
 }
 
 .database-load-error {
@@ -2142,16 +2141,6 @@ async function copyIdentifier(
   font-size: var(--font-caption);
 }
 
-.database-spin {
-  animation: database-spin 900ms linear infinite;
-}
-
-@keyframes database-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 @keyframes database-enter {
   from {
     opacity: 0;
@@ -2178,11 +2167,6 @@ async function copyIdentifier(
 
   .database-toolbar__count {
     flex-basis: 100%;
-  }
-
-  .database-search {
-    width: auto;
-    flex: 1;
   }
 
   .database-layout {

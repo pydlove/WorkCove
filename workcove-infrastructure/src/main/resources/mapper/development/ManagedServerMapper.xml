@@ -26,18 +26,22 @@
         host_key_algorithm, host_key_fingerprint, host_key_public_key, created_at, updated_at
     </sql>
 
-    <select id="findByOwnerId" resultMap="managedServerDataMap">
+    <select id="findByOwnerIdAndWorkspaceId"
+            resultMap="managedServerDataMap">
         SELECT <include refid="serverColumns"/>
         FROM managed_server
         WHERE owner_id = #{ownerId}
+          AND workspace_id = #{workspaceId}
         ORDER BY updated_at DESC, id DESC
     </select>
 
-    <select id="findByIdAndOwnerId" resultMap="managedServerDataMap">
+    <select id="findByIdAndOwnerIdAndWorkspaceId"
+            resultMap="managedServerDataMap">
         SELECT <include refid="serverColumns"/>
         FROM managed_server
         WHERE id = #{id}
           AND owner_id = #{ownerId}
+          AND workspace_id = #{workspaceId}
     </select>
 
     <insert id="insert"
@@ -89,11 +93,13 @@
             updated_at = #{updatedAt}
         WHERE id = #{id}
           AND owner_id = #{ownerId}
+          AND workspace_id = #{workspaceId}
     </update>
 
-    <delete id="deleteByIdAndOwnerId">
+    <delete id="deleteByIdAndOwnerIdAndWorkspaceId">
         DELETE FROM managed_server
         WHERE id = #{id}
           AND owner_id = #{ownerId}
+          AND workspace_id = #{workspaceId}
     </delete>
 </mapper>

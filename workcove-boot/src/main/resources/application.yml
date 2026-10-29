@@ -75,7 +75,7 @@ workcove:
       resend-cooldown: PT60S
       max-per-day: 10
   vault:
-    unlock-ttl: PT5M
+    unlock-ttl: PT1H
     cookie-name: ${WORKCOVE_VAULT_COOKIE_NAME:workcove_vault}
     cookie-secure: ${WORKCOVE_VAULT_COOKIE_SECURE:false}
     webauthn-rp-name: 8小时工作台

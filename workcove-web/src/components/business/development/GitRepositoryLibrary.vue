@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   ArrowRightLeft,
+  ChartColumnIncreasing,
   Cloud,
   Copy,
   FolderOpen,
@@ -8,10 +9,8 @@ import {
   GitCommitHorizontal,
   GitMerge,
   ListChecks,
-  LoaderCircle,
   Plus,
   RefreshCw,
-  Search,
   Trash2,
 } from '@lucide/vue'
 import {
@@ -19,6 +18,7 @@ import {
   ref,
   watch,
 } from 'vue'
+import type { Component } from 'vue'
 
 import {
   openLocalDirectory,
@@ -28,16 +28,20 @@ import ideaIcon from '@/assets/development/intellij-idea.png'
 import CategoryManagerDialog from '@/components/business/development/CategoryManagerDialog.vue'
 import GitRepositoryAddDialog from '@/components/business/development/GitRepositoryAddDialog.vue'
 import GitOperationsDialog from '@/components/business/development/GitOperationsDialog.vue'
+import GitStatisticsDialog from '@/components/business/development/GitStatisticsDialog.vue'
 import WorkspaceBatchBar from '@/components/business/workspaces/WorkspaceBatchBar.vue'
 import WorkspaceTransferDialog, {
   type WorkspaceTransferMode,
 } from '@/components/business/workspaces/WorkspaceTransferDialog.vue'
+import UiActionMenu from '@/components/ui/UiActionMenu.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCategoryFilterBar from '@/components/ui/UiCategoryFilterBar.vue'
 import UiCategorySelect from '@/components/ui/UiCategorySelect.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiConfirmDialog from '@/components/ui/UiConfirmDialog.vue'
+import UiFidgetSpinner from '@/components/ui/UiFidgetSpinner.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
+import UiSearchInput from '@/components/ui/UiSearchInput.vue'
 import { usePagination } from '@/composables/usePagination'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useGitRepositoryStore } from '@/stores/useGitRepositoryStore'
@@ -73,6 +77,16 @@ const transferRepository = ref<GitRepository | null>(null)
 const batchTransferMode = ref<WorkspaceTransferMode | null>(null)
 const deleteTargets = ref<GitRepository[]>([])
 const operationRepository = ref<GitRepository | null>(null)
+const statisticsRepository = ref<GitRepository | null>(null)
+
+interface RepositoryMenuItem {
+  id: string
+  label: string
+  icon?: Component
+  iconSrc?: string
+  disabled?: boolean
+  dividerBefore?: boolean
+}
 
 const workspaceRepositories = computed(() =>
   repositories.repositories
@@ -173,6 +187,10 @@ watch(
   () => workspaces.activeWorkspaceId,
   () => {
     clearSelection()
+    addDialogOpen.value = false
+    deleteTargets.value = []
+    operationRepository.value = null
+    statisticsRepository.value = null
     transferRepository.value = null
     batchTransferMode.value = null
     void refreshAll()
@@ -276,6 +294,79 @@ function statusOf(id: string): GitRepositoryStatus | null {
 
 function loading(id: string) {
   return repositories.loadingIds.includes(id)
+}
+
+function repositoryMenuItems(
+  repository: GitRepository,
+): RepositoryMenuItem[] {
+  if (repository.source !== 'local') {
+    return [
+      {
+        id: 'transfer',
+        label: '复制或移动到其他工作空间',
+        icon: ArrowRightLeft,
+      },
+    ]
+  }
+
+  return [
+    {
+      id: 'statistics',
+      label: '统计近一年提交和代码量',
+      icon: ChartColumnIncreasing,
+    },
+    {
+      id: 'refresh',
+      label: loading(repository.id) ? '正在刷新 Git 状态…' : '刷新 Git 状态',
+      icon: RefreshCw,
+      disabled: loading(repository.id),
+    },
+    {
+      id: 'open-directory',
+      label: '在访达中打开目录',
+      icon: FolderOpen,
+    },
+    {
+      id: 'open-idea',
+      label:
+        ideaBusyId.value === repository.id
+          ? '正在用 IDEA 打开…'
+          : '用 IntelliJ IDEA 打开',
+      iconSrc: ideaIcon,
+      disabled: ideaBusyId.value === repository.id,
+    },
+    {
+      id: 'transfer',
+      label: '复制或移动到其他工作空间',
+      icon: ArrowRightLeft,
+      dividerBefore: true,
+    },
+  ]
+}
+
+function handleRepositoryMenuAction(
+  repository: GitRepository,
+  action: string,
+) {
+  if (action === 'statistics') {
+    statisticsRepository.value = repository
+    return
+  }
+  if (action === 'refresh') {
+    void refreshRepository(repository)
+    return
+  }
+  if (action === 'open-directory') {
+    void openDirectory(repository)
+    return
+  }
+  if (action === 'open-idea') {
+    void openWithIdea(repository)
+    return
+  }
+  if (action === 'transfer') {
+    transferRepository.value = repository
+  }
 }
 
 function statusLabel(repository: GitRepository) {
@@ -531,26 +622,23 @@ function handleBatchTransfer(
       <span class="git-repository-count">
         {{ filteredRepositories.length }} 个 Git 仓库
       </span>
-      <label class="git-repository-search">
-        <Search :size="14" />
-        <input
-          v-model="searchQuery"
-          type="search"
-          aria-label="搜索 Git 仓库"
-          placeholder="搜索名称、路径、分支、远端或提交"
-        />
-      </label>
+      <UiSearchInput
+        v-model="searchQuery"
+        label="搜索 Git 仓库"
+        placeholder="搜索名称、路径、分支、远端或提交"
+      />
       <UiButton @click="toggleSelectionMode">
         <ListChecks :size="14" />
         {{ selectionMode ? '退出批量' : '批量' }}
       </UiButton>
       <UiButton
+        :loading="refreshing"
         :disabled="refreshing || workspaceRepositories.length === 0"
         @click="refreshAll(true)"
       >
         <RefreshCw
+          v-if="!refreshing"
           :size="14"
-          :class="{ 'git-repository-spin': refreshing }"
         />
         {{ refreshing ? '刷新中…' : '刷新状态' }}
       </UiButton>
@@ -621,9 +709,8 @@ function handleBatchTransfer(
               class="git-repository-state"
               :class="`git-repository-state--${statusTone(repository)}`"
             >
-              <LoaderCircle
+              <UiFidgetSpinner
                 v-if="loading(repository.id)"
-                class="git-repository-spin"
                 :size="11"
               />
               {{ statusLabel(repository) }}
@@ -725,48 +812,12 @@ function handleBatchTransfer(
           >
             <GitMerge :size="14" />
           </button>
-          <button
-            v-if="repository.source === 'local'"
-            type="button"
-            :disabled="loading(repository.id)"
-            :aria-label="`刷新 ${repository.name} 的 Git 状态`"
-            title="刷新状态"
-            @click="refreshRepository(repository)"
-          >
-            <RefreshCw
-              :size="14"
-              :class="{ 'git-repository-spin': loading(repository.id) }"
-            />
-          </button>
-          <button
-            v-if="repository.source === 'local'"
-            type="button"
-            :aria-label="`在访达中打开目录 ${repository.name}`"
-            title="在访达中打开"
-            @click="openDirectory(repository)"
-          >
-            <FolderOpen :size="14" />
-          </button>
-          <button
-            v-if="repository.source === 'local'"
-            class="git-repository-idea"
-            type="button"
-            :disabled="ideaBusyId === repository.id"
-            :aria-label="`用 IDEA 打开 ${repository.name}`"
-            title="用 IntelliJ IDEA 打开"
-            @click="openWithIdea(repository)"
-          >
-            <img :src="ideaIcon" alt="" width="16" height="16" />
-            {{ ideaBusyId === repository.id ? '打开中…' : 'IDEA' }}
-          </button>
-          <button
-            type="button"
-            :aria-label="`处理 ${repository.name} 的工作空间`"
-            title="复制或移动到其他工作空间"
-            @click="transferRepository = repository"
-          >
-            <ArrowRightLeft :size="14" />
-          </button>
+          <UiActionMenu
+            :items="repositoryMenuItems(repository)"
+            :label="`更多 ${repository.name} 操作`"
+            :title="`更多 ${repository.name} 操作`"
+            @select="handleRepositoryMenuAction(repository, $event)"
+          />
           <button
             class="git-repository-delete"
             type="button"
@@ -830,6 +881,13 @@ function handleBatchTransfer(
       @changed="handleOperationChanged"
       @notify="emit('notify', $event)"
       @solve-conflicts="emit('solveConflicts', $event)"
+    />
+
+    <GitStatisticsDialog
+      v-if="statisticsRepository"
+      :repository="statisticsRepository"
+      @close="statisticsRepository = null"
+      @notify="emit('notify', $event)"
     />
 
     <CategoryManagerDialog
@@ -913,40 +971,6 @@ function handleBatchTransfer(
   flex: 0 0 auto;
   color: var(--text-subtle);
   font-size: var(--font-caption);
-}
-
-.git-repository-search {
-  display: flex;
-  width: min(100%, 310px);
-  height: var(--control-md);
-  align-items: center;
-  gap: 6px;
-  padding: 0 var(--space-2);
-  margin-left: auto;
-  color: var(--text-subtle);
-  background: var(--control-bg);
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-control);
-}
-
-.git-repository-search:focus-within {
-  border-color: var(--system-blue);
-  box-shadow: var(--focus-ring);
-}
-
-.git-repository-search input {
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-  color: var(--text);
-  font-size: var(--font-body);
-  background: transparent;
-  border: 0;
-}
-
-.git-repository-search input:focus,
-.git-repository-search input:focus-visible {
-  outline: none;
 }
 
 .git-repository-list {
@@ -1172,19 +1196,6 @@ function handleBatchTransfer(
   opacity: 0.45;
 }
 
-.git-repository-actions > .git-repository-idea {
-  width: auto;
-  padding: 0 var(--space-2);
-  font-size: var(--font-caption);
-}
-
-.git-repository-idea img {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 auto;
-  object-fit: contain;
-}
-
 .git-repository-actions > .git-repository-delete:hover {
   color: var(--system-red);
   background: color-mix(in srgb, var(--system-red) 8%, transparent);
@@ -1250,16 +1261,6 @@ function handleBatchTransfer(
   font-size: var(--font-caption);
 }
 
-.git-repository-spin {
-  animation: git-repository-spin 800ms linear infinite;
-}
-
-@keyframes git-repository-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 @media (max-width: 1050px) {
   .git-repository-row,
   .git-repository-row--selecting {
@@ -1306,11 +1307,6 @@ function handleBatchTransfer(
 
   .git-repository-count {
     flex-basis: 100%;
-  }
-
-  .git-repository-search {
-    width: 100%;
-    margin-left: 0;
   }
 
   .git-repository-row,

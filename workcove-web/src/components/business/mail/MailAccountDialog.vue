@@ -12,7 +12,7 @@ import {
   watch,
 } from 'vue'
 
-import MailVaultPasswordPicker from '@/components/business/mail/MailVaultPasswordPicker.vue'
+import VaultPasswordPicker from '@/components/business/vault/VaultPasswordPicker.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
@@ -155,6 +155,22 @@ const providerOptions = [
     label: item.label,
   })),
 ]
+const neteaseProvider = computed(
+  () =>
+    provider.value === '163' ||
+    provider.value === '126' ||
+    /^imap\.(163|126)\.com$/i.test(form.imapHost.trim()),
+)
+const credentialLabel = computed(() =>
+  neteaseProvider.value
+    ? 'IMAP/SMTP 授权码'
+    : '邮箱密码/授权码',
+)
+const credentialDescription = computed(() =>
+  props.account?.hasPassword
+    ? `可选；不选择时继续使用当前已保存的${credentialLabel.value}。`
+    : `必须从密码库选择${credentialLabel.value}，不能手动输入。`,
+)
 const tlsOptions = [
   { value: 'ssl', label: 'SSL/TLS' },
   { value: 'starttls', label: 'STARTTLS' },
@@ -209,7 +225,7 @@ async function save() {
   if (saving.value || credentialBusy.value) return
   errorMessage.value = ''
   if (!props.account?.hasPassword && !selectedVaultPassword.value) {
-    errorMessage.value = '请先从密码库选择邮箱密码'
+    errorMessage.value = `请先从密码库选择${credentialLabel.value}`
     return
   }
   saving.value = true
@@ -234,8 +250,12 @@ async function save() {
     emit('notify', `邮箱「${account.displayName}」已保存`)
     emit('saved', account)
   } catch (error) {
-    errorMessage.value =
+    const message =
       error instanceof Error ? error.message : '无法保存邮箱账号'
+    errorMessage.value =
+      neteaseProvider.value && message.includes('被服务器拒绝')
+        ? `${message}。请在网易邮箱网页版开启 IMAP/SMTP，并重新生成客户端授权密码`
+        : message
   } finally {
     saving.value = false
   }
@@ -259,7 +279,7 @@ function handleVaultSelection(
     description="使用 IMAP 收取邮件，通过 SMTP 发送回复。"
     size="wide"
     scroll-mode="body"
-    max-height="min(760px, calc(100dvh - 32px))"
+    max-height="min(760px, calc(100dvh - 96px))"
     :suspended="saving"
     @close="emit('close')"
   >
@@ -321,9 +341,12 @@ function handleVaultSelection(
               spellcheck="false"
             />
           </UiFormField>
-          <MailVaultPasswordPicker
+          <VaultPasswordPicker
+            :workspace-id="workspaces.activeWorkspaceId"
             :selected-entry-id="selectedVaultEntryId"
             :has-existing-password="account?.hasPassword"
+            :label="credentialLabel"
+            :description="credentialDescription"
             @select="handleVaultSelection"
             @busy="credentialBusy = $event"
           />
@@ -347,6 +370,19 @@ function handleVaultSelection(
             aria-label="邮箱服务商"
           />
         </UiFormField>
+        <p
+          v-if="neteaseProvider"
+          class="mail-account-form__provider-hint"
+          role="note"
+        >
+          <ShieldCheck :size="14" />
+          <span>
+            <strong>网易邮箱需要使用客户端授权密码。</strong>
+            请先在网页版“设置 &gt; POP3/SMTP/IMAP”开启 IMAP/SMTP，
+            再生成授权码；同一个授权码同时用于 IMAP 收件和 SMTP 发件，
+            网页登录密码不能用于此连接。
+          </span>
+        </p>
 
         <div class="mail-account-form__server">
           <div class="mail-account-form__server-heading">
@@ -454,7 +490,8 @@ function handleVaultSelection(
 
       <p class="mail-account-form__security">
         <ShieldCheck :size="14" />
-        密码从密码库读取后会加密保存在本机数据库，不会通过账号列表返回。
+        {{ credentialLabel }}从密码库读取后会加密保存在本机数据库，
+        不会通过账号列表返回。
       </p>
       <p v-if="errorMessage" class="mail-account-form__error" role="alert">
         {{ errorMessage }}
@@ -474,13 +511,13 @@ function handleVaultSelection(
         size="lg"
         type="submit"
         form="mail-account-form"
+        :loading="saving"
         :disabled="
-          saving ||
           credentialBusy ||
           (!account?.hasPassword && !selectedVaultPassword)
         "
       >
-        {{ saving ? '正在验证邮箱…' : '验证并保存' }}
+        {{ saving ? '正在保存…' : '保存邮箱' }}
       </UiButton>
     </template>
   </UiDialog>
@@ -612,6 +649,31 @@ function handleVaultSelection(
   color: var(--text-subtle);
   font-size: var(--font-caption);
   line-height: var(--line-caption);
+}
+
+.mail-account-form__provider-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  background: var(--surface-secondary);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-control);
+}
+
+.mail-account-form__provider-hint svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--system-green);
+}
+
+.mail-account-form__provider-hint strong {
+  color: var(--text);
+  font-weight: var(--weight-emphasis);
 }
 
 .mail-account-form__security svg {

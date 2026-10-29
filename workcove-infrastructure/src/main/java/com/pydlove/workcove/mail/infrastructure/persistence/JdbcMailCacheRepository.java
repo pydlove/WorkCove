@@ -108,16 +108,8 @@ public class JdbcMailCacheRepository implements MailCacheRepository {
                                 timestamp(syncedAt),
                         })
                         .toList());
-        jdbc.update(
-                """
-                DELETE FROM mail_folder
-                WHERE owner_id = ? AND workspace_id = ? AND account_id = ?
-                      AND synced_at < ?
-                """,
-                ownerId,
-                workspaceId,
-                accountId,
-                timestamp(syncedAt));
+        // Keep folders omitted by a partial or transient server response.
+        // Deleting a folder also cascades its cached messages.
     }
 
     @Override
@@ -304,11 +296,13 @@ public class JdbcMailCacheRepository implements MailCacheRepository {
             String folderPath,
             List<MailSyncMessage> messages,
             Instant syncedAt) {
+        if (messages.isEmpty()) return;
         long folderId = folderId(
                 ownerId,
                 workspaceId,
                 accountId,
-                folderPath);
+                folderPath,
+                syncedAt);
         jdbc.batchUpdate(
                 """
                 INSERT INTO mail_message (
@@ -369,13 +363,8 @@ public class JdbcMailCacheRepository implements MailCacheRepository {
                                 message,
                                 syncedAt))
                         .toList());
-        jdbc.update(
-                """
-                DELETE FROM mail_message
-                WHERE folder_id = ? AND synced_at < ?
-                """,
-                folderId,
-                timestamp(syncedAt));
+        // Syncs fetch only the latest window, so older cached messages must
+        // remain available when the server is temporarily unreachable.
     }
 
     @Override
@@ -484,8 +473,49 @@ public class JdbcMailCacheRepository implements MailCacheRepository {
             long ownerId,
             String workspaceId,
             long accountId,
-            String folderPath) {
-        Long value = jdbc.queryForObject(
+            String folderPath,
+            Instant syncedAt) {
+        List<Long> values = jdbc.query(
+                """
+                SELECT id
+                FROM mail_folder
+                WHERE owner_id = ? AND workspace_id = ?
+                      AND account_id = ? AND path = ?
+                """,
+                (result, row) -> result.getLong("id"),
+                ownerId,
+                workspaceId,
+                accountId,
+                folderPath);
+        if (!values.isEmpty()) return values.get(0);
+
+        MailFolderRole role = "INBOX".equalsIgnoreCase(folderPath)
+                ? MailFolderRole.INBOX
+                : MailFolderRole.CUSTOM;
+        String leafName = folderPath.substring(
+                folderPath.lastIndexOf('/') + 1);
+        String name = role == MailFolderRole.INBOX
+                ? "收件箱"
+                : truncate(
+                        leafName.isBlank() ? folderPath : leafName,
+                        255);
+        jdbc.update(
+                """
+                INSERT INTO mail_folder (
+                    owner_id, workspace_id, account_id, name, path, `role`,
+                    unread_count, total_count, synced_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)
+                ON DUPLICATE KEY UPDATE synced_at = VALUES(synced_at)
+                """,
+                ownerId,
+                workspaceId,
+                accountId,
+                name,
+                folderPath,
+                role.name(),
+                timestamp(syncedAt));
+        return jdbc.queryForObject(
                 """
                 SELECT id
                 FROM mail_folder
@@ -497,10 +527,6 @@ public class JdbcMailCacheRepository implements MailCacheRepository {
                 workspaceId,
                 accountId,
                 folderPath);
-        if (value == null) {
-            throw new IllegalStateException("邮件目录缓存不存在");
-        }
-        return value;
     }
 
     private Object[] messageRow(

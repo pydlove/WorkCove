@@ -8,20 +8,25 @@ import java.util.Optional;
 
 public interface VaultCategoryRepository {
 
-    List<VaultCategory> findCategoriesByOwnerId(long ownerId);
+    List<VaultCategory> findCategoriesByOwnerIdAndWorkspaceId(
+            long ownerId,
+            String workspaceId);
 
-    Optional<VaultCategory> findCategoryByIdAndOwnerId(
+    Optional<VaultCategory> findCategoryByIdAndOwnerIdAndWorkspaceId(
             long id,
-            long ownerId);
+            long ownerId,
+            String workspaceId);
 
-    Optional<VaultCategory> findCategoryByNameAndOwnerId(
+    Optional<VaultCategory> findCategoryByNameAndOwnerIdAndWorkspaceId(
             String name,
-            long ownerId);
+            long ownerId,
+            String workspaceId);
 
     VaultCategory saveCategory(VaultCategory category);
 
     void renameCategory(
             long ownerId,
+            String workspaceId,
             long id,
             String currentName,
             String nextName,
@@ -29,6 +34,7 @@ public interface VaultCategoryRepository {
 
     void deleteCategoryAndReassignEntries(
             long ownerId,
+            String workspaceId,
             long id,
             String categoryName,
             String fallbackName,

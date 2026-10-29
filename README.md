@@ -1,50 +1,118 @@
 # 8小时工作台
 
-本地优先的个人工作平台，用于辅助日常专注工作。项目结构参考 Regent，但只保留个人工作平台需要的能力。
+**把 Codex、研发工具和日常专注管理放进一个本地优先的桌面工作台。**
 
-## 工程结构
+8小时工作台（仓库名 WorkCove）面向每天需要写代码、查资料、处理 Bug、连接服务器和安排日程的研发人员。它把分散在浏览器标签、终端、聊天窗口和多个管理后台里的工作动作，收拢到同一个本地工作空间中。
 
-```text
-WorkCove/
-├── workcove-commons/       # 共享异常与基础构件
-├── workcove-core/          # 纯 Java 领域层与应用层
-├── workcove-infrastructure/# MyBatis、Flyway、邮件与安全实现
-├── workcove-interfaces/    # REST Controller、DTO
-├── workcove-boot/          # 唯一启动入口与配置
-├── workcove-web/           # Vue Web 工程
-└── workcove-desktop/       # Electron 桌面壳
-```
+![8小时工作台首页](docs/screenshots/workbench.png)
 
-## 本地运行
+## 它解决什么问题
 
-MySQL 需要 `workcove` schema 和受限账号 `workcove_app`。本地密码只放在
-`workcove-boot/src/main/resources/application-local.yml`，该文件不进入版本库。
+研发工作通常不是被某一个大任务打断的，而是被不断切换上下文消耗掉的：
 
-推荐使用本地启停脚本，前后端日志统一写入 `log/`：
+- Codex 在一个窗口里，Git、数据库和服务端在另外几个窗口里；
+- 任务、笔记、日程和邮件没有统一入口，重要上下文容易丢失；
+- 本地密码、服务器凭据和 Token 用量散落在各处；
+- 开发版和客户端版共用环境时，调试操作容易影响日常使用。
+
+8小时工作台不试图替代所有专业工具，而是把每天高频发生的动作组织成一条连续的工作流：记录任务、交给 Codex、查看代码和数据库、提交测试、回到工作台继续下一件事。
+
+## 核心能力
+
+| 模块 | 你可以在这里完成 |
+| --- | --- |
+| 专注工作台 | 工作时钟、上下班打卡、专注输入轨迹、AI Token 用量、关怀记录和常用网址 |
+| Codex 工作区 | 创建会话、连续对话、任务队列、文件和图片附件、执行过程记录、Bug 测试与代码修复 |
+| 研发工具 | 工作目录、Git 仓库、数据库连接、部署、代码评审和测试环境 |
+| 服务器管理 | 内置 SSH 终端、SFTP 文件管理、快捷命令和主机指纹校验 |
+| 禅道闭环 | 同步 Bug、确认 Bug、创建构建、提交测试单，并把 Bug 交给 Codex 验证或修复 |
+| 日程协作 | 日历、提醒、任务、邮件、速记和跨模块跳转 |
+| 本地安全 | 密码库、Touch ID、AES-GCM 凭据加密、账号与工作空间隔离 |
+
+## 产品截图
+
+以下截图来自当前开发环境，展示的是最新界面和真实交互状态。
+
+### 01 任务与专注工作台
+
+工作台把“今天要做什么”和“今天已经做了多少”放在同一个视图中。任务可以独立维护，也可以直接交给 Codex 执行；工作时钟同时记录输入轨迹、近期 AI Token 使用量和关怀数据。
+
+![任务与专注工作台](docs/screenshots/tasks.png)
+
+### 02 Codex 工作区
+
+Codex 不是孤立的聊天框。每个会话会绑定工作目录和当前分支，任务可以排队执行，文件和图片可以作为上下文带入；执行过程、命令、修改结果和状态会保留在时间线里。
+
+![Codex 工作区](docs/screenshots/codex.png)
+
+### 03 研发工具
+
+工作目录、Git、数据库、部署和代码评审共用同一套工作空间上下文。可以在本地查看仓库状态、执行 SQL、检查目录统计，也可以从研发记录直接继续到 Codex。
+
+![数据库工作区](docs/screenshots/database.png)
+
+### 04 本地研发连接
+
+常用服务器集中保存在工作空间中，可以直接打开内置 SSH 终端和 SFTP 文件管理。服务器凭据只在后端解密使用，SSH 主机指纹首次连接时记录，后续发生变化会拒绝连接。
+
+![服务器管理](docs/screenshots/servers.png)
+
+### 05 禅道闭环
+
+禅道页面可以查看同步的 Bug 和构建记录。创建构建后，构建会直接写入禅道；选择一条构建即可提交测试单。Bug 详情还可以交给 Codex 进行研发环境验证，并保留测试结果和截图证据。
+
+![禅道构建与测试](docs/screenshots/zentao.png)
+
+### 06 工作关怀
+
+工作台会在工作时间内提醒喝水、起身活动和休息，并记录最近的工作节奏。提醒时间和上下班打卡时间可以在设置里配置。
+
+![工作关怀](docs/screenshots/wellness.png)
+
+## 本地优先
+
+- 核心业务数据保存在本机 MySQL，开发版使用 `workcove`，客户端版使用独立的 `workcove_client`。
+- Codex 通过本机 CLI 执行，工作目录、分支和任务上下文由当前用户与工作空间共同约束。
+- 邮箱、禅道、Git 远端和服务器只有在用户配置后才访问；密码和 Token 不通过页面列表返回。
+- 服务器密码、邮箱密码、禅道密码和测试环境密码使用 AES-256-GCM 加密保存。
+- 密码库支持登录密码或 Touch ID 解锁，解锁会话默认 5 分钟后失效。
+- 每个工作空间的数据按登录账号隔离，避免不同账号或环境互相串数据。
+
+## 快速开始
+
+### 环境要求
+
+- Java 17
+- Node.js 20+ 与 pnpm
+- MySQL 8
+- macOS 桌面版支持 Electron
+
+### 启动开发版
+
+项目根目录下执行：
 
 ```bash
 ./deploy/local/start-all.sh
 ./deploy/local/status.sh
+```
+
+启动后访问：
+
+- Web：`http://localhost:32581`
+- 后端健康检查：`http://127.0.0.1:8790/actuator/health`
+- 日志目录：`log/`
+
+停止服务：
+
+```bash
 ./deploy/local/stop-all.sh
 ```
 
-日志文件：
-
-```text
-log/backend.log
-log/frontend.log
-log/backend-build.log
-log/frontend-install.log
-```
-
-也可以手动启动。
+也可以分别启动。后端默认读取 `workcove-boot/src/main/resources/application-local.yml`，该文件不进入 Git：
 
 ```bash
-mvn clean package
-java -jar workcove-boot/target/workcove-boot-0.1.0-SNAPSHOT.jar
+java -jar workcove-boot/target/workcove-boot-0.2.6-SNAPSHOT.jar
 ```
-
-后端默认监听 `127.0.0.1:8790`。
 
 ```bash
 cd workcove-web
@@ -52,76 +120,88 @@ pnpm install
 pnpm dev
 ```
 
-前端默认通过 `http://localhost:32581` 访问，并将 `/api` 与 `/ws` 代理到后端。
-Touch ID 依赖 WebAuthn 安全上下文，请使用 `localhost` 而不是 `127.0.0.1`。
+### 客户端版
 
-## 开发版与客户端版
-
-两套环境必须同时可用：
+开发版和客户端版使用独立端口、Cookie、Electron 用户目录和 MySQL schema：
 
 | 项目 | 开发版 | 客户端版 |
-|---|---|---|
+| --- | --- | --- |
 | 后端端口 | `8790` | `8890` |
-| 前端入口 | Vite `localhost:32581` | 内置静态资源 `127.0.0.1:8890` |
+| Web 入口 | Vite `localhost:32581` | 内置静态资源 `127.0.0.1:8890` |
 | MySQL schema | `workcove` | `workcove_client` |
 | Electron 用户目录 | `com.pydlove.workcove.dev` | `com.pydlove.workcove` |
 | 登录 Cookie | `workcove_session` | `workcove_client_session` |
 
-客户端首次安装前，以 MySQL 管理员执行一次：
+首次安装客户端前创建独立数据库：
 
 ```bash
 ./deploy/local/setup-client-db.sh
 ```
 
-客户端会内置 JRE、后端依赖库、瘦 JAR 和前端资源。运行时增量包只更新瘦 JAR
-与前端资源，不重复分发 Java 依赖。
+桌面客户端构建和升级说明见 [workcove-desktop/README.md](workcove-desktop/README.md)。
 
-构建与升级说明见 [Desktop README](workcove-desktop/README.md)。
+## 配置说明
 
 ### 邮箱验证码
 
-本地默认使用 `log` 模式，验证码会写入后端日志：
+本地默认使用 `log` 模式，验证码写入后端日志：
 
 ```text
 8小时工作台 development email code: email=..., code=...
 ```
 
-真实发送邮件时设置 SMTP 环境变量：
+启用真实 SMTP 时设置环境变量：
 
 ```bash
 export WORKCOVE_MAIL_MODE=smtp
-export WORKCOVE_MAIL_HOST=smtp.126.com
+export WORKCOVE_MAIL_HOST=smtp.example.com
 export WORKCOVE_MAIL_PORT=465
-export WORKCOVE_MAIL_USERNAME=your-account@126.com
+export WORKCOVE_MAIL_USERNAME=your-account@example.com
 export WORKCOVE_MAIL_PASSWORD=your-smtp-password
 ```
 
-SMTP 密码只放在本机环境或未入库的本地配置中，不提交到 Git。
-
 ### 配置加密
 
-8小时工作台使用 AES-256-GCM 加密本地敏感配置，格式为 `ENC(v1:...)`。
-
-- 主密钥默认位于 `~/.workcove/config.key`，权限必须为 `600`
-- 也可通过 `WORKCOVE_CONFIG_KEY` 提供
-- 生成密文：
+敏感配置使用 AES-256-GCM，格式为 `ENC(v1:...)`。主密钥默认位于 `~/.workcove/config.key`，权限必须为 `600`，也可以通过 `WORKCOVE_CONFIG_KEY` 注入。
 
 ```bash
 printf '%s' '需要加密的值' | node scripts/encrypt-config.mjs encrypt
 ```
 
-`application-local.yml` 中的数据库密码、SMTP 账号和 SMTP 密码均使用密文保存。
-企业网络额外需要的 SMTP CA 信任库位于 `~/.workcove/mail-truststore.p12`。
+本地配置模板见
+[application-local.yml.example](workcove-boot/src/main/resources/application-local.yml.example)。
 
-邮件中心同步目录和最近 200 封邮件头到客户端 MySQL，邮件列表默认从 MySQL 查询；
-首次打开单封邮件时按需读取正文并回填缓存，后续访问直接使用数据库缓存。
+## 技术架构
 
-配置模板见 `workcove-boot/src/main/resources/application-local.yml.example`。
+```text
+Electron desktop shell
+        │
+        ▼
+Vue 3 + Vite  ───────────────  Spring Boot
+                                    │
+                    ┌───────────────┼────────────────┐
+                    ▼               ▼                ▼
+                 MySQL 8       本机 Codex CLI     SSH / Git / SMTP
+```
+
+```text
+WorkCove/
+├── workcove-commons/       共享异常与基础构件
+├── workcove-core/          领域层与应用层
+├── workcove-infrastructure/ MyBatis、Flyway、邮件、SSH、Git 和安全实现
+├── workcove-interfaces/    REST Controller 与接口 DTO
+├── workcove-boot/          Spring Boot 启动入口
+├── workcove-web/           Vue 3 Web 工程
+└── workcove-desktop/       Electron 桌面壳、JRE 和客户端运行时
+```
+
+更完整的模块边界、数据隔离和安全约束见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ## 质量检查
 
 ```bash
 mvn clean verify
+
 cd workcove-web
 pnpm check:ui
 pnpm check:isolation
@@ -129,50 +209,12 @@ pnpm typecheck
 pnpm build
 ```
 
-前端样式、组件和响应式规则见
+前端设计、组件和响应式规范见
 [Web 前端样式规范](doc/开发规范/Web前端样式规范.md)。
 
-“App”页面支持本地应用管理，并通过宿主进程批量检测应用是否已经打开；
-窗口重新聚焦、页面恢复可见以及固定间隔都会刷新运行状态。
+## 相关文档
 
-工作空间支持按账号保存自定义图标：上传 PNG、JPEG 或 WebP 图片后会居中裁切并压缩为方形图标，
-不再使用预置图标和颜色组合。
-
-工作台“今日关怀”支持记录喝水、起身活动和洗手间次数，连续工作后提醒补水与活动。
-底部支持每天一次上班打卡和下班打卡，下班后再次点击只更新当天打卡时间；“休息一下”会进入全屏休息计时，点击继续工作后自动记录休息区间，
-并从净工作时长中扣除。提醒设置支持按周一至周日分别配置上下班时间、工作日开关、上下班打卡提醒和提前提醒时间。
-关怀记录提供今日与最近 30 天工作时间曲线、打卡和休息详情。
-
-“研发 → Git 仓库”支持三种登记方式：手动填写尚未克隆的远端仓库地址、
-从已登记工作目录选择、或直接选择任意本地 Git 文件夹。列表展示当前分支、
-远端、领先/落后提交、暂存区、工作区变更和最近提交；仓库通过工作空间级分类
-整理，分类支持新增、重命名和删除迁移。远端记录可在克隆后通过本地文件夹补全，
-移除仓库记录不会删除本地代码。
-
-“研发 → 服务器管理”支持在 8小时工作台内直接打开 SSH 终端和 SFTP 文件管理。
-密码使用本机配置主密钥做 AES-GCM 加密后保存在后端，不会发送到浏览器、
-URL 或日志；首次连接采用 TOFU 规则记录 SSH 主机指纹，指纹变化时拒绝连接。
-
-服务器列表只提供 8小时工作台内置 SSH 与 SFTP 操作，不展示第三方客户端入口。
-
-“工具 → 速记”提供工作记录流，支持 `Command + Shift + N` 快速记录、自动保存、
-搜索、置顶、重要标记、已解决筛选、标签、归档和删除确认。随笔按工作空间和登录账号隔离。
-
-“工具 → 密码库”支持账号密码集中管理。每次查看前需使用登录密码或 Touch ID 验证，
-验证后 5 分钟内免重复验证；密码用 AES-GCM 加密保存，列表不返回密码明文。
-密码分类支持新增、重命名、删除迁移和快捷移动，分类与条目均按登录账号隔离。
-
-用户资料、网址、分类、应用快捷方式、工作目录、Git 仓库、随笔、密码库、关怀记录、主题和字体偏好均按登录账号隔离。
-统一约束见 [架构文档](ARCHITECTURE.md) 与 [前端样式规范](doc/开发规范/Web前端样式规范.md)。
-
-## 分支管理
-
-项目使用 Git Flow。`main` 保存稳定版本，`develop` 用于日常集成。
-
-```bash
-brew install git-flow-next
-git flow feature start WCV-123-example
-git flow feature finish WCV-123-example
-```
-
-完整规范见 [Git 分支规范](doc/开发规范/Git分支规范.md)。
+- [架构与分包](ARCHITECTURE.md)
+- [桌面客户端与升级](workcove-desktop/README.md)
+- [前端样式规范](doc/开发规范/Web前端样式规范.md)
+- [Git 分支规范](doc/开发规范/Git分支规范.md)

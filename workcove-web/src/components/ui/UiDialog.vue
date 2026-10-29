@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { X } from '@lucide/vue'
 import {
+  computed,
   nextTick,
   onBeforeUnmount,
   onMounted,
   ref,
   useId,
+  type CSSProperties,
 } from 'vue'
 
 const props = withDefaults(
@@ -15,10 +17,12 @@ const props = withDefaults(
     initialFocus?: string
     suspended?: boolean
     size?: 'default' | 'wide' | 'extra-wide'
-    variant?: 'window' | 'screensaver'
+    variant?: 'window' | 'screensaver' | 'browser'
     height?: 'auto' | 'compact' | 'standard' | 'tall'
     scrollMode?: 'contained' | 'body'
     maxHeight?: string
+    titleEmphasis?: 'default' | 'prominent'
+    surfaceStyle?: CSSProperties
   }>(),
   {
     description: '',
@@ -29,6 +33,7 @@ const props = withDefaults(
     height: 'standard',
     scrollMode: 'contained',
     maxHeight: '',
+    titleEmphasis: 'default',
   },
 )
 
@@ -40,6 +45,16 @@ const titleId = useId()
 const descriptionId = useId()
 const dialog = ref<HTMLElement | null>(null)
 const previousFocus = ref<HTMLElement | null>(null)
+const dialogStyle = computed<CSSProperties | undefined>(() =>
+  props.maxHeight || props.surfaceStyle
+    ? ({
+        ...props.surfaceStyle,
+        ...(props.maxHeight
+          ? { '--dialog-max-height': props.maxHeight }
+          : {}),
+      } as CSSProperties)
+    : undefined,
+)
 
 function focusableElements() {
   if (!dialog.value) return []
@@ -114,6 +129,7 @@ onBeforeUnmount(() => {
       class="ui-dialog-layer"
       :class="{
         'ui-dialog-layer--screensaver': variant === 'screensaver',
+        'ui-dialog-layer--browser': variant === 'browser',
       }"
     >
       <div class="ui-dialog-backdrop" aria-hidden="true" />
@@ -124,11 +140,14 @@ onBeforeUnmount(() => {
           'ui-dialog--wide': size === 'wide',
           'ui-dialog--extra-wide': size === 'extra-wide',
           'ui-dialog--screensaver': variant === 'screensaver',
+          'ui-dialog--browser': variant === 'browser',
+          'ui-dialog--title-prominent':
+            titleEmphasis === 'prominent',
           [`ui-dialog--height-${height}`]: true,
           'ui-dialog--body-scroll': scrollMode === 'body',
         }"
         data-ui-dialog
-        :style="maxHeight ? { maxHeight } : undefined"
+        :style="dialogStyle"
         role="dialog"
         aria-modal="true"
         :aria-labelledby="titleId"
@@ -183,12 +202,20 @@ onBeforeUnmount(() => {
 
 .ui-dialog {
   --dialog-height: var(--dialog-height-standard);
+  --dialog-max-height: 100dvh;
+  --dialog-safe-inset: 96px;
 
   position: relative;
   display: flex;
   width: min(100%, 440px);
-  height: min(var(--dialog-height), calc(100dvh - 48px));
-  max-height: calc(100dvh - 48px);
+  height: min(
+    var(--dialog-height),
+    calc(100dvh - var(--dialog-safe-inset))
+  );
+  max-height: min(
+    var(--dialog-max-height),
+    calc(100dvh - var(--dialog-safe-inset))
+  );
   flex-direction: column;
   overflow: hidden;
   color: var(--text);
@@ -226,6 +253,29 @@ onBeforeUnmount(() => {
 
 .ui-dialog-layer--screensaver {
   padding: 0;
+}
+
+.ui-dialog-layer--browser {
+  padding: 0;
+}
+
+.ui-dialog--browser {
+  width: 100%;
+  height: 100dvh;
+  max-height: none;
+  background: var(--window-material);
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  animation: none;
+}
+
+.ui-dialog--browser .ui-dialog__header {
+  display: none;
+}
+
+.ui-dialog--browser .ui-dialog__content {
+  overflow: hidden;
 }
 
 .ui-dialog--screensaver {
@@ -334,9 +384,17 @@ onBeforeUnmount(() => {
 
 .ui-dialog__heading h2 {
   margin: 0;
-  font-size: var(--font-body);
-  font-weight: var(--weight-emphasis);
-  line-height: var(--line-body);
+  color: var(--text);
+  font-size: var(--font-title);
+  font-weight: var(--weight-strong);
+  line-height: var(--line-title);
+  overflow-wrap: anywhere;
+}
+
+.ui-dialog--title-prominent .ui-dialog__heading h2 {
+  font-size: var(--font-dialog-title-prominent);
+  line-height: var(--line-dialog-title-prominent);
+  font-weight: var(--weight-strong);
 }
 
 .ui-dialog__heading p {
@@ -369,16 +427,39 @@ onBeforeUnmount(() => {
 
 @media (max-width: 520px) {
   .ui-dialog-layer {
-    padding: var(--space-2);
+    padding: var(--space-4);
+  }
+
+  .ui-dialog-layer--browser {
+    padding: 0;
+  }
+
+  .ui-dialog-layer--screensaver {
+    padding: 0;
   }
 
   .ui-dialog {
-    height: min(var(--dialog-height), calc(100dvh - 16px));
-    max-height: calc(100dvh - 16px);
+    --dialog-safe-inset: 64px;
+
+    height: min(
+      var(--dialog-height),
+      calc(100dvh - var(--dialog-safe-inset))
+    );
   }
 
   .ui-dialog--height-auto {
     height: auto;
+  }
+
+  .ui-dialog--browser {
+    height: 100dvh;
+    max-height: none;
+  }
+
+  .ui-dialog--screensaver {
+    width: 100%;
+    height: 100dvh;
+    max-height: none;
   }
 
   .ui-dialog__header {

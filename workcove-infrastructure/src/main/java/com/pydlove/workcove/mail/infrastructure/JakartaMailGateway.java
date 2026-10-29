@@ -33,6 +33,7 @@ import jakarta.mail.internet.ContentType;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
 import jakarta.mail.internet.MimeUtility;
+import org.eclipse.angus.mail.imap.IMAPStore;
 import org.springframework.mail.javamail.MimeMessageHelper;
 
 import javax.net.ssl.SSLSocketFactory;
@@ -50,10 +51,16 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Properties;
 
 public final class JakartaMailGateway implements MailGateway {
 
+    private static final Map<String, String> IMAP_CLIENT_ID = Map.of(
+            "name", "WorkCove",
+            "version", "0.2.6",
+            "vendor", "pydlove");
     private static final int MAX_TEXT_BYTES = 1024 * 1024;
     private static final int MAX_PREVIEW_LENGTH = 180;
     private static final int SYNC_MESSAGE_LIMIT = 200;
@@ -539,11 +546,31 @@ public final class JakartaMailGateway implements MailGateway {
                     settings.imapPort(),
                     settings.username(),
                     settings.password());
+            identifyNeteaseClient(store, settings);
             return store;
         } catch (MessagingException exception) {
             close(store);
             throw exception;
         }
+    }
+
+    private static void identifyNeteaseClient(
+            Store store,
+            MailConnectionSettings settings) throws MessagingException {
+        if (!(store instanceof IMAPStore imapStore)
+                || !isNeteaseImapHost(settings.imapHost())) {
+            return;
+        }
+        imapStore.id(IMAP_CLIENT_ID);
+    }
+
+    private static boolean isNeteaseImapHost(String host) {
+        String value = host == null
+                ? ""
+                : host.trim().toLowerCase(Locale.ROOT);
+        return value.equals("imap.163.com")
+                || value.equals("imap.126.com")
+                || value.equals("imap.yeah.net");
     }
 
     private List<MailFolder> discoverFolders(Store store)
@@ -1105,7 +1132,7 @@ public final class JakartaMailGateway implements MailGateway {
         Throwable root = rootCause(exception);
         if (hasCause(exception, AuthenticationFailedException.class)) {
             return new DomainException(
-                    message + "：账号或客户端专用密码被服务器拒绝",
+                    message + "：账号或客户端授权密码被服务器拒绝",
                     exception);
         }
         if (hasCause(exception, SSLHandshakeException.class)) {

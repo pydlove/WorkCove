@@ -11,11 +11,15 @@ public interface DatabaseConnectionRepository {
             long ownerId,
             String workspaceId);
 
-    Optional<DatabaseConnection> findByIdAndOwner(
+    Optional<DatabaseConnection> findByIdAndOwnerAndWorkspace(
             long id,
-            long ownerId);
+            long ownerId,
+            String workspaceId);
 
     DatabaseConnection save(DatabaseConnection connection);
 
-    void deleteByIdAndOwner(long id, long ownerId);
+    void deleteByIdAndOwnerAndWorkspace(
+            long id,
+            long ownerId,
+            String workspaceId);
 }

@@ -172,7 +172,7 @@ export async function registerVaultPasskey() {
   }
 }
 
-export async function unlockVaultPasskey() {
+export async function unlockVaultPasskey(unlockMinutes: number) {
   if (!(await platformPasskeyAvailable())) {
     throw new Error('当前浏览器或设备不支持触控 ID')
   }
@@ -187,6 +187,7 @@ export async function unlockVaultPasskey() {
     return await unlockVaultWithPasskey(
       credential.id,
       assertionCredentialJson(credential),
+      unlockMinutes,
     )
   } catch (error) {
     throw passkeyError(error)

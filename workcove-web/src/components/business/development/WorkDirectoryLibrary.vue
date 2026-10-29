@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import {
   ArrowRightLeft,
+  ChartColumnIncreasing,
   Folder,
   FolderOpen,
   ListChecks,
   Pencil,
   Plus,
-  Search,
   X,
 } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
@@ -18,6 +18,7 @@ import {
 } from '@/api/development'
 import WorkCategoryDialog from '@/components/business/development/WorkCategoryDialog.vue'
 import WorkDirectoryDialog from '@/components/business/development/WorkDirectoryDialog.vue'
+import WorkDirectoryInsights from '@/components/business/development/WorkDirectoryInsights.vue'
 import WorkspaceBatchBar from '@/components/business/workspaces/WorkspaceBatchBar.vue'
 import WorkspaceTransferDialog, {
   type WorkspaceTransferMode,
@@ -28,8 +29,10 @@ import UiCategorySelect from '@/components/ui/UiCategorySelect.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiConfirmDialog from '@/components/ui/UiConfirmDialog.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
+import UiSearchInput from '@/components/ui/UiSearchInput.vue'
 import { usePagination } from '@/composables/usePagination'
 import { useAuthStore } from '@/stores/useAuthStore'
+import { useCodexStore } from '@/stores/useCodexStore'
 import { useWorkDirectoryStore } from '@/stores/useWorkDirectoryStore'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import {
@@ -43,6 +46,7 @@ const emit = defineEmits<{
 }>()
 
 const session = useAuthStore()
+const codex = useCodexStore()
 const directories = useWorkDirectoryStore()
 const workspaces = useWorkspaceStore()
 const searchQuery = ref('')
@@ -56,6 +60,7 @@ const selectionMode = ref(false)
 const selectedDirectoryIds = ref<string[]>([])
 const batchTransferMode = ref<WorkspaceTransferMode | null>(null)
 const selectedDirectoryId = ref('')
+const insightsDirectoryId = ref('')
 const ideaBusyId = ref('')
 
 const categories = computed(
@@ -70,6 +75,12 @@ const workspaceDirectories = computed(() =>
     (directory) =>
       directory.workspaceId === workspaces.activeWorkspaceId,
   ),
+)
+const insightsDirectory = computed(
+  () =>
+    workspaceDirectories.value.find(
+      (directory) => directory.id === insightsDirectoryId.value,
+    ) ?? null,
 )
 
 const categoryCounts = computed(() => {
@@ -117,6 +128,7 @@ watch(
   () => session.email,
   (email) => {
     directories.load(email)
+    codex.load(email)
     workspaces.load(email)
   },
   { immediate: true },
@@ -140,11 +152,30 @@ watch(filteredDirectories, (items) => {
   }
 })
 
+watch(pagedDirectories, (items) => {
+  if (
+    insightsDirectoryId.value &&
+    !items.some(
+      (directory) => directory.id === insightsDirectoryId.value,
+    )
+  ) {
+    insightsDirectoryId.value = ''
+  }
+})
+
 watch(
   () => workspaces.activeWorkspaceId,
   () => {
+    categoryManagerOpen.value = false
+    dialogOpen.value = false
+    editingDirectory.value = null
+    closingDirectory.value = null
+    transferDirectory.value = null
+    batchTransferMode.value = null
     selectionMode.value = false
     selectedDirectoryIds.value = []
+    selectedDirectoryId.value = ''
+    insightsDirectoryId.value = ''
   },
 )
 
@@ -194,6 +225,9 @@ function saveDirectory(input: WorkDirectoryInput) {
 function removeDirectory(id: string) {
   directories.removeDirectory(id)
   if (selectedDirectoryId.value === id) selectedDirectoryId.value = ''
+  if (insightsDirectoryId.value === id) {
+    insightsDirectoryId.value = ''
+  }
   emit('notify', '工作目录已移除')
   closeDialog()
 }
@@ -206,6 +240,11 @@ async function openDirectory(directory: WorkDirectory) {
     return
   }
   emit('notify', `已在访达中打开「${directory.name}」`)
+}
+
+function openDirectoryInsights(directory: WorkDirectory) {
+  selectedDirectoryId.value = directory.id
+  insightsDirectoryId.value = directory.id
 }
 
 async function openWithIdea(directory: WorkDirectory) {
@@ -258,6 +297,12 @@ function handleDirectoryTransfer(
     }
 
     transferDirectory.value = null
+    if (
+      mode === 'move' &&
+      insightsDirectoryId.value === directory.id
+    ) {
+      insightsDirectoryId.value = ''
+    }
     if (mode === 'copy') workspaces.selectWorkspace(targetWorkspaceId)
     emit(
       'notify',
@@ -328,6 +373,12 @@ function handleDirectoryBatchTransfer(
 
     batchTransferMode.value = null
     selectionMode.value = false
+    if (
+      mode === 'move' &&
+      selectedDirectoryIds.value.includes(insightsDirectoryId.value)
+    ) {
+      insightsDirectoryId.value = ''
+    }
     selectedDirectoryIds.value = []
     if (mode === 'copy') workspaces.selectWorkspace(targetWorkspaceId)
     emit(
@@ -356,6 +407,9 @@ function confirmCloseDirectory() {
   if (selectedDirectoryId.value === directory.id) {
     selectedDirectoryId.value = ''
   }
+  if (insightsDirectoryId.value === directory.id) {
+    insightsDirectoryId.value = ''
+  }
   emit('notify', `已关闭 ${directory.name}，本地文件未删除`)
   closingDirectory.value = null
 }
@@ -374,15 +428,11 @@ function formatUpdatedAt(value: string) {
       <span class="directory-toolbar__count">
         {{ filteredDirectories.length }} 个工作目录
       </span>
-      <label class="directory-search">
-        <Search :size="15" aria-hidden="true" />
-        <input
-          v-model="searchQuery"
-          type="search"
-          aria-label="搜索工作目录"
-          placeholder="搜索名称、路径、分类或备注"
-        />
-      </label>
+      <UiSearchInput
+        v-model="searchQuery"
+        label="搜索工作目录"
+        placeholder="搜索名称、路径、分类或备注"
+      />
       <UiButton @click="toggleSelectionMode">
         <ListChecks :size="14" />
         {{ selectionMode ? '退出批量' : '批量' }}
@@ -413,127 +463,142 @@ function formatUpdatedAt(value: string) {
     />
 
     <div v-if="filteredDirectories.length > 0" class="directory-list">
-      <article
+      <template
         v-for="directory in pagedDirectories"
         :key="directory.id"
-        class="directory-row"
-        :class="{
-          'directory-row--selected':
-            selectedDirectoryId === directory.id,
-          'directory-row--selecting': selectionMode,
-        }"
       >
-        <UiCheckbox
-          v-if="selectionMode"
-          :model-value="selectedDirectoryIds.includes(directory.id)"
-          :label="`选择工作目录 ${directory.name}`"
-          @update:model-value="
-            setDirectorySelected(directory.id, $event)
-          "
-        />
-        <button
-          class="directory-row__icon"
-          type="button"
-          tabindex="-1"
-          :aria-label="`在访达中打开目录 ${directory.name}`"
-          @focus="selectedDirectoryId = directory.id"
-          @click="openDirectory(directory)"
+        <article
+          class="directory-row"
+          :class="{
+            'directory-row--selected':
+              selectedDirectoryId === directory.id,
+            'directory-row--selecting': selectionMode,
+          }"
         >
-          <Folder :size="18" />
-        </button>
-        <div class="directory-row__copy">
-          <div class="directory-row__title">
-            <button
-              class="directory-row__name"
-              type="button"
-          :aria-label="`在访达中打开目录 ${directory.name}`"
-              :aria-current="
-                selectedDirectoryId === directory.id ? 'true' : undefined
-              "
-              @focus="selectedDirectoryId = directory.id"
-              @click="openDirectory(directory)"
-            >
-              <strong>{{ directory.name }}</strong>
-            </button>
-          </div>
+          <UiCheckbox
+            v-if="selectionMode"
+            :model-value="selectedDirectoryIds.includes(directory.id)"
+            :label="`选择工作目录 ${directory.name}`"
+            @update:model-value="
+              setDirectorySelected(directory.id, $event)
+            "
+          />
           <button
-            class="directory-row__details"
+            class="directory-row__icon"
             type="button"
             tabindex="-1"
             :aria-label="`在访达中打开目录 ${directory.name}`"
+            @focus="selectedDirectoryId = directory.id"
             @click="openDirectory(directory)"
           >
-            <small>{{ directory.path }}</small>
-            <span
-              v-if="directory.description"
-              class="directory-row__description"
+            <Folder :size="18" />
+          </button>
+          <div class="directory-row__copy">
+            <div class="directory-row__title">
+              <button
+                class="directory-row__name"
+                type="button"
+                :aria-label="`查看 ${directory.name} 的工作统计`"
+                aria-haspopup="dialog"
+                @click="openDirectoryInsights(directory)"
+              >
+                <strong>{{ directory.name }}</strong>
+              </button>
+            </div>
+            <button
+              class="directory-row__details"
+              type="button"
+              tabindex="-1"
+              :aria-label="`查看 ${directory.name} 的工作统计`"
+              aria-haspopup="dialog"
+              @click="openDirectoryInsights(directory)"
             >
-              {{ directory.description }}
-            </span>
-          </button>
-        </div>
-        <UiCategorySelect
-          class="directory-row__category"
-          :value="directory.category"
-          :options="categories"
-          :label="`切换 ${directory.name} 的分类`"
-          title="快速切换目录分类"
-          @focus="selectedDirectoryId = directory.id"
-          @change="changeDirectoryCategory(directory, $event)"
-        />
-        <time :datetime="directory.updatedAt">
-          {{ formatUpdatedAt(directory.updatedAt) }}
-        </time>
-        <div class="directory-row__actions">
-          <button
-            class="directory-row__idea"
-            type="button"
-            :disabled="ideaBusyId === directory.id"
-            :aria-label="`用 IDEA 打开 ${directory.name}`"
-            title="用 IntelliJ IDEA 打开"
-            @click="openWithIdea(directory)"
-          >
-            <img :src="ideaIcon" alt="" width="16" height="16" />
-            {{ ideaBusyId === directory.id ? '打开中…' : 'IDEA' }}
-          </button>
-          <button
-            class="directory-row__action"
-            type="button"
-            :aria-label="`打开目录 ${directory.name}`"
-            title="在访达中打开"
-            @click="openDirectory(directory)"
-          >
-            <FolderOpen :size="15" />
-          </button>
-          <button
-            class="directory-row__action"
-            type="button"
-            :aria-label="`编辑 ${directory.name}`"
-            title="编辑目录"
-            @click="editDirectory(directory)"
-          >
-            <Pencil :size="14" />
-          </button>
-          <button
-            class="directory-row__action"
-            type="button"
-            :aria-label="`处理 ${directory.name} 的工作空间`"
-            title="复制或移动到其他工作空间"
-            @click="transferDirectory = directory"
-          >
-            <ArrowRightLeft :size="14" />
-          </button>
-          <button
-            class="directory-row__action directory-row__action--close"
-            type="button"
-            :aria-label="`关闭 ${directory.name}`"
-            title="关闭工作目录，不删除本地文件"
-            @click="requestCloseDirectory(directory)"
-          >
-            <X :size="14" />
-          </button>
-        </div>
-      </article>
+              <small>{{ directory.path }}</small>
+              <span
+                v-if="directory.description"
+                class="directory-row__description"
+              >
+                {{ directory.description }}
+              </span>
+            </button>
+          </div>
+          <UiCategorySelect
+            class="directory-row__category"
+            :value="directory.category"
+            :options="categories"
+            :label="`切换 ${directory.name} 的分类`"
+            title="快速切换目录分类"
+            @focus="selectedDirectoryId = directory.id"
+            @change="changeDirectoryCategory(directory, $event)"
+          />
+          <time :datetime="directory.updatedAt">
+            {{ formatUpdatedAt(directory.updatedAt) }}
+          </time>
+          <div class="directory-row__actions">
+            <button
+              class="directory-row__action"
+              :class="{
+                'directory-row__action--active':
+                  insightsDirectoryId === directory.id,
+              }"
+              type="button"
+              aria-haspopup="dialog"
+              :aria-label="`查看 ${directory.name} 的工作统计`"
+              title="查看工作统计"
+              @click="openDirectoryInsights(directory)"
+            >
+              <ChartColumnIncreasing :size="15" />
+            </button>
+            <button
+              class="directory-row__idea"
+              type="button"
+              :disabled="ideaBusyId === directory.id"
+              :aria-label="`用 IDEA 打开 ${directory.name}`"
+              title="用 IntelliJ IDEA 打开"
+              @click="openWithIdea(directory)"
+            >
+              <img :src="ideaIcon" alt="" width="16" height="16" />
+              {{ ideaBusyId === directory.id ? '打开中…' : 'IDEA' }}
+            </button>
+            <button
+              class="directory-row__action"
+              type="button"
+              :aria-label="`打开目录 ${directory.name}`"
+              title="在访达中打开"
+              @click="openDirectory(directory)"
+            >
+              <FolderOpen :size="15" />
+            </button>
+            <button
+              class="directory-row__action"
+              type="button"
+              :aria-label="`编辑 ${directory.name}`"
+              title="编辑目录"
+              @click="editDirectory(directory)"
+            >
+              <Pencil :size="14" />
+            </button>
+            <button
+              class="directory-row__action"
+              type="button"
+              :aria-label="`处理 ${directory.name} 的工作空间`"
+              title="复制或移动到其他工作空间"
+              @click="transferDirectory = directory"
+            >
+              <ArrowRightLeft :size="14" />
+            </button>
+            <button
+              class="directory-row__action directory-row__action--close"
+              type="button"
+              :aria-label="`关闭 ${directory.name}`"
+              title="关闭工作目录，不删除本地文件"
+              @click="requestCloseDirectory(directory)"
+            >
+              <X :size="14" />
+            </button>
+          </div>
+        </article>
+      </template>
     </div>
 
     <div v-else class="directory-empty">
@@ -579,6 +644,13 @@ function formatUpdatedAt(value: string) {
       @close="closeDialog"
       @save="saveDirectory"
       @remove="removeDirectory"
+    />
+
+    <WorkDirectoryInsights
+      v-if="insightsDirectory"
+      :directory="insightsDirectory"
+      :sessions="codex.sessions"
+      @close="insightsDirectoryId = ''"
     />
 
     <WorkCategoryDialog
@@ -645,39 +717,7 @@ function formatUpdatedAt(value: string) {
   flex: 1;
   color: var(--text-muted);
   font-size: var(--font-caption);
-}
-
-.directory-search {
-  display: flex;
-  width: min(100%, 260px);
-  height: var(--control-md);
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px;
-  color: var(--text-subtle);
-  background: var(--control-bg);
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-control);
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / 4%);
-}
-
-.directory-search:focus-within {
-  border-color: var(--system-blue);
-  box-shadow: var(--focus-ring);
-}
-
-.directory-search input {
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-  color: var(--text);
-  font-size: var(--font-body);
-  background: transparent;
-  border: 0;
-}
-
-.directory-search input:focus-visible {
-  outline: none;
+  white-space: nowrap;
 }
 
 .directory-list {
@@ -849,6 +889,11 @@ function formatUpdatedAt(value: string) {
   background: var(--hover-bg);
 }
 
+.directory-row__action--active {
+  color: var(--system-blue);
+  background: var(--accent-soft);
+}
+
 .directory-row__actions {
   display: flex;
   align-items: center;
@@ -952,7 +997,7 @@ function formatUpdatedAt(value: string) {
   line-height: var(--line-caption);
 }
 
-@media (max-width: 620px) {
+@media (max-width: 760px) {
   .directory-toolbar {
     align-items: stretch;
     flex-wrap: wrap;
@@ -963,10 +1008,18 @@ function formatUpdatedAt(value: string) {
     flex-basis: 100%;
     align-items: center;
   }
+}
 
-  .directory-search {
-    width: auto;
-    flex: 1;
+@media (max-width: 620px) {
+  .directory-toolbar {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .directory-toolbar__count {
+    display: flex;
+    flex-basis: 100%;
+    align-items: center;
   }
 
   .directory-categories {

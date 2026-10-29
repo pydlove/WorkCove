@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   Bell,
   CalendarDays,
+  Check,
   ChevronLeft,
   ChevronRight,
   Clock3,
@@ -22,6 +23,7 @@ import UiButton from '@/components/ui/UiButton.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiConfirmDialog from '@/components/ui/UiConfirmDialog.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
+import UiFidgetSpinner from '@/components/ui/UiFidgetSpinner.vue'
 import UiFormField from '@/components/ui/UiFormField.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
@@ -251,9 +253,9 @@ const defaultReminderMinutesModel = computed({
 })
 
 watch(
-  () => auth.email,
-  (email) => {
-    void calendar.load(email).catch((error) => {
+  () => [auth.email, workspaces.activeWorkspaceId] as const,
+  ([email, workspaceId]) => {
+    void calendar.load(email, workspaceId).catch((error) => {
       emit(
         'notify',
         error instanceof Error
@@ -272,6 +274,8 @@ watch(
     quickTitle.value = ''
     editorOpen.value = false
     editingEvent.value = null
+    reminderSettingsOpen.value = false
+    deleteTarget.value = null
   },
 )
 
@@ -656,11 +660,23 @@ function noteExcerpt(note: WorkNote) {
                 v-if="day.notes[0]"
                 type="button"
                 class="calendar-note-chip"
+                :class="{
+                  'calendar-note-chip--resolved':
+                    day.notes[0].resolved,
+                }"
                 :title="day.notes[0].title"
+                :aria-label="`${day.notes[0].resolved ? '已解决速记' : '速记'}：${day.notes[0].title}`"
                 @click.stop="emit('openNote', day.notes[0].id)"
               >
-                <NotebookPen :size="9" />
-                {{ day.notes[0].title }}
+                <Check
+                  v-if="day.notes[0].resolved"
+                  :size="9"
+                  aria-hidden="true"
+                />
+                <NotebookPen v-else :size="9" />
+                <span class="calendar-note-chip__title">
+                  {{ day.notes[0].title }}
+                </span>
               </button>
             </div>
 
@@ -673,6 +689,10 @@ function noteExcerpt(note: WorkNote) {
               <i
                 v-if="day.notes.length"
                 class="calendar-dot--note"
+                :class="{
+                  'calendar-dot--note-resolved':
+                    day.notes.every((note) => note.resolved),
+                }"
               />
             </div>
           </div>
@@ -759,6 +779,7 @@ function noteExcerpt(note: WorkNote) {
               type="submit"
               :disabled="!quickTitle.trim() || savingEvent"
             >
+              <UiFidgetSpinner v-if="savingEvent" :size="11" />
               {{ savingEvent ? '保存中' : '添加' }}
             </button>
           </div>
@@ -806,15 +827,28 @@ function noteExcerpt(note: WorkNote) {
               v-for="note in selectedNotes"
               :key="note.id"
               class="calendar-note-card"
+              :class="{
+                'calendar-note-card--resolved': note.resolved,
+              }"
               type="button"
-              :aria-label="`打开速记：${note.title}`"
+              :aria-label="`打开${note.resolved ? '已解决' : ''}速记：${note.title}`"
               @click="emit('openNote', note.id)"
             >
               <span class="calendar-note-icon">
-                <NotebookPen :size="12" />
+                <Check v-if="note.resolved" :size="12" />
+                <NotebookPen v-else :size="12" />
               </span>
               <div>
-                <strong>{{ note.title }}</strong>
+                <span class="calendar-note-card__heading">
+                  <strong>{{ note.title }}</strong>
+                  <span
+                    v-if="note.resolved"
+                    class="calendar-note-card__status"
+                  >
+                    <Check :size="9" aria-hidden="true" />
+                    已解决
+                  </span>
+                </span>
                 <p>{{ noteExcerpt(note) }}</p>
               </div>
               <ArrowUpRight :size="13" />
@@ -977,6 +1011,7 @@ function noteExcerpt(note: WorkNote) {
         <UiButton
           variant="primary"
           size="lg"
+          :loading="savingEvent"
           :disabled="savingEvent"
           @click="saveEvent"
         >
@@ -1032,6 +1067,7 @@ function noteExcerpt(note: WorkNote) {
         <UiButton
           variant="primary"
           size="lg"
+          :loading="savingSettings"
           :disabled="savingSettings"
           @click="saveReminderSettings"
         >
@@ -1410,6 +1446,22 @@ function noteExcerpt(note: WorkNote) {
   flex: 0 0 auto;
 }
 
+.calendar-note-chip__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.calendar-note-chip--resolved {
+  color: var(--system-green);
+  border-left-color: var(--system-green);
+}
+
+.calendar-note-chip--resolved .calendar-note-chip__title {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
 .calendar-day__dots {
   display: none;
 }
@@ -1436,6 +1488,10 @@ function noteExcerpt(note: WorkNote) {
 
 .calendar-dot--note {
   background: var(--text-subtle);
+}
+
+.calendar-dot--note-resolved {
+  background: var(--system-green);
 }
 
 .user-calendar__inspector {
@@ -1760,6 +1816,23 @@ function noteExcerpt(note: WorkNote) {
   background: var(--hover-bg);
 }
 
+.calendar-note-card--resolved {
+  background: color-mix(
+    in srgb,
+    var(--system-green) 4%,
+    var(--canvas)
+  );
+}
+
+.calendar-note-card--resolved .calendar-note-icon {
+  color: var(--system-green);
+  background: color-mix(
+    in srgb,
+    var(--system-green) 9%,
+    var(--canvas-raised)
+  );
+}
+
 .calendar-note-card > svg {
   color: var(--text-subtle);
 }
@@ -1776,6 +1849,46 @@ function noteExcerpt(note: WorkNote) {
 
 .calendar-note-card > div {
   min-width: 0;
+}
+
+.calendar-note-card__heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.calendar-note-card__heading > strong {
+  min-width: 0;
+  overflow: hidden;
+  flex: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-note-card--resolved .calendar-note-card__heading > strong {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--text-subtle);
+  text-decoration-thickness: 1px;
+}
+
+.calendar-note-card__status {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 1px 5px;
+  color: var(--system-green);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 14px;
+  background: color-mix(
+    in srgb,
+    var(--system-green) 9%,
+    transparent
+  );
+  border-radius: var(--radius-badge);
 }
 
 .calendar-notes-list strong {

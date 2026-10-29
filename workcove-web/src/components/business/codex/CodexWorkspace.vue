@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   AppWindow,
+  Archive,
   ArrowDown,
   ArrowUp,
   Bot,
@@ -12,7 +13,9 @@ import {
   CircleAlert,
   CircleX,
   Clock3,
+  CornerDownRight,
   Database,
+  Eye,
   FileImage,
   FileSearch,
   FileText,
@@ -20,24 +23,30 @@ import {
   FolderOpen,
   FolderPlus,
   GitBranch,
+  GitCommitHorizontal,
   Globe2,
+  GripVertical,
   Images,
   ListChecks,
   LoaderCircle,
   NotebookPen,
+  ListX,
+  PackageCheck,
   PanelLeft,
+  PanelLeftOpen,
   Paperclip,
   Pencil,
   Pin,
   Plus,
   Rocket,
+  ScanSearch,
   Search,
   Server,
   ShieldCheck,
-  SquareTerminal,
   SquarePen,
   Square,
   Trash2,
+  Undo2,
   Wrench,
   X,
 } from '@lucide/vue'
@@ -59,6 +68,7 @@ import {
   listCodexModels,
   resumeCodexThread,
   setCodexThreadName,
+  steerCodexTurn,
   startCodexThread,
   startCodexTurn,
   subscribeCodexEvents,
@@ -68,6 +78,8 @@ import {
   type CodexGatewayEvent,
 } from '@/api/codex'
 import { listZentaoTestEvidence } from '@/api/zentao'
+import clickhouseIcon from '@/assets/integrations/clickhouse.svg'
+import mysqlIcon from '@/assets/integrations/mysql.svg'
 import { PRODUCT_NAME } from '@/brand'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useCodexStore } from '@/stores/useCodexStore'
@@ -81,50 +93,101 @@ import { useWorkNoteStore } from '@/stores/useWorkNoteStore'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import { useZentaoStore } from '@/stores/useZentaoStore'
 import { useZentaoTestStore } from '@/stores/useZentaoTestStore'
+import ZentaoTestResultDialog from '@/components/business/development/ZentaoTestResultDialog.vue'
 import TokenUsageCharts from '@/components/business/workbench/TokenUsageCharts.vue'
+import ShortcutVisual from '@/components/business/workbench/ShortcutVisual.vue'
 import CodexMark from '@/components/ui/CodexMark.vue'
+import CodexTerminalMark from '@/components/ui/CodexTerminalMark.vue'
+import UiActionMenu from '@/components/ui/UiActionMenu.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
 import UiButton from '@/components/ui/UiButton.vue'
+import UiConfirmDialog from '@/components/ui/UiConfirmDialog.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
+import UiFidgetSpinner from '@/components/ui/UiFidgetSpinner.vue'
+import UiInput from '@/components/ui/UiInput.vue'
 import UiSegmentedControl from '@/components/ui/UiSegmentedControl.vue'
+import UiTextarea from '@/components/ui/UiTextarea.vue'
 import { usePagination } from '@/composables/usePagination'
 import { loadTokenUsage } from '@/services/tokenUsage'
+import {
+  BUILTIN_MCP_CATALOG,
+  promptWithBuiltinMcpContext,
+  selectedBuiltinMcpDefinitions,
+  type BuiltinMcpId,
+} from '@/services/builtinMcp'
 import {
   loadPreferredCodexDirectory,
   savePreferredCodexDirectory,
 } from '@/services/localCodexSessions'
+import { shortcutIconUrls } from '@/services/localShortcuts'
+import {
+  shouldAutoRepairZentaoTest,
+  zentaoTestRepairPrompt,
+  zentaoTestRepairTitle,
+} from '@/services/zentaoTestRepair'
+import {
+  failedZentaoTestComment,
+  publishZentaoTestResultComment,
+} from '@/services/zentaoTestComment'
 import { extractZentaoResolution } from '@/utils/zentaoResolution'
 import { extractZentaoTestResult } from '@/utils/zentaoTestResult'
+import { redactTestEnvironmentCredentials } from '@/utils/testEnvironment'
+import {
+  applyCodexGitBranchPolicy,
+  validateCodexDevelopmentBranchName,
+} from '@/utils/codexGitPolicy'
+import { buildCodexCommitPrompt } from '@/utils/codexCommitPrompt'
 import type {
   CodexAccessMode,
   CodexActivity,
   CodexActivityType,
+  CodexFileChange,
   CodexMessageTimelineEntry,
   CodexSession,
   CodexTask,
   CodexTaskAttachment,
+  CodexTestRepairTaskPayload,
   CodexTimelineEntry,
 } from '@/types/codex'
+import type { GitRepository } from '@/types/gitRepository'
 import type { ZentaoBug } from '@/types/zentao'
 import type {
   TokenUsageSnapshot,
   UsageRange,
 } from '@/types/usage'
+import type { TestEnvironment } from '@/types/testEnvironment'
+import type { ZentaoTestResult } from '@/types/zentaoTest'
 import type { WorkDirectory } from '@/types/workDirectory'
 import type { WorkNote } from '@/types/workNote'
+import type {
+  TaskExecutionStatus,
+  WorkTask,
+  WorkTaskExecutionUpdate,
+} from '@/types/workbench'
 
 const emit = defineEmits<{
   notify: [message: string]
+  userTaskUpdate: [update: WorkTaskExecutionUpdate]
+  repairTaskCreated: [payload: CodexTestRepairTaskPayload]
+  openZentaoBug: [payload: { bugId: number; remoteId: string }]
+  openCodeReview: [reviewId: string]
+  taskPanelVisibility: [open: boolean]
 }>()
 
 const props = withDefaults(
   defineProps<{
+    active?: boolean
     assistantName?: string
     assistantIcon?: string | null
+    userTasks?: WorkTask[]
+    searchHistoryOpen?: boolean
   }>(),
   {
+    active: true,
     assistantName: 'Codex',
     assistantIcon: null,
+    userTasks: () => [],
+    searchHistoryOpen: false,
   },
 )
 
@@ -154,11 +217,34 @@ const modelsError = ref('')
 const transcript = ref<HTMLElement | null>(null)
 const transcriptFollow = ref(true)
 const transcriptHasNewContent = ref(false)
+const planExpanded = ref(false)
 const bridgeChecked = ref(false)
 const bridgeReady = ref(false)
 const bridgeConnected = ref(false)
 const bridgeExecutable = ref('')
 const taskPanelOpen = ref(false)
+const taskPanel = ref<HTMLElement | null>(null)
+const taskPanelTrigger = ref<HTMLElement | null>(null)
+const expandedFileChangeGroups = ref<string[]>([])
+const fileChangePreview = ref<{
+  title: string
+  changes: CodexFileChange[]
+} | null>(null)
+const undoFileChangeTarget = ref<{
+  task: CodexTask
+  changes: CodexFileChange[]
+} | null>(null)
+const undoingFileChanges = ref(false)
+const draggingQueueTaskId = ref('')
+const queueDropTargetId = ref('')
+const steeringQueueTaskId = ref('')
+const editingQueueTask = ref<CodexTask | null>(null)
+const queueEditDraft = ref('')
+const taskTestResult = ref<{
+  bug: ZentaoBug
+  result: ZentaoTestResult
+} | null>(null)
+const publishingTaskTestNote = ref(false)
 const sessionPanelOpen = ref(false)
 const sessionBrandMenuOpen = ref(false)
 const sessionBrandMenu = ref<HTMLElement | null>(null)
@@ -188,8 +274,16 @@ const notePickerOpen = ref(false)
 const notePicker = ref<HTMLElement | null>(null)
 const noteSearchQuery = ref('')
 const selectedNoteId = ref('')
+const userTaskPickerOpen = ref(false)
+const userTaskPicker = ref<HTMLElement | null>(null)
+const userTaskSearchQuery = ref('')
+const selectedUserTaskIds = ref<number[]>([])
 const developmentPickerOpen = ref(false)
 const developmentPicker = ref<HTMLElement | null>(null)
+const gitCommitPickerOpen = ref(false)
+const gitCommitPicker = ref<HTMLElement | null>(null)
+const gitCommitSearchQuery = ref('')
+const gitCommitRepositoryId = ref('')
 const developmentResourceKind = ref<DevelopmentResourceKind>('git')
 const developmentSearchQuery = ref('')
 const developmentResourcesLoading = ref(false)
@@ -197,6 +291,11 @@ const developmentResourcesError = ref('')
 const selectedDevelopmentResources = ref<DevelopmentResourceItem[]>([])
 const composerAddMenuOpen = ref(false)
 const composerAddMenu = ref<HTMLElement | null>(null)
+const selectedBuiltinMcpIds = ref<BuiltinMcpId[]>([])
+const developmentBranchDialogOpen = ref(false)
+const developmentBranchNameDraft = ref('')
+const developmentBranchNameError = ref('')
+const pendingDevelopmentBranch = ref('')
 const runSettingsOpen = ref(false)
 const runSettingsModelListOpen = ref(false)
 const runSettings = ref<HTMLElement | null>(null)
@@ -209,6 +308,13 @@ const composerBugIds = ref<number[]>([])
 const composerTestBugId = ref<number | null>(null)
 const composerTestRunId = ref('')
 const composerTestEvidenceDirectory = ref('')
+const composerTestEnvironment = ref<TestEnvironment | null>(null)
+const composerTestUsername = ref('')
+const composerTestPassword = ref('')
+const composerCodeReviewId = ref('')
+const composerCodeReviewMode = ref<'initial' | 'repair'>('initial')
+const composerCodeReviewTitle = ref('')
+const pendingCodeReviewAutoSend = ref(false)
 const usageOpen = ref(false)
 const usageLoading = ref(false)
 const usageError = ref('')
@@ -221,6 +327,11 @@ const savingBugTaskIds = new Set<string>()
 const scheduledZentaoSaveTimers = new Map<string, number>()
 const savingZentaoTestTaskIds = new Set<string>()
 const scheduledZentaoTestTimers = new Map<string, number>()
+const transientTaskPrompts = new Map<string, string>()
+const pendingInternalPrompt = ref<{
+  prompt: string
+  displayPrompt: string
+} | null>(null)
 let stopCodexEvents: (() => void) | null = null
 let persistTimer: number | null = null
 let clockTimer: number | null = null
@@ -257,18 +368,14 @@ interface DevelopmentResourceItem {
   kind: DevelopmentResourceKind
   name: string
   meta: string
+  iconUrl?: string
+  iconUrls?: string[]
   promptLines: string[]
   fullAccessPromptLines?: string[]
   searchText: string
 }
 
-type TaskTimelineRenderEntry =
-  | {
-      id: string
-      kind: 'message'
-      text: string
-      streaming: boolean
-    }
+type TaskExecutionRenderEntry =
   | {
       id: string
       kind: 'activity'
@@ -278,6 +385,37 @@ type TaskTimelineRenderEntry =
       id: string
       kind: 'commandGroup'
       activities: CodexActivity[]
+    }
+  | {
+      id: string
+      kind: 'fileReadGroup'
+      activities: CodexActivity[]
+    }
+
+type TaskTimelineRenderEntry =
+  | TaskExecutionRenderEntry
+  | {
+      id: string
+      kind: 'message'
+      text: string
+      streaming: boolean
+    }
+  | {
+      id: string
+      kind: 'userMessage'
+      text: string
+      createdAt: string
+    }
+  | TaskExecutionRenderEntry
+  | {
+      id: string
+      kind: 'fileChangeGroup'
+      changes: CodexFileChange[]
+    }
+  | {
+      id: string
+      kind: 'executionGroup'
+      entries: TaskExecutionRenderEntry[]
     }
 
 const usageRangeItems: Array<{ value: UsageRange; label: string }> = [
@@ -328,6 +466,9 @@ const activeWorkingDirectory = computed(() =>
   workspaceDirectories.value.find(
     (directory) => directory.path === activeSession.value?.cwd,
   ),
+)
+const activeSessionBranch = computed(() =>
+  sessionGitBranch(activeSession.value),
 )
 
 const workingDirectoryLabel = computed(() => {
@@ -410,6 +551,70 @@ const filteredNoteChoices = computed(() => {
   )
 })
 
+const selectedUserTasks = computed(() =>
+  selectedUserTaskIds.value
+    .map((id) =>
+      props.userTasks.find(
+        (task) =>
+          task.id === id &&
+          (task.workspaceId ?? workspaces.activeWorkspaceId) ===
+            workspaces.activeWorkspaceId,
+      ),
+    )
+    .filter((task): task is WorkTask => Boolean(task)),
+)
+const selectedUserTask = computed(
+  () => selectedUserTasks.value[0] ?? null,
+)
+
+const workspaceUserTaskChoices = computed(() =>
+  props.userTasks
+    .filter(
+      (task) =>
+        (task.workspaceId ?? workspaces.activeWorkspaceId) ===
+          workspaces.activeWorkspaceId &&
+        workTaskStatus(task) !== 'running',
+    )
+    .sort((left, right) => {
+      const leftStatus = workTaskStatus(left)
+      const rightStatus = workTaskStatus(right)
+      const leftOpen =
+        leftStatus === 'todo' ||
+        leftStatus === 'failed' ||
+        leftStatus === 'interrupted'
+          ? 1
+          : 0
+      const rightOpen =
+        rightStatus === 'todo' ||
+        rightStatus === 'failed' ||
+        rightStatus === 'interrupted'
+          ? 1
+          : 0
+      if (leftOpen !== rightOpen) return rightOpen - leftOpen
+      return String(right.updatedAt ?? right.createdAt ?? '').localeCompare(
+        String(left.updatedAt ?? left.createdAt ?? ''),
+      )
+    }),
+)
+
+const filteredUserTaskChoices = computed(() => {
+  const query = userTaskSearchQuery.value
+    .trim()
+    .toLocaleLowerCase('zh-CN')
+  if (!query) return workspaceUserTaskChoices.value
+  return workspaceUserTaskChoices.value.filter((task) =>
+    [
+      task.title,
+      task.description ?? '',
+      task.project,
+      workTaskStatusLabel(task),
+    ]
+      .join(' ')
+      .toLocaleLowerCase('zh-CN')
+      .includes(query),
+  )
+})
+
 const developmentResourceKindItems: Array<{
   value: DevelopmentResourceKind
   label: string
@@ -467,6 +672,10 @@ const developmentResourceItems = computed<DevelopmentResourceItem[]>(() => {
       kind: 'database',
       name: connection.name,
       meta: `${connection.type} · ${connection.host}:${connection.port}/${connection.databaseName}`,
+      iconUrl:
+        connection.type === 'CLICKHOUSE'
+          ? clickhouseIcon
+          : mysqlIcon,
       promptLines: [
         '类型：数据库',
         `名称：${connection.name}`,
@@ -561,6 +770,7 @@ const developmentResourceItems = computed<DevelopmentResourceItem[]>(() => {
         kind: 'website',
         name: website.name,
         meta: `${website.category} · ${safeUrl}`,
+        iconUrls: shortcutIconUrls(website),
         promptLines: [
           '类型：网址',
           `名称：${website.name}`,
@@ -588,6 +798,7 @@ const developmentResourceItems = computed<DevelopmentResourceItem[]>(() => {
       kind: 'application',
       name: application.name,
       meta: application.path,
+      iconUrls: shortcutIconUrls(application),
       promptLines: [
         '类型：App',
         `名称：${application.name}`,
@@ -611,11 +822,70 @@ const developmentResourceItems = computed<DevelopmentResourceItem[]>(() => {
   ]
 })
 
+function normalizeComparablePath(path: string) {
+  const normalized = path.trim().replaceAll('\\', '/')
+  return normalized.length > 1
+    ? normalized.replace(/\/+$/, '')
+    : normalized
+}
+
+function sessionGitBranch(session: CodexSession | null | undefined) {
+  const cwd = normalizeComparablePath(session?.cwd ?? '')
+  if (!session || !cwd) return ''
+  const repository = gitRepositoryStore.repositories
+    .filter(
+      (item) =>
+        item.workspaceId === session.workspaceId &&
+        Boolean(item.path),
+    )
+    .filter((item) => {
+      const path = normalizeComparablePath(item.path)
+      return cwd === path || cwd.startsWith(`${path}/`)
+    })
+    .sort((left, right) => right.path.length - left.path.length)[0]
+  return repository
+    ? gitRepositoryStore.statuses[repository.id]?.branch ?? ''
+    : ''
+}
+
 const activeDevelopmentResources = computed(() =>
   developmentResourceItems.value.filter(
     (resource) => resource.kind === developmentResourceKind.value,
   ),
 )
+
+const gitCommitRepositories = computed(() =>
+  gitRepositoryStore.repositories
+    .filter(
+      (repository) =>
+        repository.workspaceId === workspaces.activeWorkspaceId &&
+        repository.source === 'local' &&
+        Boolean(repository.path),
+    )
+    .sort((left, right) =>
+      left.name.localeCompare(right.name, 'zh-CN'),
+    ),
+)
+
+const selectedGitCommitRepository = computed(
+  () =>
+    gitCommitRepositories.value.find(
+      (repository) => repository.id === gitCommitRepositoryId.value,
+    ) ?? null,
+)
+
+const filteredGitCommitRepositories = computed(() => {
+  const query = gitCommitSearchQuery.value
+    .trim()
+    .toLocaleLowerCase('zh-CN')
+  if (!query) return gitCommitRepositories.value
+  return gitCommitRepositories.value.filter((repository) =>
+    [repository.name, repository.path, repository.category]
+      .join(' ')
+      .toLocaleLowerCase('zh-CN')
+      .includes(query),
+  )
+})
 
 const filteredDevelopmentResources = computed(() => {
   const query = developmentSearchQuery.value
@@ -658,7 +928,7 @@ const projectSessionGroups = computed(() => {
       label: string
       path: string
       sessions: CodexSession[]
-      updatedAt: number
+      createdAt: number
     }
   >()
 
@@ -671,9 +941,9 @@ const projectSessionGroups = computed(() => {
     const existing = groups.get(key)
     if (existing) {
       existing.sessions.push(session)
-      existing.updatedAt = Math.max(
-        existing.updatedAt,
-        new Date(session.updatedAt).getTime(),
+      existing.createdAt = Math.min(
+        existing.createdAt,
+        sessionCreatedAtMs(session),
       )
       continue
     }
@@ -682,17 +952,27 @@ const projectSessionGroups = computed(() => {
       label,
       path,
       sessions: [session],
-      updatedAt: new Date(session.updatedAt).getTime(),
+      createdAt: sessionCreatedAtMs(session),
     })
   }
 
   return [...groups.values()].sort(
-    (a, b) => b.updatedAt - a.updatedAt,
+    (a, b) => a.createdAt - b.createdAt,
   )
 })
 
+function sessionCreatedAtMs(session: CodexSession) {
+  const createdAt = new Date(session.createdAt).getTime()
+  return Number.isFinite(createdAt) ? createdAt : 0
+}
+
 const activeTasks = computed(() =>
   [...(activeSession.value?.tasks ?? [])].reverse(),
+)
+const transcriptTasks = computed(() =>
+  (activeSession.value?.tasks ?? []).filter(
+    (task) => task.status !== 'queued',
+  ),
 )
 const {
   currentPage: taskPage,
@@ -814,6 +1094,10 @@ const accessModeOptions: Array<{
   },
 ]
 
+const selectedBuiltinMcps = computed(() =>
+  selectedBuiltinMcpDefinitions(selectedBuiltinMcpIds.value),
+)
+
 const canSend = computed(
   () => {
     const attachmentsReady = pendingAttachments.value.every(
@@ -825,7 +1109,9 @@ const canSend = computed(
         draft.value.trim() ||
           pendingAttachments.value.length ||
           selectedNote.value ||
-          selectedDevelopmentResources.value.length,
+          selectedUserTasks.value.length ||
+          selectedDevelopmentResources.value.length ||
+          selectedBuiltinMcpIds.value.length,
       ) &&
       attachmentsReady &&
       bridgeReady.value
@@ -931,7 +1217,9 @@ function toggleComposerAddMenu() {
   accessModeOpen.value = false
   bugPickerOpen.value = false
   notePickerOpen.value = false
+  userTaskPickerOpen.value = false
   developmentPickerOpen.value = false
+  gitCommitPickerOpen.value = false
   composerAddMenuOpen.value = !composerAddMenuOpen.value
 }
 
@@ -942,7 +1230,9 @@ function toggleRunSettings() {
   composerAddMenuOpen.value = false
   bugPickerOpen.value = false
   notePickerOpen.value = false
+  userTaskPickerOpen.value = false
   developmentPickerOpen.value = false
+  gitCommitPickerOpen.value = false
   accessModeOpen.value = false
   runSettingsOpen.value = !runSettingsOpen.value
   runSettingsModelListOpen.value = false
@@ -968,7 +1258,9 @@ function toggleAccessMode() {
   runSettingsModelListOpen.value = false
   bugPickerOpen.value = false
   notePickerOpen.value = false
+  userTaskPickerOpen.value = false
   developmentPickerOpen.value = false
+  gitCommitPickerOpen.value = false
   accessModeOpen.value = !accessModeOpen.value
 }
 
@@ -982,10 +1274,74 @@ function selectAccessMode(mode: CodexAccessMode) {
   accessModeOpen.value = false
 }
 
+function suggestedDevelopmentBranchName() {
+  const now = new Date()
+  const stamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+    '-',
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0'),
+  ].join('')
+  const bug = linkedTaskBugs.value[0]
+  if (bug) {
+    const remoteId = bug.remoteId.replace(/[^\p{L}\p{N}._-]+/gu, '-')
+    return `fix/bug-${remoteId}-${stamp}`
+  }
+  return `feature/codex-${stamp}`
+}
+
+function openDevelopmentBranchDialog() {
+  const session = activeSession.value
+  if (composerCodeReviewId.value) {
+    emit('notify', '代码评审任务不能叠加新增分支开发')
+    return
+  }
+  if (!session?.cwd) {
+    emit('notify', '请先选择工作目录，再新增分支开发')
+    return
+  }
+  composerAddMenuOpen.value = false
+  developmentBranchNameDraft.value =
+    pendingDevelopmentBranch.value ||
+    suggestedDevelopmentBranchName()
+  developmentBranchNameError.value = ''
+  developmentBranchDialogOpen.value = true
+}
+
+function closeDevelopmentBranchDialog() {
+  developmentBranchDialogOpen.value = false
+  developmentBranchNameError.value = ''
+}
+
+function confirmDevelopmentBranch() {
+  const branchName = developmentBranchNameDraft.value.trim()
+  const validation = validateCodexDevelopmentBranchName(branchName)
+  if (validation) {
+    developmentBranchNameError.value = validation
+    return
+  }
+  pendingDevelopmentBranch.value = branchName
+  closeDevelopmentBranchDialog()
+  void nextTick(() => composer.value?.focus())
+}
+
+function clearPendingDevelopmentBranch() {
+  pendingDevelopmentBranch.value = ''
+  developmentBranchNameDraft.value = ''
+  developmentBranchNameError.value = ''
+  developmentBranchDialogOpen.value = false
+}
+
 function handleComposerAddAction(
   action:
     | 'files'
     | 'directory'
+    | 'branch'
+    | 'commit'
+    | 'userTask'
     | 'development'
     | 'bug'
     | 'note'
@@ -1001,6 +1357,12 @@ function handleComposerAddAction(
       return
     }
     void chooseWorkingDirectory()
+  } else if (action === 'branch') {
+    openDevelopmentBranchDialog()
+  } else if (action === 'commit') {
+    toggleGitCommitPicker()
+  } else if (action === 'userTask') {
+    toggleUserTaskPicker()
   } else if (action === 'development') {
     toggleDevelopmentPicker()
   } else if (action === 'bug') {
@@ -1012,6 +1374,16 @@ function handleComposerAddAction(
   } else {
     taskPanelOpen.value = true
   }
+}
+
+function toggleBuiltinMcp(id: BuiltinMcpId) {
+  selectedBuiltinMcpIds.value = selectedBuiltinMcpIds.value.includes(id)
+    ? selectedBuiltinMcpIds.value.filter((item) => item !== id)
+    : [...selectedBuiltinMcpIds.value, id]
+}
+
+function clearBuiltinMcps() {
+  selectedBuiltinMcpIds.value = []
 }
 
 function handleAttachmentInput(event: Event) {
@@ -1095,7 +1467,11 @@ async function addAttachments(files: File[]) {
       pending,
     ]
     try {
-      const uploaded = await uploadCodexAttachment(file)
+      const uploaded = await uploadCodexAttachment(
+        file,
+        activeSession.value?.workspaceId ??
+          workspaces.activeWorkspaceId,
+      )
       pendingAttachments.value = pendingAttachments.value.map(
         (attachment) =>
           attachment.localId === pending.localId
@@ -1268,6 +1644,23 @@ function appendActivityTimeline(task: CodexTask, activity: CodexActivity) {
   timeline.push(entry)
 }
 
+function appendSteerTimelineMessage(
+  target: CodexTask,
+  source: CodexTask,
+) {
+  const text = (source.displayPrompt || source.prompt).trim()
+  if (!text) return
+  const timeline = ensureTaskTimeline(target)
+  const id = `user-message:steer:${source.id}`
+  if (timeline.some((entry) => entry.id === id)) return
+  timeline.push({
+    id,
+    kind: 'userMessage',
+    text,
+    createdAt: new Date().toISOString(),
+  })
+}
+
 function taskForEvent(
   session: CodexSession,
   turnId: string,
@@ -1287,14 +1680,55 @@ function activityStatus(status: unknown) {
   return 'completed' as const
 }
 
-function activityType(itemType: string): CodexActivityType {
-  if (itemType === 'commandExecution') return 'command'
+function commandReadsFiles(command: string) {
+  const normalized = unwrapShellCommand(command)
+  if (
+    /\bsed\b[^;\n]*(?:\s-i\b|--in-place\b)/i.test(normalized)
+  ) {
+    return false
+  }
+  return /(?:^|[;&|]\s*)(?:cat|bat|head|tail|nl|less|more|sed)\s+/i.test(
+    normalized,
+  )
+}
+
+function fileReadCommandPath(command: string) {
+  const tokens =
+    unwrapShellCommand(command).match(
+      /'[^']*'|"[^"]*"|[^\s]+/g,
+    ) ?? []
+  return (
+    [...tokens]
+      .reverse()
+      .map((token) => token.replace(/^['"]|['"]$/g, ''))
+      .find(
+        (token) =>
+          token &&
+          !token.startsWith('-') &&
+          !/^\d+(?:,\d+)?p$/.test(token) &&
+          !/^[|;&<>]/.test(token) &&
+          (/[\\/]/.test(token) || /\.[a-z0-9_-]{1,12}$/i.test(token)),
+      ) ?? ''
+  )
+}
+
+function activityType(
+  itemType: string,
+  item: Record<string, unknown> = {},
+): CodexActivityType {
+  if (itemType === 'commandExecution') {
+    return commandReadsFiles(asText(item.command))
+      ? 'fileRead'
+      : 'command'
+  }
   if (itemType === 'fileChange') return 'fileChange'
   if (itemType === 'mcpToolCall' || itemType === 'dynamicToolCall') {
     return 'tool'
   }
   if (itemType === 'plan') return 'plan'
   if (itemType === 'webSearch') return 'webSearch'
+  if (itemType === 'imageView') return 'imageView'
+  if (itemType === 'contextCompaction') return 'contextCompaction'
   if (itemType === 'reasoning') return 'reasoning'
   return 'other'
 }
@@ -1326,6 +1760,61 @@ function diffStats(diff: string) {
   return { additions, deletions }
 }
 
+function fileChangeKind(value: unknown): CodexFileChange['kind'] {
+  const type =
+    typeof value === 'string'
+      ? value
+      : asText(asRecord(value).type)
+  if (type === 'add' || type === 'delete' || type === 'update') {
+    return type
+  }
+  return 'unknown'
+}
+
+function fileChangesFromItem(
+  item: Record<string, unknown>,
+): CodexFileChange[] {
+  const rawChanges = item.changes
+  const changes: Array<{
+    path: string
+    kind: unknown
+    diff: string
+  }> = []
+  if (Array.isArray(rawChanges)) {
+    for (const value of rawChanges) {
+      const change = asRecord(value)
+      changes.push({
+        path: asText(change.path),
+        kind: change.kind,
+        diff: asText(change.diff, asText(change.unified_diff)),
+      })
+    }
+  } else if (rawChanges && typeof rawChanges === 'object') {
+    for (const [path, value] of Object.entries(rawChanges)) {
+      const change = asRecord(value)
+      changes.push({
+        path,
+        kind: change.type,
+        diff: asText(change.unified_diff, asText(change.diff)),
+      })
+    }
+  }
+  return changes
+    .filter((change) => change.path || change.diff)
+    .map((change) => {
+      const diff = change.diff.slice(0, 200_000)
+      const stats = diffStats(diff)
+      return {
+        path: change.path,
+        kind: fileChangeKind(change.kind),
+        additions: stats.additions,
+        deletions: stats.deletions,
+        diff,
+      }
+    })
+    .slice(0, 100)
+}
+
 function unwrapShellCommand(value: string) {
   let command = value.trim()
   const shellWrapper = command.match(
@@ -1354,6 +1843,9 @@ function activityTitle(
 ) {
   if (type === 'command') {
     return '已运行'
+  }
+  if (type === 'fileRead') {
+    return '已读取文件'
   }
   if (type === 'fileChange') {
     const changes = Array.isArray(item.changes) ? item.changes : []
@@ -1393,6 +1885,8 @@ function activityTitle(
     return '已运行工具'
   }
   if (type === 'webSearch') return '已搜索网页'
+  if (type === 'imageView') return '已查看 1 张图像'
+  if (type === 'contextCompaction') return '上下文已自动压缩'
   if (type === 'reasoning') return '分析推理'
   if (type === 'plan') return '任务计划'
   return '执行记录'
@@ -1406,6 +1900,18 @@ function activityDetail(
     const command = asText(item.command, '执行命令')
     const cwd = asText(item.cwd)
     return cwd ? `${command}\n\n工作目录：${cwd}` : command
+  }
+  if (type === 'fileRead') {
+    const command = asText(item.command)
+    const cwd = asText(item.cwd)
+    const filePath = fileReadCommandPath(command)
+    return [
+      filePath ? `文件：${filePath}` : '',
+      command ? `命令：${command}` : '',
+      cwd ? `工作目录：${cwd}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n')
   }
   if (type === 'fileChange') {
     const changes = Array.isArray(item.changes) ? item.changes : []
@@ -1432,6 +1938,8 @@ function activityDetail(
     return [toolName, inputText].filter(Boolean).join('\n')
   }
   if (type === 'webSearch') return asText(item.query)
+  if (type === 'imageView') return asText(item.path)
+  if (type === 'contextCompaction') return ''
   return ''
 }
 
@@ -1447,6 +1955,56 @@ function toolActivityInput(detail: string) {
     }
   }
   return { name, input }
+}
+
+const toolActionLabels: Record<
+  string,
+  { running: string; completed: string }
+> = {
+  browser_open: {
+    running: '正在打开内置浏览器',
+    completed: '已打开内置浏览器',
+  },
+  browser_status: {
+    running: '正在检查内置浏览器状态',
+    completed: '已检查内置浏览器状态',
+  },
+  browser_snapshot: {
+    running: '正在读取网页内容',
+    completed: '已读取网页内容',
+  },
+  browser_click: {
+    running: '正在点击网页元素',
+    completed: '已点击网页元素',
+  },
+  browser_type: {
+    running: '正在填写网页内容',
+    completed: '已填写网页内容',
+  },
+  browser_press: {
+    running: '正在操作网页',
+    completed: '已完成网页操作',
+  },
+  browser_wait: {
+    running: '正在等待网页加载',
+    completed: '网页加载等待完成',
+  },
+  browser_evaluate: {
+    running: '正在读取网页数据',
+    completed: '已读取网页数据',
+  },
+  browser_screenshot: {
+    running: '正在截取网页画面',
+    completed: '已截取网页画面',
+  },
+  browser_downloads: {
+    running: '正在检查下载文件',
+    completed: '已检查下载文件',
+  },
+  capability_set_update: {
+    running: '正在同步能力集',
+    completed: '能力集同步完成',
+  },
 }
 
 function firstInputText(
@@ -1468,8 +2026,21 @@ function activityCommandSource(activity: CodexActivity) {
 }
 
 function activityLabel(activity: CodexActivity) {
+  const running = activity.status === 'running'
+  const failed = activity.status === 'failed'
   if (activity.type === 'command') {
-    return `已运行 ${displayCommand(activityCommandSource(activity))}`
+    const command = displayCommand(activityCommandSource(activity))
+    return `${running ? '正在运行' : '已运行'} ${command}`
+  }
+  if (activity.type === 'fileRead') {
+    const path =
+      activity.detail.match(/^文件：(.+)$/m)?.[1]?.trim() ||
+      fileReadCommandPath(activityCommandSource(activity))
+    return path
+      ? `${running ? '正在读取' : '已读取'} ${pathBasename(path)}`
+      : running
+        ? '正在读取文件'
+        : activity.title || '已读取文件'
   }
   if (activity.type === 'fileChange') {
     const firstPath = activity.detail.split(/\r?\n/)[0]?.trim()
@@ -1483,11 +2054,23 @@ function activityLabel(activity: CodexActivity) {
       .split(/\r?\n/)
       .filter((path) => path.trim()).length
     return count > 1
-      ? `已编辑 ${count} 个文件`
-      : activity.title || '已编辑文件'
+      ? `${running ? '正在编辑' : '已编辑'} ${count} 个文件`
+      : running
+        ? '正在编辑文件'
+        : activity.title || '已编辑文件'
+  }
+  if (activity.type === 'toolLoad') {
+    if (failed) return '工具加载失败'
+    return running ? '正在加载工具' : activity.title || '加载了工具'
   }
   if (activity.type === 'tool') {
     const { name, input } = toolActivityInput(activity.detail)
+    const toolName = pathBasename(name)
+    const action = toolActionLabels[toolName]
+    if (action) {
+      if (failed) return `${action.completed}失败`
+      return running ? action.running : action.completed
+    }
     const query = firstInputText(input, [
       'query',
       'pattern',
@@ -1504,8 +2087,8 @@ function activityLabel(activity: CodexActivity) {
     ])
     if (query) {
       return path
-        ? `已在 ${pathBasename(path)} 中搜索“${query}”`
-        : `已搜索“${query}”`
+        ? `${running ? '正在' : '已在'} ${pathBasename(path)} 中搜索“${query}”`
+        : `${running ? '正在搜索' : '已搜索'}“${query}”`
     }
     if (path && /查看|读取|read|view|open/i.test(activity.title)) {
       return `已查看 ${pathBasename(path)}`
@@ -1519,20 +2102,34 @@ function activityLabel(activity: CodexActivity) {
     if (/编辑|修改|write|edit|patch|replace/i.test(activity.title)) {
       return '已编辑文件'
     }
-    return name ? `已运行 ${pathBasename(name)}` : '已运行工具'
+    if (!name) return running ? '正在运行工具' : '已运行工具'
+    return `${running ? '正在运行' : '已运行'} ${toolName}`
   }
   if (activity.type === 'webSearch') {
     const query = activity.detail.trim()
-    return query ? `已搜索“${query}”` : '已搜索网页'
+    return query
+      ? `${running ? '正在搜索' : '已搜索'}“${query}”`
+      : running
+        ? '正在搜索网页'
+        : '已搜索网页'
+  }
+  if (activity.type === 'imageView') {
+    return '已查看 1 张图像'
+  }
+  if (activity.type === 'contextCompaction') {
+    return '上下文已自动压缩'
   }
   return activity.title || '执行记录'
 }
 
 function activityPanelLabel(activity: CodexActivity) {
   if (activity.type === 'command') return 'Shell'
+  if (activity.type === 'fileRead') return '读取内容'
   if (activity.type === 'fileChange') return '文件'
+  if (activity.type === 'toolLoad') return '工具'
   if (activity.type === 'tool') return '工具'
   if (activity.type === 'webSearch') return '搜索'
+  if (activity.type === 'imageView') return '图像'
   return '详情'
 }
 
@@ -1556,11 +2153,19 @@ function ensureActivity(
   itemType: string,
   startedAt: string,
 ) {
-  const type = activityType(itemType)
+  const type = activityType(itemType, item)
   if (
-    !['command', 'fileChange', 'tool', 'webSearch', 'plan', 'reasoning'].includes(
-      type,
-    )
+    ![
+      'command',
+      'fileRead',
+      'fileChange',
+      'tool',
+      'webSearch',
+      'imageView',
+      'contextCompaction',
+      'plan',
+      'reasoning',
+    ].includes(type)
   ) {
     return null
   }
@@ -1583,9 +2188,66 @@ function ensureActivity(
     if (type === 'command') task.commandCount += 1
     if (type === 'fileChange') task.fileChangeCount += 1
     if (type === 'tool') task.toolCount += 1
+    if (type === 'fileChange') {
+      activity.fileChanges = fileChangesFromItem(item)
+    }
   }
   appendActivityTimeline(task, activity)
   return activity
+}
+
+function trackToolLoadActivity(
+  task: CodexTask,
+  name: string,
+  status: string,
+  error: string,
+) {
+  if (!name) return
+  const id = `tool-load:${task.id}`
+  let activity = task.activities.find((entry) => entry.id === id)
+  if (!activity) {
+    activity = {
+      id,
+      type: 'toolLoad',
+      title: '加载了工具',
+      detail: '',
+      status:
+        status === 'failed'
+          ? 'failed'
+          : status === 'ready'
+            ? 'completed'
+            : 'running',
+      startedAt: new Date().toISOString(),
+      completedAt:
+        status === 'ready' || status === 'failed'
+          ? new Date().toISOString()
+          : null,
+      output: '',
+    }
+    task.activities.push(activity)
+  }
+  const names = new Set(
+    activity.detail
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean),
+  )
+  if (status === 'ready' || status === 'failed') names.add(name)
+  activity.detail = [...names].join('\n')
+  activity.status =
+    status === 'failed'
+      ? 'failed'
+      : status === 'ready'
+        ? 'completed'
+        : status === 'starting'
+          ? 'running'
+          : activity.status
+  if (error) activity.output = error
+  if (status === 'ready' || status === 'failed') {
+    activity.title = status === 'failed' ? '工具加载失败' : '加载了工具'
+    activity.completedAt = new Date().toISOString()
+  }
+  appendActivityTimeline(task, activity)
 }
 
 function schedulePersist() {
@@ -1615,6 +2277,8 @@ function markRunningTasksInterrupted(message: string) {
       stopTimelineStreaming(task, completedAt)
       task.completedAt = completedAt
       task.lastActivityAt = task.completedAt
+      task.error = message
+      emitUserTaskUpdate(task, session, 'interrupted')
       changed = true
       sessionChanged = true
       if (task.zentaoTestBugId) {
@@ -1668,6 +2332,24 @@ function handleCodexEvent(event: CodexGatewayEvent) {
   const eventTask = taskForEvent(session, eventTurnId)
   if (eventTask?.status === 'running') {
     markTaskActivity(eventTask, event.emittedAtMs)
+  }
+
+  if (event.method === 'mcpServer/startupStatus/updated') {
+    const task =
+      eventTask ??
+      session.tasks.find(
+        (item) => item.id === session.activeTaskId,
+      )
+    if (task) {
+      trackToolLoadActivity(
+        task,
+        asText(params.name),
+        asText(params.status),
+        asText(params.error),
+      )
+      schedulePersist()
+    }
+    return
   }
 
   if (event.method === 'turn/started') {
@@ -1788,6 +2470,10 @@ function handleCodexEvent(event: CodexGatewayEvent) {
         activity.detail = activityDetail(activity.type, item) || activity.detail
         activity.output =
           asText(item.aggregatedOutput) || activity.output
+        if (activity.type === 'fileChange') {
+          const changes = fileChangesFromItem(item)
+          if (changes.length > 0) activity.fileChanges = changes
+        }
         activity.completedAt = new Date(
           asNumber(params.completedAtMs, Date.now()),
         ).toISOString()
@@ -1871,6 +2557,18 @@ function handleCodexEvent(event: CodexGatewayEvent) {
       markTaskActivity(task, event.emittedAtMs)
       if (task.status === 'failed' && task.error) {
         emit('notify', `Codex 任务失败：${task.error}`)
+      }
+      emitUserTaskUpdate(
+        task,
+        session,
+        task.status === 'completed'
+          ? 'completed'
+          : task.status === 'interrupted'
+            ? 'interrupted'
+            : 'failed',
+      )
+      if (task.status === 'completed') {
+        markCompletedSessionUnread(session)
       }
     }
     advanceTaskQueue(
@@ -1978,9 +2676,13 @@ function openTokenUsage() {
 }
 
 function activityIcon(activity: CodexActivity) {
-  if (activity.type === 'command') return SquareTerminal
+  if (activity.type === 'command') return CodexTerminalMark
+  if (activity.type === 'fileRead') return FileText
   if (activity.type === 'fileChange') return Pencil
   if (activity.type === 'webSearch') return Search
+  if (activity.type === 'imageView') return Images
+  if (activity.type === 'contextCompaction') return Archive
+  if (activity.type === 'toolLoad') return Wrench
   if (activity.type === 'tool') {
     const signature = [
       activity.title,
@@ -2014,18 +2716,95 @@ function visibleActivities(task: CodexTask) {
   return task.activities.filter(
     (activity) =>
       activity.type === 'command' ||
+      activity.type === 'fileRead' ||
       activity.type === 'fileChange' ||
       activity.type === 'tool' ||
-      activity.type === 'webSearch',
+      activity.type === 'toolLoad' ||
+      activity.type === 'webSearch' ||
+      activity.type === 'imageView' ||
+      activity.type === 'contextCompaction',
   )
+}
+
+function renderableActivity(activity: CodexActivity): CodexActivity {
+  if (
+    activity.type === 'command' &&
+    commandReadsFiles(activityCommandSource(activity))
+  ) {
+    return {
+      ...activity,
+      type: 'fileRead',
+      title: '已读取文件',
+    }
+  }
+  return activity
+}
+
+function activityFileChanges(activity: CodexActivity) {
+  if (activity.fileChanges?.length) return activity.fileChanges
+  return activity.detail
+    .split(/\r?\n/)
+    .map((path) => path.trim())
+    .filter(Boolean)
+    .map<CodexFileChange>((path) => ({
+      path,
+      kind: 'unknown',
+      additions: 0,
+      deletions: 0,
+      diff: '',
+    }))
+}
+
+function mergeFileChanges(
+  current: CodexFileChange[],
+  incoming: CodexFileChange[],
+) {
+  const merged = new Map(
+    current.map((change) => [change.path, { ...change }]),
+  )
+  for (const change of incoming) {
+    const existing = merged.get(change.path)
+    if (!existing) {
+      merged.set(change.path, { ...change })
+      continue
+    }
+    existing.kind =
+      existing.kind === change.kind ? existing.kind : 'update'
+    existing.additions += change.additions
+    existing.deletions += change.deletions
+    if (change.diff && !existing.diff.includes(change.diff)) {
+      existing.diff = [existing.diff, change.diff]
+        .filter(Boolean)
+        .join('\n')
+        .slice(0, 250_000)
+    }
+  }
+  return [...merged.values()]
 }
 
 function taskTimeline(task: CodexTask): TaskTimelineRenderEntry[] {
   const activityById = new Map(
-    visibleActivities(task).map((activity) => [activity.id, activity]),
+    visibleActivities(task).map((activity) => {
+      const rendered = renderableActivity(activity)
+      return [rendered.id, rendered]
+    }),
   )
   const entries: TaskTimelineRenderEntry[] = []
+  let fileChangeGroup: TaskTimelineRenderEntry | null = null
   const appendActivity = (activity: CodexActivity) => {
+    if (activity.type === 'fileRead') {
+      const previous = entries.at(-1)
+      if (previous?.kind === 'fileReadGroup') {
+        previous.activities.push(activity)
+        return
+      }
+      entries.push({
+        id: `file-reads:${activity.id}`,
+        kind: 'fileReadGroup',
+        activities: [activity],
+      })
+      return
+    }
     if (activity.type === 'command') {
       const previous = entries.at(-1)
       if (previous?.kind === 'commandGroup') {
@@ -2039,6 +2818,24 @@ function taskTimeline(task: CodexTask): TaskTimelineRenderEntry[] {
       })
       return
     }
+    if (activity.type === 'fileChange') {
+      const changes = activityFileChanges(activity)
+      if (changes.length === 0) return
+      if (fileChangeGroup?.kind === 'fileChangeGroup') {
+        fileChangeGroup.changes = mergeFileChanges(
+          fileChangeGroup.changes,
+          changes,
+        )
+        return
+      }
+      fileChangeGroup = {
+        id: `file-changes:${activity.id}`,
+        kind: 'fileChangeGroup',
+        changes,
+      }
+      entries.push(fileChangeGroup)
+      return
+    }
     entries.push({
       id: `activity:${activity.id}`,
       kind: 'activity',
@@ -2047,6 +2844,16 @@ function taskTimeline(task: CodexTask): TaskTimelineRenderEntry[] {
   }
 
   for (const item of task.timeline ?? []) {
+    if (item.kind === 'userMessage') {
+      if (!item.text.trim()) continue
+      entries.push({
+        id: item.id,
+        kind: 'userMessage',
+        text: item.text,
+        createdAt: item.createdAt,
+      })
+      continue
+    }
     if (item.kind === 'message') {
       if (!item.text && !item.streaming) continue
       entries.push({
@@ -2081,7 +2888,168 @@ function taskTimeline(task: CodexTask): TaskTimelineRenderEntry[] {
     })
   }
 
-  return entries
+  return groupExecutionEntries(entries)
+}
+
+function groupExecutionEntries(
+  entries: TaskTimelineRenderEntry[],
+) {
+  const grouped: TaskTimelineRenderEntry[] = []
+  let executionGroup:
+    | Extract<TaskTimelineRenderEntry, { kind: 'executionGroup' }>
+    | null = null
+
+  for (const entry of entries) {
+    const isExecution =
+      entry.kind === 'activity' ||
+      entry.kind === 'commandGroup' ||
+      entry.kind === 'fileReadGroup'
+    if (!isExecution) {
+      executionGroup = null
+      grouped.push(entry)
+      continue
+    }
+    if (executionGroup) {
+      executionGroup.entries.push(entry)
+      continue
+    }
+    executionGroup = {
+      id: `execution:${entry.id}`,
+      kind: 'executionGroup',
+      entries: [entry],
+    }
+    grouped.push(executionGroup)
+  }
+
+  return grouped
+}
+
+function fileChangeTotals(changes: CodexFileChange[]) {
+  return changes.reduce(
+    (totals, change) => ({
+      additions: totals.additions + change.additions,
+      deletions: totals.deletions + change.deletions,
+    }),
+    { additions: 0, deletions: 0 },
+  )
+}
+
+function displayFileChangePath(value: string) {
+  const root = (activeSession.value?.cwd || '')
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '')
+  const path = value.replace(/\\/g, '/')
+  return root && path.startsWith(`${root}/`)
+    ? path.slice(root.length + 1)
+    : path
+}
+
+function fileChangeExpanded(id: string) {
+  return expandedFileChangeGroups.value.includes(id)
+}
+
+function visibleFileChanges(
+  groupId: string,
+  changes: CodexFileChange[],
+) {
+  return fileChangeExpanded(groupId) ? changes : changes.slice(0, 3)
+}
+
+function toggleFileChangeGroup(id: string) {
+  expandedFileChangeGroups.value = fileChangeExpanded(id)
+    ? expandedFileChangeGroups.value.filter((item) => item !== id)
+    : [...expandedFileChangeGroups.value, id]
+}
+
+function openFileChangePreview(
+  task: CodexTask,
+  changes: CodexFileChange[],
+) {
+  if (!changes.length) {
+    emit('notify', '没有可查看的文件变更')
+    return
+  }
+  const taskLabel = (task.displayPrompt || task.prompt)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 60)
+  fileChangePreview.value = {
+    title: `${taskLabel || 'Codex'} · 文件变更`,
+    changes,
+  }
+}
+
+function diffLineClass(line: string) {
+  if (line.startsWith('@@')) return 'codex-diff-line--hunk'
+  if (line.startsWith('+++') || line.startsWith('---')) {
+    return 'codex-diff-line--meta'
+  }
+  if (line.startsWith('+')) return 'codex-diff-line--add'
+  if (line.startsWith('-')) return 'codex-diff-line--delete'
+  return ''
+}
+
+function requestUndoFileChanges(
+  task: CodexTask,
+  changes: CodexFileChange[],
+) {
+  const pending = changes.filter(
+    (change) => change.diff && !change.reverted,
+  )
+  if (pending.length === 0) {
+    emit('notify', '这些文件没有可撤销的变更')
+    return
+  }
+  undoFileChangeTarget.value = {
+    task,
+    changes: pending,
+  }
+}
+
+async function confirmUndoFileChanges() {
+  const target = undoFileChangeTarget.value
+  const cwd = activeSession.value?.cwd
+  if (!target || !cwd || undoingFileChanges.value) return
+  if (!window.workCoveDesktop?.revertCodexFileChanges) {
+    emit('notify', '当前环境不支持撤销文件变更')
+    return
+  }
+  undoingFileChanges.value = true
+  try {
+    const error =
+      await window.workCoveDesktop.revertCodexFileChanges({
+        cwd,
+        changes: target.changes.map((change) => ({
+          path: change.path,
+          kind: change.kind,
+          diff: change.diff,
+        })),
+      })
+    if (error) {
+      emit('notify', error)
+      return
+    }
+    const revertedPaths = new Set(
+      target.changes.map((change) => change.path),
+    )
+    for (const activity of target.task.activities) {
+      for (const change of activity.fileChanges ?? []) {
+        if (revertedPaths.has(change.path)) change.reverted = true
+      }
+    }
+    for (const change of target.changes) change.reverted = true
+    codex.touchSession(activeSession.value)
+    codex.persist()
+    undoFileChangeTarget.value = null
+    emit('notify', `已撤销 ${revertedPaths.size} 个文件的变更`)
+  } catch (error) {
+    emit(
+      'notify',
+      error instanceof Error ? error.message : '撤销文件变更失败',
+    )
+  } finally {
+    undoingFileChanges.value = false
+  }
 }
 
 function statusIcon(task: CodexTask) {
@@ -2196,7 +3164,9 @@ function taskActivityAgeLabel(task: CodexTask) {
 function statusLabel(task: CodexTask) {
   if (task.status === 'queued') return '排队中'
   if (task.status === 'running') {
-    return taskIsWaitingForResponse(task) ? '暂无更新' : '执行中'
+    return taskIsWaitingForResponse(task) && !hasRunningActivity(task)
+      ? '等待下一步'
+      : '执行中'
   }
   if (task.status === 'completed') return '已完成'
   if (task.status === 'failed') return '失败'
@@ -2208,9 +3178,24 @@ function hasRunningActivity(task: CodexTask) {
 }
 
 function assistantPendingLabel(task: CodexTask) {
-  if (taskIsWaitingForResponse(task)) return '等待 Codex 响应'
+  const runningActivity = [...task.activities]
+    .reverse()
+    .find((activity) => activity.status === 'running')
+  if (runningActivity) return activityLabel(runningActivity)
   if (task.responseStreaming) return '正在回复'
-  return hasRunningActivity(task) ? '正在执行' : '正在思考'
+  if (taskIsWaitingForResponse(task)) return 'Codex 正在继续处理'
+  const recentTool = [...task.activities]
+    .reverse()
+    .find(
+      (activity) =>
+        activity.type === 'tool' &&
+        activity.status === 'completed' &&
+        activity.completedAt &&
+        clockNow.value - timeValue(activity.completedAt) < 15_000,
+    )
+  return recentTool
+    ? '工具已完成，正在分析结果'
+    : '正在分析下一步'
 }
 
 function sessionPreview(session: CodexSession) {
@@ -2428,7 +3413,9 @@ function submitCreateProject() {
 }
 
 function createSession() {
+  pendingInternalPrompt.value = null
   sessionBrandMenuOpen.value = false
+  selectedUserTaskIds.value = []
   const existingDraft = workspaceSessions.value.find(
     (session) => session.tasks.length === 0,
   )
@@ -2501,8 +3488,16 @@ function ensureWorkspaceSession() {
 }
 
 function selectSession(id: string) {
+  pendingInternalPrompt.value = null
+  selectedUserTaskIds.value = []
   codex.selectSession(id)
   sessionPanelOpen.value = false
+}
+
+function markCompletedSessionUnread(session: CodexSession) {
+  if (props.active && session.id === codex.activeSessionId) return
+  if (session.unread) return
+  session.unread = true
 }
 
 function requestDeleteSession(session: CodexSession) {
@@ -2540,6 +3535,7 @@ async function chooseWorkingDirectory() {
   try {
     const selected = await chooseCodexDirectory()
     if (!selected) return
+    clearPendingDevelopmentBranch()
     session.cwd = selected
     rememberPreferredWorkingDirectory(selected)
     codex.touchSession(session)
@@ -2555,6 +3551,7 @@ async function chooseWorkingDirectory() {
 function clearWorkingDirectory() {
   const session = activeSession.value
   if (!session || session.status === 'running') return
+  clearPendingDevelopmentBranch()
   session.cwd = ''
   rememberPreferredWorkingDirectory('')
   codex.touchSession(session)
@@ -2563,6 +3560,14 @@ function clearWorkingDirectory() {
 }
 
 function handleDirectoryPointerDown(event: PointerEvent) {
+  if (
+    taskPanelOpen.value &&
+    event.target instanceof Node &&
+    !taskPanel.value?.contains(event.target) &&
+    !taskPanelTrigger.value?.contains(event.target)
+  ) {
+    taskPanelOpen.value = false
+  }
   if (
     sessionContextMenuOpen.value &&
     event.target instanceof Node &&
@@ -2616,11 +3621,25 @@ function handleDirectoryPointerDown(event: PointerEvent) {
     notePickerOpen.value = false
   }
   if (
+    userTaskPickerOpen.value &&
+    event.target instanceof Node &&
+    !userTaskPicker.value?.contains(event.target)
+  ) {
+    userTaskPickerOpen.value = false
+  }
+  if (
     developmentPickerOpen.value &&
     event.target instanceof Node &&
     !developmentPicker.value?.contains(event.target)
   ) {
     developmentPickerOpen.value = false
+  }
+  if (
+    gitCommitPickerOpen.value &&
+    event.target instanceof Node &&
+    !gitCommitPicker.value?.contains(event.target)
+  ) {
+    gitCommitPickerOpen.value = false
   }
 }
 
@@ -2629,7 +3648,9 @@ function handleDirectoryKeydown(event: KeyboardEvent) {
   closeSessionContextMenu()
   bugPickerOpen.value = false
   notePickerOpen.value = false
+  userTaskPickerOpen.value = false
   developmentPickerOpen.value = false
+  gitCommitPickerOpen.value = false
   sessionBrandMenuOpen.value = false
   composerAddMenuOpen.value = false
   runSettingsOpen.value = false
@@ -2650,6 +3671,9 @@ function toggleBugPicker() {
   runSettingsModelListOpen.value = false
   accessModeOpen.value = false
   notePickerOpen.value = false
+  userTaskPickerOpen.value = false
+  developmentPickerOpen.value = false
+  gitCommitPickerOpen.value = false
   bugPickerOpen.value = true
   bugSearchQuery.value = ''
   void zentao.load(
@@ -2754,6 +3778,65 @@ function noteUpdatedLabel(note: WorkNote) {
   }).format(new Date(note.updatedAt))
 }
 
+function planCompletedCount(plan: CodexTask['plan']) {
+  return plan.filter((step) => step.status === 'completed').length
+}
+
+function planStatusLabel(plan: CodexTask['plan']) {
+  const completed = planCompletedCount(plan)
+  const activeIndex = plan.findIndex(
+    (step) => step.status === 'inProgress',
+  )
+  if (activeIndex >= 0) {
+    return `正在执行第 ${activeIndex + 1} 项 · ${completed}/${plan.length} 已完成`
+  }
+  if (completed === plan.length) {
+    return `全部 ${plan.length} 项已完成`
+  }
+  return `等待继续执行 · ${completed}/${plan.length} 已完成`
+}
+
+const floatingPlanTask = computed(() => {
+  const tasks = [...transcriptTasks.value].reverse()
+  return (
+    tasks.find(
+      (task) =>
+        task.plan.length > 0 &&
+        task.status !== 'completed' &&
+        task.status !== 'failed' &&
+        task.status !== 'interrupted' &&
+        planCompletedCount(task.plan) < task.plan.length,
+    ) ?? null
+  )
+})
+
+watch(
+  () => floatingPlanTask.value?.id ?? '',
+  () => {
+    planExpanded.value = false
+  },
+)
+
+function workTaskStatus(task: WorkTask): TaskExecutionStatus {
+  return task.executionStatus ?? (task.done ? 'completed' : 'todo')
+}
+
+function workTaskStatusLabel(task: WorkTask) {
+  const status = workTaskStatus(task)
+  if (status === 'running') return '执行中'
+  if (status === 'completed') return '已完成'
+  if (status === 'failed') return '执行失败'
+  if (status === 'interrupted') return '已中断'
+  return '待执行'
+}
+
+function workTaskPreview(task: WorkTask) {
+  return (
+    task.description?.replace(/\s+/g, ' ').trim() ||
+    `${task.project || '收件箱'} · ${workTaskStatusLabel(task)}`
+  ).slice(0, 140)
+}
+
 function toggleNotePicker() {
   if (notePickerOpen.value) {
     notePickerOpen.value = false
@@ -2764,6 +3847,9 @@ function toggleNotePicker() {
   runSettingsOpen.value = false
   runSettingsModelListOpen.value = false
   accessModeOpen.value = false
+  userTaskPickerOpen.value = false
+  developmentPickerOpen.value = false
+  gitCommitPickerOpen.value = false
   notePickerOpen.value = true
   noteSearchQuery.value = ''
   noteStore.load(auth.email)
@@ -2775,6 +3861,8 @@ function toggleNotePicker() {
 }
 
 function selectNoteForTask(note: WorkNote) {
+  clearComposerCodeReviewTarget()
+  selectedUserTaskIds.value = []
   selectedNoteId.value = note.id
   notePickerOpen.value = false
   void nextTick(() => composer.value?.focus())
@@ -2783,6 +3871,45 @@ function selectNoteForTask(note: WorkNote) {
 function clearSelectedNote() {
   selectedNoteId.value = ''
   notePickerOpen.value = false
+  void nextTick(() => composer.value?.focus())
+}
+
+function toggleUserTaskPicker() {
+  if (userTaskPickerOpen.value) {
+    userTaskPickerOpen.value = false
+    return
+  }
+  composerAddMenuOpen.value = false
+  bugPickerOpen.value = false
+  notePickerOpen.value = false
+  developmentPickerOpen.value = false
+  runSettingsOpen.value = false
+  runSettingsModelListOpen.value = false
+  accessModeOpen.value = false
+  userTaskPickerOpen.value = true
+  gitCommitPickerOpen.value = false
+  userTaskSearchQuery.value = ''
+  void nextTick(() => {
+    userTaskPicker.value
+      ?.querySelector<HTMLInputElement>('input[type="search"]')
+      ?.focus()
+  })
+}
+
+function toggleUserTaskForExecution(task: WorkTask) {
+  clearComposerCodeReviewTarget()
+  selectedNoteId.value = ''
+  composerBugIds.value = []
+  clearComposerTestTarget()
+  zentao.selectBug(0)
+  selectedUserTaskIds.value = selectedUserTaskIds.value.includes(task.id)
+    ? selectedUserTaskIds.value.filter((id) => id !== task.id)
+    : [...selectedUserTaskIds.value, task.id]
+}
+
+function clearSelectedUserTask() {
+  selectedUserTaskIds.value = []
+  userTaskPickerOpen.value = false
   void nextTick(() => composer.value?.focus())
 }
 
@@ -2837,6 +3964,98 @@ function loadDevelopmentResources(force = false) {
   })
 }
 
+function toggleGitCommitPicker() {
+  if (gitCommitPickerOpen.value) {
+    gitCommitPickerOpen.value = false
+    return
+  }
+  composerAddMenuOpen.value = false
+  bugPickerOpen.value = false
+  notePickerOpen.value = false
+  userTaskPickerOpen.value = false
+  developmentPickerOpen.value = false
+  runSettingsOpen.value = false
+  runSettingsModelListOpen.value = false
+  accessModeOpen.value = false
+  gitCommitPickerOpen.value = true
+  gitCommitSearchQuery.value = ''
+  gitRepositoryStore.load(auth.email)
+  const currentPath = normalizeComparablePath(
+    activeSession.value?.cwd ?? '',
+  )
+  gitCommitRepositoryId.value =
+    gitCommitRepositories.value.find(
+      (repository) =>
+        normalizeComparablePath(repository.path) === currentPath,
+    )?.id ??
+    gitCommitRepositories.value[0]?.id ??
+    ''
+  void gitRepositoryStore
+    .refreshWorkspace(workspaces.activeWorkspaceId)
+    .catch(() => undefined)
+  void nextTick(() => {
+    gitCommitPicker.value
+      ?.querySelector<HTMLInputElement>('input[type="search"]')
+      ?.focus()
+  })
+}
+
+function submitGitCommitTask() {
+  const repository = selectedGitCommitRepository.value
+  if (!repository) {
+    emit('notify', '请选择一个本地 Git 项目')
+    return
+  }
+  let session = activeSession.value
+  if (!session) {
+    ensureWorkspaceSession()
+    session = activeSession.value
+  }
+  if (!session) {
+    emit('notify', '当前没有可用的 Codex 会话')
+    return
+  }
+  if (
+    session.status === 'running' &&
+    normalizeComparablePath(session.cwd) !==
+      normalizeComparablePath(repository.path)
+  ) {
+    emit('notify', '当前任务完成后才能切换 Git 项目')
+    return
+  }
+
+  clearComposerCodeReviewTarget()
+  clearPendingDevelopmentBranch()
+  clearComposerTestTarget()
+  composerBugIds.value = []
+  zentao.selectBug(0)
+  selectedUserTaskIds.value = []
+  selectedNoteId.value = ''
+  selectedDevelopmentResources.value = []
+  selectedBuiltinMcpIds.value = []
+  if (session.cwd !== repository.path && session.status !== 'running') {
+    session.cwd = repository.path
+    rememberPreferredWorkingDirectory(repository.path)
+    codex.touchSession(session)
+    codex.persist()
+  }
+  const displayPrompt = `提交代码 · ${repository.name}`
+  pendingInternalPrompt.value = {
+    prompt: buildCodexCommitPrompt(repository),
+    displayPrompt,
+  }
+  draft.value = displayPrompt
+  gitCommitPickerOpen.value = false
+  emit(
+    'notify',
+    `已将「${repository.name}」提交任务带入对话，由 Codex 生成提交说明`,
+  )
+  void nextTick(() => {
+    resizeComposer()
+    composer.value?.focus()
+  })
+}
+
 function toggleDevelopmentPicker() {
   if (developmentPickerOpen.value) {
     developmentPickerOpen.value = false
@@ -2845,6 +4064,8 @@ function toggleDevelopmentPicker() {
   composerAddMenuOpen.value = false
   bugPickerOpen.value = false
   notePickerOpen.value = false
+  userTaskPickerOpen.value = false
+  gitCommitPickerOpen.value = false
   runSettingsOpen.value = false
   runSettingsModelListOpen.value = false
   accessModeOpen.value = false
@@ -2865,6 +4086,7 @@ function developmentResourceSelected(resource: DevelopmentResourceItem) {
 }
 
 function toggleDevelopmentResource(resource: DevelopmentResourceItem) {
+  clearComposerCodeReviewTarget()
   if (developmentResourceSelected(resource)) {
     selectedDevelopmentResources.value =
       selectedDevelopmentResources.value.filter(
@@ -2911,10 +4133,10 @@ function clearDevelopmentResources() {
 }
 
 function selectBugForTask(bug: ZentaoBug) {
+  clearComposerCodeReviewTarget()
+  selectedUserTaskIds.value = []
   composerBugIds.value = []
-  composerTestBugId.value = null
-  composerTestRunId.value = ''
-  composerTestEvidenceDirectory.value = ''
+  clearComposerTestTarget()
   zentao.selectBug(bug.id)
   bugPickerOpen.value = false
   void nextTick(() => composer.value?.focus())
@@ -2922,12 +4144,65 @@ function selectBugForTask(bug: ZentaoBug) {
 
 function clearSelectedBug() {
   composerBugIds.value = []
-  composerTestBugId.value = null
-  composerTestRunId.value = ''
-  composerTestEvidenceDirectory.value = ''
+  clearComposerTestTarget()
   zentao.selectBug(0)
   bugPickerOpen.value = false
   void nextTick(() => composer.value?.focus())
+}
+
+function clearComposerTestTarget() {
+  composerTestBugId.value = null
+  composerTestRunId.value = ''
+  composerTestEvidenceDirectory.value = ''
+  composerTestEnvironment.value = null
+  composerTestUsername.value = ''
+  composerTestPassword.value = ''
+}
+
+function clearComposerCodeReviewTarget() {
+  composerCodeReviewId.value = ''
+  composerCodeReviewMode.value = 'initial'
+  composerCodeReviewTitle.value = ''
+  pendingCodeReviewAutoSend.value = false
+}
+
+function schedulePendingCodeReviewSend() {
+  if (!pendingCodeReviewAutoSend.value) return
+  void nextTick(() => {
+    if (
+      !pendingCodeReviewAutoSend.value ||
+      !bridgeReady.value
+    ) {
+      return
+    }
+    pendingCodeReviewAutoSend.value = false
+    void sendMessage()
+  })
+}
+
+function userTaskPrompt(task: WorkTask, userText: string) {
+  const previousResult = task.executionResult?.trim()
+  const attachmentNames = (task.attachments ?? [])
+    .map((attachment) => attachment.name)
+    .join('、')
+  return [
+    '【工作台任务】',
+    `任务名称：${task.title}`,
+    `所属项目：${task.project || '收件箱'}`,
+    `项目路径：${task.projectPath || '未指定'}`,
+    `优先级：${task.priority}`,
+    `任务说明：${task.description || '未提供补充说明'}`,
+    attachmentNames ? `任务附件：${attachmentNames}` : '',
+    previousResult ? `上次执行结果：\n${previousResult}` : '',
+    userText ? `本次补充要求：\n${userText}` : '',
+    '【执行要求】',
+    '1. 先确认任务目标和当前环境，必要时读取相关文件和上下文。',
+    '2. 完成实际操作；如果任务涉及代码问题，请定位根因并完成必要修复。',
+    '3. 执行与改动相关的测试、类型检查或构建验证。',
+    '4. 最后说明执行结果、验证情况、剩余风险和未完成项。',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
 }
 
 function bugTaskPrompt(bugs: ZentaoBug[], userText: string) {
@@ -3001,6 +4276,9 @@ function bugTestPrompt(
   bug: ZentaoBug,
   evidenceDirectory: string,
   userText: string,
+  environment: TestEnvironment,
+  username: string,
+  password: string,
 ) {
   return [
     '【Codex 修复验证】',
@@ -3010,8 +4288,15 @@ function bugTestPrompt(
     `严重程度：${bug.severity || '未设置'} · 优先级：P${bug.priority || '-'}`,
     `重现步骤：${bug.steps || '禅道未提供'}`,
     '',
+    '【测试环境】',
+    `环境名称：${environment.name}`,
+    `访问地址：${environment.url}`,
+    `用户名：${username}`,
+    `密码：${password}`,
+    '以上凭据只用于本次验证，不要在最终回复、截图、命令参数或日志中复述密码。',
+    '',
     '【测试目标】',
-    '在研发环境验证该 Bug 是否已经修复。不要修改 Bug 状态，不要回写禅道，不要更新或发布本地客户端。',
+    `在测试环境「${environment.name}」验证该 Bug 是否已经修复。不要修改 Bug 状态，不要回写禅道，不要更新或发布本地客户端。`,
     ...(userText ? [`补充要求：${userText}`] : []),
     '',
     '【测试要求】',
@@ -3027,7 +4312,7 @@ function bugTestPrompt(
     '测试结论：',
     '<通过、失败或无法验证>',
     '测试环境：',
-    '<必须说明研发环境、访问地址、操作系统、浏览器、分支或提交等实际测试环境>',
+    `<必须说明测试环境名称、访问地址、操作系统、浏览器、分支或提交等实际测试环境；不得输出登录密码>`,
     '问题描述：',
     '<该 Bug 原问题的简要描述>',
     '修复证明：',
@@ -3061,13 +4346,37 @@ function promptWithDevelopmentResources(prompt: string) {
         : []),
     ],
   )
+  const browserRequirement = selectedDevelopmentResources.value.some(
+    (resource) => resource.kind === 'website',
+  )
+    ? [
+        '',
+        '【内置浏览器要求】',
+        '如果关联网址涉及登录、验证码、前端交互、下载或有权限的页面操作，必须优先使用 WorkCove Browser MCP 工具操作客户端内置浏览器。',
+        '先调用 browser_open 打开网址并复用现有登录会话；需要用户登录时，请让用户在可见的内置浏览器中完成登录，不要索要或处理密码。',
+        '页面操作前调用 browser_snapshot，优先使用 ref 执行 click/type；下载后使用 browser_downloads 获取实际保存路径。',
+        '如果任务是把能力集网站配置同步到 app_audit，优先调用 capability_set_update；首次先使用 confirm=false 预览，用户确认执行后再使用 confirm=true。',
+      ]
+    : []
   return [
     '【关联资源】',
     ...sections,
+    ...browserRequirement,
     '',
     '【任务要求】',
     prompt,
   ].join('\n')
+}
+
+function promptWithGitPolicy(
+  prompt: string,
+  session: CodexSession,
+  createBranch = '',
+) {
+  return applyCodexGitBranchPolicy(prompt, {
+    currentBranch: sessionGitBranch(session),
+    createBranch,
+  })
 }
 
 function taskZentaoBugIds(task: CodexTask) {
@@ -3077,6 +4386,116 @@ function taskZentaoBugIds(task: CodexTask) {
       ...(task.zentaoBugId ? [task.zentaoBugId] : []),
     ]),
   ]
+}
+
+function isZentaoTestTask(task: CodexTask) {
+  return Boolean(
+    task.zentaoTestBugId ||
+    task.zentaoTestRemoteId ||
+    task.zentaoTestRunId,
+  )
+}
+
+function taskZentaoTestBug(task: CodexTask) {
+  if (!task.zentaoTestBugId) return null
+  return zentao.bugs.find((bug) => bug.id === task.zentaoTestBugId) ?? null
+}
+
+function taskZentaoTestRemoteId(task: CodexTask) {
+  return (
+    task.zentaoTestRemoteId?.trim() ||
+    taskZentaoTestBug(task)?.remoteId ||
+    (task.zentaoTestBugId ? String(task.zentaoTestBugId) : '')
+  )
+}
+
+function taskZentaoTestResult(task: CodexTask) {
+  if (!task.zentaoTestBugId) return null
+  if (task.zentaoTestRunId) {
+    const exact = zentaoTestStore.results.find(
+      (result) =>
+        result.bugId === task.zentaoTestBugId &&
+        result.runId === task.zentaoTestRunId,
+    )
+    if (exact) return exact
+  }
+  return zentaoTestStore.latestForBug(task.zentaoTestBugId)
+}
+
+function canOpenTaskTestResult(task: CodexTask) {
+  return Boolean(
+    taskZentaoTestBug(task) &&
+    taskZentaoTestResult(task),
+  )
+}
+
+function openTaskZentaoBug(task: CodexTask) {
+  const bugId = task.zentaoTestBugId
+  const remoteId = task.zentaoTestRemoteId?.trim()
+  if (!bugId || !remoteId) {
+    emit('notify', '当前测试任务没有关联 Bug 单')
+    return
+  }
+  taskPanelOpen.value = false
+  emit('openZentaoBug', { bugId, remoteId })
+}
+
+function openTaskTestResult(task: CodexTask) {
+  const bug = taskZentaoTestBug(task)
+  const result = taskZentaoTestResult(task)
+  if (!bug || !result) {
+    emit('notify', '测试结果尚未生成，请等待任务完成')
+    return
+  }
+  taskTestResult.value = { bug, result }
+}
+
+function closeTaskTestResult() {
+  taskTestResult.value = null
+}
+
+async function publishTaskTestResultComment() {
+  const current = taskTestResult.value
+  if (
+    !current ||
+    current.result.status !== 'passed' ||
+    publishingTaskTestNote.value
+  ) {
+    return
+  }
+  publishingTaskTestNote.value = true
+  try {
+    const published = await publishZentaoTestResultComment(
+      current.result,
+      { force: true },
+    )
+    zentaoTestStore.saveResult(published.result)
+    taskTestResult.value = {
+      ...current,
+      result: published.result,
+    }
+    emit(
+      'notify',
+      published.alreadyExists
+        ? `Bug #${current.result.remoteId} 的测试说明已存在于禅道`
+        : `Bug #${current.result.remoteId} 的测试说明已同步到禅道`,
+    )
+  } catch (error) {
+    const failed = failedZentaoTestComment(current.result, error)
+    zentaoTestStore.saveResult(failed)
+    taskTestResult.value = {
+      ...current,
+      result: failed,
+    }
+    emit(
+      'notify',
+      `同步禅道测试说明失败：${
+        error instanceof Error ? error.message : '请稍后重试'
+      }`,
+    )
+  } finally {
+    publishingTaskTestNote.value = false
+  }
 }
 
 function scheduleZentaoTestResultUpdate(
@@ -3115,6 +4534,66 @@ function restoreZentaoTestResults() {
   }
 }
 
+async function createAutomaticTestRepairTask(
+  testTask: CodexTask,
+  session: CodexSession,
+  bug: ZentaoBug | null,
+  result: ZentaoTestResult,
+) {
+  if (
+    testTask.zentaoTestRepairTaskId ||
+    testTask.zentaoTestRepairTriggeredAt
+  ) {
+    return
+  }
+  const title = zentaoTestRepairTitle(bug, result)
+  const prompt = zentaoTestRepairPrompt(bug, result)
+  const shouldQueue = session.tasks.some(
+    (task) => task.status === 'running' || task.status === 'queued',
+  )
+  const repairTask = shouldQueue
+    ? codex.enqueueTask(session.id, prompt, title)
+    : codex.startTask(session.id, prompt, title)
+  if (!repairTask) return
+
+  const bugId = bug?.id ?? result.bugId
+  repairTask.displayPrompt = title
+  repairTask.model = session.model || undefined
+  repairTask.reasoningEffort = session.reasoningEffort || undefined
+  repairTask.accessMode = session.accessMode ?? 'workspace'
+  repairTask.zentaoBugId = bugId
+  repairTask.zentaoBugIds = [bugId]
+  testTask.zentaoTestRepairTaskId = repairTask.id
+  testTask.zentaoTestRepairTriggeredAt = new Date().toISOString()
+  codex.persist()
+
+  const cwd = session.cwd.trim().replace(/[\\/]+$/, '')
+  emit('repairTaskCreated', {
+    workspaceId: session.workspaceId,
+    codexSessionId: session.id,
+    codexTaskId: repairTask.id,
+    title,
+    description: prompt.slice(0, 8_000),
+    project: cwd.split(/[\\/]/).filter(Boolean).at(-1) || 'Codex',
+    projectPath: cwd,
+    bugId,
+    remoteId: bug?.remoteId || result.remoteId,
+  })
+  emit(
+    'notify',
+    `Bug #${bug?.remoteId || result.remoteId} 的 Codex 测试未通过，已自动创建修复任务`,
+  )
+
+  if (!shouldQueue) {
+    await executeTask(session, repairTask)
+  } else if (
+    !session.tasks.some((task) => task.status === 'running')
+  ) {
+    const next = nextQueuedTask(session)
+    if (next) void executeTask(session, next)
+  }
+}
+
 async function updateZentaoTestResult(task: CodexTask) {
   const bugId = task.zentaoTestBugId
   const runId = task.zentaoTestRunId
@@ -3130,12 +4609,13 @@ async function updateZentaoTestResult(task: CodexTask) {
   try {
     const workspaceId =
       task.zentaoTestWorkspaceId || workspaces.activeWorkspaceId
-    const sessionId =
-      codex.sessions.find((session) =>
-        session.tasks.some((item) => item.id === task.id),
-      )?.id ??
-      activeSession.value?.id ??
-      ''
+    const taskSession =
+      codex.sessions.find((sessionItem) =>
+        sessionItem.tasks.some((item) => item.id === task.id),
+      ) ??
+      activeSession.value ??
+      null
+    const sessionId = taskSession?.id ?? ''
     let bug = zentao.bugs.find((item) => item.id === bugId)
     if (
       !bug &&
@@ -3172,7 +4652,7 @@ async function updateZentaoTestResult(task: CodexTask) {
         ? `${proofWithoutEvidence}\n\n本次测试没有生成截图，平台未将其判定为通过。`
         : proofWithoutEvidence
     const compactProof = proof.slice(0, 8_000)
-    const result = {
+    let result: ZentaoTestResult = {
       id: task.id,
       bugId,
       remoteId:
@@ -3187,9 +4667,15 @@ async function updateZentaoTestResult(task: CodexTask) {
       environment:
         (
           parsed.environment.trim() ||
+          [
+            task.zentaoTestEnvironmentName,
+            task.zentaoTestEnvironmentUrl,
+          ]
+            .filter(Boolean)
+            .join(' · ') ||
           (completed
             ? 'Codex 未说明测试环境'
-            : '研发环境（测试任务未完成）')
+            : '测试环境（测试任务未完成）')
         ).slice(0, 2_000),
       problemDescription:
         (
@@ -3205,9 +4691,38 @@ async function updateZentaoTestResult(task: CodexTask) {
     zentaoTestStore.saveResult(result)
     task.zentaoTestResultSavedAt = new Date().toISOString()
     codex.persist()
+    let noteSyncMessage = ''
+    if (result.status === 'passed') {
+      try {
+        const published =
+          await publishZentaoTestResultComment(result)
+        result = published.result
+        noteSyncMessage = published.alreadyExists
+          ? '，禅道中已有本次测试说明'
+          : '，测试说明已同步到禅道'
+      } catch (error) {
+        result = failedZentaoTestComment(result, error)
+        noteSyncMessage =
+          `，但禅道测试说明同步失败：${
+            error instanceof Error ? error.message : '请手动重试'
+          }`
+      }
+      zentaoTestStore.saveResult(result)
+    }
+    if (
+      taskSession &&
+      shouldAutoRepairZentaoTest(result)
+    ) {
+      await createAutomaticTestRepairTask(
+        task,
+        taskSession,
+        bug ?? null,
+        result,
+      )
+    }
     emit(
       'notify',
-      `Bug #${result.remoteId} 的 Codex 测试结果已生成`,
+      `Bug #${result.remoteId} 的 Codex 测试结果已生成${noteSyncMessage}`,
     )
   } catch (error) {
     emit(
@@ -3372,12 +4887,297 @@ function failTask(task: CodexTask, session: CodexSession, error: unknown) {
   if (task.zentaoTestBugId) {
     scheduleZentaoTestResultUpdate(task)
   }
+  emitUserTaskUpdate(task, session, 'failed')
   advanceTaskQueue(session, 'error')
   emit('notify', message)
 }
 
+function emitUserTaskUpdate(
+  task: CodexTask,
+  session: CodexSession,
+  status: WorkTaskExecutionUpdate['status'],
+) {
+  if (!task.userTaskId) return
+  emit('userTaskUpdate', {
+    taskId: task.userTaskId,
+    codexSessionId: session.id,
+    codexTaskId: task.id,
+    status,
+    result: task.response.trim(),
+    error: task.error.trim(),
+  })
+}
+
 function nextQueuedTask(session: CodexSession) {
   return session.tasks.find((task) => task.status === 'queued')
+}
+
+function queueTaskEditable(task: CodexTask) {
+  return Boolean(task.id)
+}
+
+function queueActionItems(task: CodexTask) {
+  return [
+    {
+      id: 'edit',
+      label: '编辑消息',
+      icon: Pencil,
+      disabled: !queueTaskEditable(task),
+    },
+    {
+      id: 'open',
+      label: '在侧边聊天中打开',
+      icon: PanelLeftOpen,
+    },
+    {
+      id: 'close',
+      label: '关闭排队',
+      icon: ListX,
+      dividerBefore: true,
+    },
+  ]
+}
+
+function handleQueueAction(task: CodexTask, action: string) {
+  if (action === 'edit') {
+    openQueueEdit(task)
+  } else if (action === 'open') {
+    void openQueuedTaskInNewChat(task)
+  } else if (action === 'close') {
+    removeQueuedTask(task)
+  }
+}
+
+function openQueueEdit(task: CodexTask) {
+  editingQueueTask.value = task
+  queueEditDraft.value = task.prompt
+}
+
+function closeQueueEdit() {
+  editingQueueTask.value = null
+  queueEditDraft.value = ''
+}
+
+function saveQueueEdit() {
+  const task = editingQueueTask.value
+  const text = queueEditDraft.value.trim()
+  if (!task || !text) return
+  const transientPrompt = transientTaskPrompts.get(task.id)
+  if (transientPrompt) {
+    const start = transientPrompt.indexOf('【测试环境】')
+    const end =
+      start >= 0 ? transientPrompt.indexOf('\n\n', start) : -1
+    const credentialBlock =
+      start >= 0
+        ? transientPrompt.slice(
+            start,
+            end >= 0 ? end : undefined,
+          )
+        : ''
+    transientTaskPrompts.set(
+      task.id,
+      credentialBlock && !text.includes(credentialBlock)
+        ? `${text}\n\n${credentialBlock}`
+        : text,
+    )
+  }
+  task.prompt = text
+  task.displayPrompt = text
+  closeQueueEdit()
+  codex.persist()
+  emit('notify', '排队消息已更新')
+}
+
+function startQueueDrag(event: DragEvent, task: CodexTask) {
+  draggingQueueTaskId.value = task.id
+  queueDropTargetId.value = ''
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', task.id)
+  }
+}
+
+function dropQueuedTask(event: DragEvent, target: CodexTask) {
+  const session = activeSession.value
+  const sourceId =
+    draggingQueueTaskId.value ||
+    event.dataTransfer?.getData('text/plain') ||
+    ''
+  resetQueueDrag()
+  if (!session || !sourceId || sourceId === target.id) return
+  const sourceIndex = session.tasks.findIndex(
+    (task) => task.id === sourceId && task.status === 'queued',
+  )
+  if (sourceIndex < 0) return
+  const [source] = session.tasks.splice(sourceIndex, 1)
+  const targetIndex = session.tasks.findIndex(
+    (task) => task.id === target.id,
+  )
+  if (targetIndex < 0) {
+    session.tasks.splice(sourceIndex, 0, source)
+    return
+  }
+  session.tasks.splice(targetIndex, 0, source)
+  codex.touchSession(session)
+  codex.persist()
+}
+
+function resetQueueDrag() {
+  draggingQueueTaskId.value = ''
+  queueDropTargetId.value = ''
+}
+
+function canSteerQueuedTask(task: CodexTask) {
+  const session = activeSession.value
+  const target = runningTask.value
+  if (
+    task.gitBranchMode === 'create' ||
+    !bridgeConnected.value ||
+    !session?.threadId ||
+    !target?.turnId ||
+    steeringQueueTaskId.value
+  ) {
+    return false
+  }
+  return Boolean(task.id)
+}
+
+function mergeQueuedTaskContext(target: CodexTask, source: CodexTask) {
+  const bugIds = [
+    ...new Set([
+      ...(target.zentaoBugIds ?? []),
+      ...(source.zentaoBugIds ?? []),
+      ...(target.zentaoBugId ? [target.zentaoBugId] : []),
+      ...(source.zentaoBugId ? [source.zentaoBugId] : []),
+    ]),
+  ]
+  if (bugIds.length > 0) {
+    target.zentaoBugIds = bugIds
+    target.zentaoBugId ??= bugIds[0]
+  }
+  target.zentaoLocalSavedAt ??= source.zentaoLocalSavedAt
+  target.zentaoPushedAt ??= source.zentaoPushedAt
+  target.zentaoPushError ??= source.zentaoPushError
+  if (source.zentaoPushedBugIds?.length) {
+    target.zentaoPushedBugIds = [
+      ...new Set([
+        ...(target.zentaoPushedBugIds ?? []),
+        ...source.zentaoPushedBugIds,
+      ]),
+    ]
+  }
+  if (source.zentaoTestBugId && !target.zentaoTestBugId) {
+    target.zentaoTestBugId = source.zentaoTestBugId
+    target.zentaoTestRemoteId = source.zentaoTestRemoteId
+    target.zentaoTestWorkspaceId = source.zentaoTestWorkspaceId
+    target.zentaoTestRunId = source.zentaoTestRunId
+    target.zentaoTestEvidenceDirectory =
+      source.zentaoTestEvidenceDirectory
+    target.zentaoTestEnvironmentName =
+      source.zentaoTestEnvironmentName
+    target.zentaoTestEnvironmentUrl =
+      source.zentaoTestEnvironmentUrl
+    target.zentaoTestResultSavedAt = null
+  }
+  target.userTaskId ??= source.userTaskId
+  if (source.attachments?.length) {
+    const attachments = new Map(
+      (target.attachments ?? []).map((item) => [item.id, item]),
+    )
+    source.attachments.forEach((item) => attachments.set(item.id, item))
+    target.attachments = [...attachments.values()]
+  }
+}
+
+function mergeCodexAttachments(
+  ...groups: Array<CodexTaskAttachment[] | undefined>
+) {
+  const attachments = new Map<string, CodexTaskAttachment>()
+  for (const group of groups) {
+    for (const attachment of group ?? []) {
+      if (!attachment.id || attachments.has(attachment.id)) continue
+      attachments.set(attachment.id, attachment)
+    }
+  }
+  return [...attachments.values()].slice(0, 8)
+}
+
+async function steerQueuedTask(task: CodexTask) {
+  const session = activeSession.value
+  const target = runningTask.value
+  if (!canSteerQueuedTask(task) || !session || !target) {
+    emit('notify', '当前没有可引导的运行中任务')
+    return
+  }
+  steeringQueueTaskId.value = task.id
+  try {
+    const rawPrompt =
+      transientTaskPrompts.get(task.id) ?? task.prompt
+    await steerCodexTurn({
+      workspaceId: session.workspaceId,
+      threadId: session.threadId,
+      expectedTurnId: target.turnId,
+      text: task.codeReviewId
+        ? rawPrompt
+        : promptWithGitPolicy(rawPrompt, session),
+      attachmentIds: task.attachments?.map((item) => item.id),
+    })
+    const index = session.tasks.findIndex((item) => item.id === task.id)
+    if (index >= 0) session.tasks.splice(index, 1)
+    mergeQueuedTaskContext(target, task)
+    appendSteerTimelineMessage(target, task)
+    transientTaskPrompts.delete(task.id)
+    target.lastActivityAt = new Date().toISOString()
+    codex.touchSession(session)
+    codex.persist()
+    scrollToLatest()
+    emit('notify', '排队消息已引导到当前任务')
+  } catch (error) {
+    emit(
+      'notify',
+      error instanceof Error ? error.message : '引导排队任务失败',
+    )
+  } finally {
+    steeringQueueTaskId.value = ''
+  }
+}
+
+async function openQueuedTaskInNewChat(task: CodexTask) {
+  const sourceSession = activeSession.value
+  if (!sourceSession || !bridgeReady.value) {
+    emit('notify', 'Codex 后端尚未就绪')
+    return
+  }
+  const taskIndex = sourceSession.tasks.findIndex(
+    (item) => item.id === task.id,
+  )
+  if (taskIndex < 0) return
+  const title = (task.displayPrompt || task.prompt)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 40)
+  const nextSession = codex.createSession(
+    sourceSession.workspaceId,
+    sourceSession.cwd,
+    title || '排队消息',
+  )
+  sourceSession.tasks.splice(taskIndex, 1)
+  const startedAt = new Date().toISOString()
+  task.status = 'running'
+  task.turnId = ''
+  task.startedAt = startedAt
+  task.lastActivityAt = startedAt
+  task.completedAt = null
+  task.durationMs = null
+  task.error = ''
+  nextSession.tasks.push(task)
+  nextSession.status = 'running'
+  nextSession.activeTaskId = task.id
+  codex.touchSession(sourceSession)
+  codex.touchSession(nextSession)
+  codex.persist()
+  emit('notify', '排队消息已在新聊天中打开')
+  await executeTask(nextSession, task)
 }
 
 function advanceTaskQueue(
@@ -3421,11 +5221,23 @@ async function executeTask(
   session.activeTaskId = task.id
   codex.touchSession(session)
   codex.persist()
+  emitUserTaskUpdate(task, session, 'running')
   if (session.id === activeSession.value?.id) {
     scrollToLatest(true)
   }
 
   try {
+    const rawPrompt =
+      transientTaskPrompts.get(task.id) ?? task.prompt
+    const prompt = task.codeReviewId
+      ? rawPrompt
+      : promptWithGitPolicy(
+          rawPrompt,
+          session,
+          task.gitBranchMode === 'create'
+            ? task.developmentBranch ?? ''
+            : '',
+        )
     let threadId = session.threadId
     const accessMode: CodexAccessMode =
       task.accessMode ??
@@ -3458,6 +5270,7 @@ async function executeTask(
       }
     }
 
+    trackToolLoadActivity(task, '工作区工具', 'ready', '')
     codex.touchSession(session)
     codex.persist()
     if (session.title !== '新会话') {
@@ -3465,8 +5278,9 @@ async function executeTask(
     }
 
     const turn = await startCodexTurn({
+      workspaceId: session.workspaceId,
       threadId,
-      text: task.prompt,
+      text: prompt,
       cwd: session.cwd || undefined,
       attachmentIds: (task.attachments ?? []).map(
         (attachment) => attachment.id,
@@ -3480,8 +5294,10 @@ async function executeTask(
         : undefined,
     })
     if (!task.turnId) task.turnId = turn.turn.id
+    transientTaskPrompts.delete(task.id)
     codex.persist()
   } catch (error) {
+    transientTaskPrompts.delete(task.id)
     failTask(task, session, error)
   }
 }
@@ -3502,21 +5318,99 @@ function removeQueuedTask(task: CodexTask) {
   emit('notify', '已取消排队任务')
 }
 
+async function sendUserTaskBatch(
+  session: CodexSession,
+  tasks: WorkTask[],
+  userText: string,
+  attachments: CodexTaskAttachment[],
+  developmentResources: DevelopmentResourceItem[],
+  builtinMcpIds: BuiltinMcpId[],
+) {
+  const shouldQueue =
+    Boolean(runningTask.value) || queuedTasks.value.length > 0
+  const createdTasks: CodexTask[] = []
+  for (const [index, userTask] of tasks.entries()) {
+    let prompt = userTaskPrompt(userTask, userText)
+    if (developmentResources.length > 0) {
+      prompt = promptWithDevelopmentResources(prompt)
+    }
+    if (builtinMcpIds.length > 0) {
+      prompt = promptWithBuiltinMcpContext(prompt, builtinMcpIds)
+    }
+    prompt = promptWithGitPolicy(prompt, session)
+    const queued = shouldQueue || index > 0
+    const taskAttachments = mergeCodexAttachments(
+      attachments,
+      userTask.attachments,
+    )
+    const task = queued
+      ? codex.enqueueTask(
+          session.id,
+          prompt,
+          `任务：${userTask.title}`,
+          taskAttachments,
+        )
+      : codex.startTask(
+          session.id,
+          prompt,
+          `任务：${userTask.title}`,
+          taskAttachments,
+        )
+    if (!task) continue
+    task.userTaskId = userTask.id
+    task.displayPrompt = `任务：${userTask.title}`
+    task.model = session.model || selectedModel.value || undefined
+    task.reasoningEffort =
+      session.reasoningEffort || selectedEffort.value || undefined
+    task.accessMode = session.accessMode ?? 'workspace'
+    task.gitBranchMode = 'current'
+    createdTasks.push(task)
+  }
+  if (createdTasks.length === 0) return
+
+  draft.value = ''
+  clearPendingAttachments()
+  clearSelectedUserTask()
+  if (developmentResources.length > 0) {
+    clearDevelopmentResources()
+  }
+  if (builtinMcpIds.length > 0) clearBuiltinMcps()
+  codex.persist()
+  scrollToLatest(true)
+  void nextTick(() => composer.value?.focus())
+  emit('notify', `已将 ${createdTasks.length} 个任务交给 Codex`)
+
+  if (!shouldQueue) {
+    await executeTask(session, createdTasks[0])
+  } else if (!runningTask.value) {
+    const firstQueued = nextQueuedTask(session)
+    if (firstQueued) void executeTask(session, firstQueued)
+  }
+}
+
 async function sendMessage() {
   const session = activeSession.value
-  const text = draft.value.trim()
+  const visibleText = draft.value.trim()
+  const internalPrompt = pendingInternalPrompt.value
+  const text = internalPrompt?.prompt ?? visibleText
+  const displayText =
+    internalPrompt?.displayPrompt ?? visibleText
   const attachments = pendingAttachments.value.filter(
     (attachment) =>
       attachment.id && !attachment.uploading && !attachment.error,
   )
   const note = selectedNote.value
+  const userTasks = [...selectedUserTasks.value]
   const developmentResources = [...selectedDevelopmentResources.value]
+  const builtinMcpIds = [...selectedBuiltinMcpIds.value]
   if (
     !session ||
     (!text &&
       attachments.length === 0 &&
       !note &&
-      developmentResources.length === 0) ||
+      userTasks.length === 0 &&
+      developmentResources.length === 0 &&
+      builtinMcpIds.length === 0) ||
     pendingAttachments.value.some(
       (attachment) => attachment.uploading || attachment.error,
     )
@@ -3533,14 +5427,27 @@ async function sendMessage() {
   const testRunId = composerTestRunId.value
   const testEvidenceDirectory =
     composerTestEvidenceDirectory.value
+  const testEnvironment = composerTestEnvironment.value
+  const testUsername = composerTestUsername.value
+  const testPassword = composerTestPassword.value
   const testBug = testBugId
     ? linkedBugs.find((bug) => bug.id === testBugId) ?? null
     : null
   const isTestTask = Boolean(
-    testBug && testRunId && testEvidenceDirectory,
+    testBug &&
+      testRunId &&
+      testEvidenceDirectory &&
+      testEnvironment &&
+      testUsername &&
+      testPassword,
   )
   if (testBugId && !testBug) {
     emit('notify', '测试 Bug 已不在当前列表中，请重新发起测试')
+    clearSelectedBug()
+    return
+  }
+  if (testBugId && !isTestTask) {
+    emit('notify', '测试环境登录信息已失效，请重新发起测试')
     clearSelectedBug()
     return
   }
@@ -3553,60 +5460,147 @@ async function sendMessage() {
       kind,
     }),
   )
+  if (userTasks.length > 1) {
+    if (pendingDevelopmentBranch.value) {
+      emit('notify', '新增分支开发一次只能发送一个任务')
+      return
+    }
+    await sendUserTaskBatch(
+      session,
+      userTasks,
+      text,
+      attachmentMetadata,
+      developmentResources,
+      builtinMcpIds,
+    )
+    return
+  }
+  const userTask = userTasks[0] ?? null
+  const taskAttachmentMetadata = mergeCodexAttachments(
+    attachmentMetadata,
+    userTask?.attachments,
+  )
   draft.value = ''
   clearPendingAttachments()
   const baseTaskPrompt =
-    isTestTask && testBug
+    userTask
+      ? userTaskPrompt(userTask, text)
+      : isTestTask && testBug
       ? bugTestPrompt(
           testBug,
           testEvidenceDirectory,
           text,
+          testEnvironment as TestEnvironment,
+          testUsername,
+          testPassword,
         )
       : linkedBugs.length > 0
       ? bugTaskPrompt(linkedBugs, text)
       : text ||
-        '请分析这条速记，提炼结论、风险和待办；如果包含需要修复的问题，请定位根因、完成修复和必要验证。'
+        (builtinMcpIds.length > 0
+          ? ''
+          : '请分析这条速记，提炼结论、风险和待办；如果包含需要修复的问题，请定位根因、完成修复和必要验证。')
   let taskPrompt = note
     ? promptWithNoteContext(note, baseTaskPrompt)
     : baseTaskPrompt
   if (developmentResources.length > 0) {
     taskPrompt = promptWithDevelopmentResources(taskPrompt)
   }
+  if (builtinMcpIds.length > 0) {
+    taskPrompt = promptWithBuiltinMcpContext(
+      taskPrompt,
+      builtinMcpIds,
+    )
+  }
+  const requestedDevelopmentBranch = composerCodeReviewId.value
+    ? ''
+    : pendingDevelopmentBranch.value
+  if (!composerCodeReviewId.value) {
+    taskPrompt = promptWithGitPolicy(
+      taskPrompt,
+      session,
+      requestedDevelopmentBranch,
+    )
+  }
+  const persistedTaskPrompt = isTestTask
+    ? redactTestEnvironmentCredentials(
+        taskPrompt,
+        testUsername,
+        testPassword,
+      )
+    : taskPrompt
   const titleSource =
-    isTestTask && testBug
+    userTask
+      ? `任务：${userTask.title}`
+      : composerCodeReviewId.value
+      ? composerCodeReviewTitle.value || '代码评审'
+      : isTestTask && testBug
       ? `Codex 测试 Bug #${testBug.remoteId}`
       : linkedBugs.length > 1
       ? `解决 ${linkedBugs.length} 个禅道 Bug`
-      : text ||
+      : displayText ||
         note?.title ||
         developmentResources.map((resource) => resource.name).join('、') ||
-        attachmentMetadata.map((attachment) => attachment.name).join('、')
+        selectedBuiltinMcpDefinitions(builtinMcpIds)
+          .map((definition) => definition.name)
+          .join('、') ||
+        taskAttachmentMetadata
+          .map((attachment) => attachment.name)
+          .join('、')
   const shouldQueue =
     Boolean(runningTask.value) || queuedTasks.value.length > 0
   const task = shouldQueue
     ? codex.enqueueTask(
         session.id,
-        taskPrompt,
+        persistedTaskPrompt,
         titleSource,
-        attachmentMetadata,
+        taskAttachmentMetadata,
       )
     : codex.startTask(
         session.id,
-        taskPrompt,
+        persistedTaskPrompt,
         titleSource,
-        attachmentMetadata,
+        taskAttachmentMetadata,
       )
   if (!task) return
+  pendingInternalPrompt.value = null
+  if (isTestTask) {
+    transientTaskPrompts.set(task.id, taskPrompt)
+  }
   task.model = session.model || selectedModel.value || undefined
   task.reasoningEffort =
     session.reasoningEffort || selectedEffort.value || undefined
   task.accessMode = session.accessMode ?? 'workspace'
-  if (isTestTask && testBug && testRunId) {
+  if (!composerCodeReviewId.value) {
+    task.gitBranchMode = requestedDevelopmentBranch
+      ? 'create'
+      : 'current'
+    if (requestedDevelopmentBranch) {
+      task.developmentBranch = requestedDevelopmentBranch
+    }
+  }
+  if (requestedDevelopmentBranch) {
+    clearPendingDevelopmentBranch()
+  }
+  if (userTask) {
+    task.userTaskId = userTask.id
+    task.displayPrompt = `任务：${userTask.title}`
+  } else if (composerCodeReviewId.value) {
+    task.codeReviewId = composerCodeReviewId.value
+    task.codeReviewMode = composerCodeReviewMode.value
+    task.displayPrompt =
+      composerCodeReviewTitle.value ||
+      (composerCodeReviewMode.value === 'repair'
+        ? '代码评审问题修复'
+        : 'Codex 代码初审')
+  } else if (isTestTask && testBug && testRunId) {
     task.zentaoTestBugId = testBug.id
     task.zentaoTestRemoteId = testBug.remoteId
     task.zentaoTestWorkspaceId = workspaces.activeWorkspaceId
     task.zentaoTestRunId = testRunId
     task.zentaoTestEvidenceDirectory = testEvidenceDirectory
+    task.zentaoTestEnvironmentName = testEnvironment?.name
+    task.zentaoTestEnvironmentUrl = testEnvironment?.url
     task.displayPrompt =
       `Codex 测试：Bug #${testBug.remoteId} · ${testBug.title}`
   } else if (linkedBugs.length > 0) {
@@ -3620,7 +5614,7 @@ async function sendMessage() {
               .map((bug) => `#${bug.remoteId}`)
               .join(' · '),
             '',
-            text,
+            displayText,
           ].join('\n')
         : text
   } else if (note && !text) {
@@ -3629,8 +5623,46 @@ async function sendMessage() {
     task.displayPrompt = `资源：${developmentResources
       .map((resource) => resource.name)
       .join('、')}`
+  } else if (builtinMcpIds.length > 0 && !text) {
+    task.displayPrompt = `内置 MCP：${selectedBuiltinMcpDefinitions(
+      builtinMcpIds,
+    )
+      .map((definition) => definition.name)
+      .join('、')}`
+  }
+  if (!task.displayPrompt) {
+    task.displayPrompt =
+      displayText ||
+      (note ? `速记：${note.title}` : '') ||
+      (developmentResources.length > 0
+        ? `资源：${developmentResources
+            .map((resource) => resource.name)
+            .join('、')}`
+        : '') ||
+      (builtinMcpIds.length > 0
+        ? `内置 MCP：${selectedBuiltinMcpDefinitions(builtinMcpIds)
+            .map((definition) => definition.name)
+            .join('、')}`
+        : '') ||
+      (linkedBugs.length === 1
+        ? `禅道 Bug #${linkedBugs[0].remoteId}：${linkedBugs[0].title}`
+        : linkedBugs.length > 1
+          ? `一次性解决 ${linkedBugs.length} 个禅道 Bug`
+          : '') ||
+      taskAttachmentMetadata
+        .map((attachment) => attachment.name)
+        .join('、') ||
+      titleSource ||
+      '发起 Codex 任务'
   }
   if (linkedBugs.length > 0) clearSelectedBug()
+  if (isTestTask) clearComposerTestTarget()
+  if (userTask) clearSelectedUserTask()
+  if (developmentResources.length > 0) {
+    clearDevelopmentResources()
+  }
+  if (builtinMcpIds.length > 0) clearBuiltinMcps()
+  clearComposerCodeReviewTarget()
   scrollToLatest(true)
   void nextTick(() => {
     resizeComposer()
@@ -3666,6 +5698,7 @@ async function interruptTask() {
     stopTimelineStreaming(task, completedAt)
     task.completedAt = completedAt
     task.lastActivityAt = task.completedAt
+    emitUserTaskUpdate(task, session, 'interrupted')
     if (session.activeTaskId === task.id) {
       advanceTaskQueue(session)
     } else {
@@ -3733,6 +5766,16 @@ function resizeComposer() {
   element.style.height = `${Math.min(element.scrollHeight, 150)}px`
 }
 
+function handleComposerInput() {
+  if (
+    pendingInternalPrompt.value &&
+    draft.value.trim() !== pendingInternalPrompt.value.displayPrompt
+  ) {
+    pendingInternalPrompt.value = null
+  }
+  resizeComposer()
+}
+
 function handleTranscriptScroll() {
   const element = transcript.value
   if (!element) return
@@ -3791,9 +5834,42 @@ function jumpToLatest() {
   })
 }
 
+function jumpToTaskExecution(task: CodexTask) {
+  taskPanelOpen.value = false
+  void nextTick(() => {
+    const attribute =
+      task.status === 'queued'
+        ? 'data-codex-queue-task-id'
+        : 'data-codex-task-id'
+    const escapedId = window.CSS?.escape
+      ? window.CSS.escape(task.id)
+      : task.id.replace(/["\\]/g, '\\$&')
+    const target = document.querySelector<HTMLElement>(
+      `[${attribute}="${escapedId}"]`,
+    )
+    if (!target) {
+      emit('notify', '执行位置已不在当前对话中')
+      return
+    }
+    transcriptProgrammaticScrollUntil = performance.now() + 800
+    target.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+    })
+    target.classList.remove('codex-task-jump-target')
+    void target.offsetWidth
+    target.classList.add('codex-task-jump-target')
+    window.setTimeout(() => {
+      target.classList.remove('codex-task-jump-target')
+    }, 1_400)
+  })
+}
+
 watch(
   () => auth.email,
   (email) => {
+    clearPendingDevelopmentBranch()
+    selectedBuiltinMcpIds.value = []
     codex.load(email)
     deploymentStore.load(email)
     gitRepositoryStore.load(email)
@@ -3815,11 +5891,13 @@ watch(
     notePickerOpen.value = false
     developmentPickerOpen.value = false
     selectedDevelopmentResources.value = []
+    selectedBuiltinMcpIds.value = []
     selectedNoteId.value = ''
+    selectedUserTaskIds.value = []
     composerBugIds.value = []
-    composerTestBugId.value = null
-    composerTestRunId.value = ''
-    composerTestEvidenceDirectory.value = ''
+    clearComposerTestTarget()
+    clearPendingDevelopmentBranch()
+    clearPendingAttachments()
     void zentao.load(auth.email, workspaces.activeWorkspaceId)
     ensureWorkspaceSession()
   },
@@ -3865,6 +5943,7 @@ watch(
 watch(
   () => codex.activeSessionId,
   () => {
+    clearPendingDevelopmentBranch()
     closeSessionContextMenu()
     cancelSessionRename()
     taskPanelOpen.value = false
@@ -3893,9 +5972,8 @@ watch(
     if (!request) return
     ensureWorkspaceSession()
     composerBugIds.value = [...request.bugIds]
-    composerTestBugId.value = null
-    composerTestRunId.value = ''
-    composerTestEvidenceDirectory.value = ''
+    clearComposerTestTarget()
+    selectedUserTaskIds.value = []
     draft.value = request.prompt
     zentao.clearCodexPrefillRequest()
     void nextTick(() => {
@@ -3918,10 +5996,17 @@ watch(
     composerTestRunId.value = request.runId
     composerTestEvidenceDirectory.value =
       request.evidenceDirectory
+    composerTestEnvironment.value = request.environment
+    composerTestUsername.value = request.username
+    composerTestPassword.value = request.password
     selectedNoteId.value = ''
+    selectedUserTaskIds.value = []
     selectedDevelopmentResources.value = []
-    draft.value =
-      '请在研发环境验证这个 Bug 是否已经修复，并生成测试结果和截图。'
+    selectedBuiltinMcpIds.value = []
+    draft.value = [
+      `请在测试环境「${request.environment.name}」验证这个 Bug 是否已经修复。`,
+      '发送后会附上该环境的访问地址和本次登录信息，并生成测试结果和截图。',
+    ].join('\n')
     zentao.clearCodexTestPrefillRequest()
     void nextTick(() => {
       resizeComposer()
@@ -3942,29 +6027,74 @@ watch(
     ) {
       return
     }
-    if (workspaceSessions.value.length === 0 && request.cwd) {
-      codex.createSession(request.workspaceId, request.cwd)
+    const rawRequestedCwd = request.cwd.trim()
+    const requestedCwd =
+      rawRequestedCwd === '/'
+        ? rawRequestedCwd
+        : rawRequestedCwd.replace(/[\\/]+$/, '')
+    if (requestedCwd) {
+      const projectSession = [...workspaceSessions.value]
+        .filter((item) => {
+          const path = item.cwd.trim()
+          const normalized =
+            path === '/' ? path : path.replace(/[\\/]+$/, '')
+          return normalized === requestedCwd
+        })
+        .sort(
+          (left, right) =>
+            new Date(right.updatedAt).getTime() -
+            new Date(left.updatedAt).getTime(),
+        )[0]
+      if (projectSession) {
+        codex.selectSession(projectSession.id)
+      } else {
+        codex.createSession(request.workspaceId, requestedCwd)
+      }
     } else {
       ensureWorkspaceSession()
     }
-    const session = activeSession.value
-    if (session && request.cwd) {
-      session.cwd = request.cwd
-      codex.touchSession(session)
-      codex.persist()
-      rememberPreferredWorkingDirectory(request.cwd)
+    if (requestedCwd) rememberPreferredWorkingDirectory(requestedCwd)
+    selectedUserTaskIds.value = [
+      ...new Set([
+        ...(request.userTaskIds ?? []),
+        ...(request.userTaskId ? [request.userTaskId] : []),
+      ]),
+    ]
+    clearPendingAttachments()
+    if (selectedUserTaskIds.value.length === 1) {
+      const selectedTask = props.userTasks.find(
+        (task) => task.id === selectedUserTaskIds.value[0],
+      )
+      pendingAttachments.value = (selectedTask?.attachments ?? []).map(
+        (attachment) => ({
+          ...attachment,
+          localId: `task-${selectedTask?.id}-${attachment.id}`,
+          previewUrl: '',
+          uploading: false,
+          error: '',
+        }),
+      )
     }
     draft.value = request.prompt
+    selectedNoteId.value = ''
+    selectedDevelopmentResources.value = []
+    selectedBuiltinMcpIds.value = []
     composerBugIds.value = []
-    composerTestBugId.value = null
-    composerTestRunId.value = ''
-    composerTestEvidenceDirectory.value = ''
+    clearComposerTestTarget()
+    composerCodeReviewId.value = request.codeReviewId ?? ''
+    composerCodeReviewMode.value =
+      request.codeReviewMode === 'repair' ? 'repair' : 'initial'
+    composerCodeReviewTitle.value =
+      request.codeReviewTitle ?? ''
+    clearPendingDevelopmentBranch()
+    pendingCodeReviewAutoSend.value = request.autoSend === true
     codex.clearPrefillRequest()
     void nextTick(() => {
       resizeComposer()
       composer.value?.focus()
       const length = draft.value.length
       composer.value?.setSelectionRange(length, length)
+      schedulePendingCodeReviewSend()
     })
   },
   { immediate: true },
@@ -4026,6 +6156,29 @@ watch(
   },
 )
 
+watch(
+  () => props.searchHistoryOpen,
+  (open) => {
+    if (open) taskPanelOpen.value = false
+  },
+)
+
+watch(taskPanelOpen, (open) => {
+  emit('taskPanelVisibility', open)
+})
+
+watch(
+  [() => props.active, () => codex.activeSessionId],
+  ([isActive, sessionId]) => {
+    if (!isActive || !sessionId) return
+    const session = codex.sessions.find((item) => item.id === sessionId)
+    if (!session?.unread) return
+    session.unread = false
+    codex.persist()
+  },
+  { immediate: true },
+)
+
 onMounted(async () => {
   document.addEventListener('pointerdown', handleDirectoryPointerDown)
   document.addEventListener('scroll', closeSessionContextMenu, true)
@@ -4058,6 +6211,7 @@ onMounted(async () => {
   } finally {
     bridgeChecked.value = true
   }
+  schedulePendingCodeReviewSend()
   restoreZentaoTestResults()
   void nextTick(() => {
     resizeComposer()
@@ -4083,6 +6237,10 @@ onBeforeUnmount(() => {
     window.clearTimeout(timer)
   }
   scheduledZentaoTestTimers.clear()
+  transientTaskPrompts.clear()
+  pendingInternalPrompt.value = null
+  clearComposerTestTarget()
+  clearComposerCodeReviewTarget()
 })
 </script>
 
@@ -4134,7 +6292,7 @@ onBeforeUnmount(() => {
             >
               <button type="button" role="menuitem" @click="createSession">
                 <SquarePen :size="14" />
-                新对话
+                新聊天
               </button>
               <button
                 type="button"
@@ -4174,7 +6332,7 @@ onBeforeUnmount(() => {
         @click="createSession"
       >
         <SquarePen :size="15" />
-        <span>新对话</span>
+        <span>新聊天</span>
       </button>
 
       <div v-if="sessionSearchOpen" class="codex-sidebar-search">
@@ -4244,9 +6402,17 @@ onBeforeUnmount(() => {
                 <span class="codex-session-item__copy">
                   <span class="codex-session-item__title">
                     <strong>{{ session.title }}</strong>
-                    <span
+                    <UiFidgetSpinner
                       v-if="session.status === 'running'"
-                      class="codex-session-running-dot"
+                      class="codex-session-running-spinner"
+                      :size="13"
+                      aria-label="正在运行"
+                    />
+                    <span
+                      v-else-if="session.unread"
+                      class="codex-session-unread-dot"
+                      title="最近完成，尚未查看"
+                      aria-label="最近完成，尚未查看"
                     />
                   </span>
                   <small
@@ -4390,9 +6556,17 @@ onBeforeUnmount(() => {
                     <span class="codex-session-item__copy">
                       <span class="codex-session-item__title">
                         <strong>{{ session.title }}</strong>
-                        <span
+                        <UiFidgetSpinner
                           v-if="session.status === 'running'"
-                          class="codex-session-running-dot"
+                          class="codex-session-running-spinner"
+                          :size="13"
+                          aria-label="正在运行"
+                        />
+                        <span
+                          v-else-if="session.unread"
+                          class="codex-session-unread-dot"
+                          title="最近完成，尚未查看"
+                          aria-label="最近完成，尚未查看"
                         />
                       </span>
                     </span>
@@ -4484,10 +6658,11 @@ onBeforeUnmount(() => {
         </div>
         <div class="codex-main__actions">
           <button
+            ref="taskPanelTrigger"
             class="codex-task-trigger"
             type="button"
             aria-label="打开任务记录"
-            @click="taskPanelOpen = true"
+            @click="taskPanelOpen = !taskPanelOpen"
           >
             <ListChecks :size="15" />
             <span>任务</span>
@@ -4515,7 +6690,7 @@ onBeforeUnmount(() => {
           @wheel.passive="handleTranscriptWheel"
         >
           <div
-            v-if="!activeSession?.tasks.length"
+            v-if="!transcriptTasks.length"
             class="codex-welcome"
           >
             <span class="codex-welcome__avatar">
@@ -4532,15 +6707,24 @@ onBeforeUnmount(() => {
           </div>
 
           <article
-            v-for="task in activeSession?.tasks || []"
+            v-for="task in transcriptTasks"
             :key="task.id"
             class="codex-turn"
+            :data-codex-task-id="task.id"
           >
             <div class="codex-user-turn">
               <div class="codex-user-message">
                 <p v-if="task.displayPrompt || task.prompt">
                   {{ task.displayPrompt || task.prompt }}
                 </p>
+                <div
+                  v-if="task.developmentBranch"
+                  class="codex-user-branch"
+                >
+                  <GitBranch :size="12" aria-hidden="true" />
+                  <span>新增分支</span>
+                  <code>{{ task.developmentBranch }}</code>
+                </div>
                 <div
                   v-if="task.attachments?.length"
                   class="codex-message-attachments"
@@ -4583,20 +6767,6 @@ onBeforeUnmount(() => {
               </button>
             </div>
 
-            <div v-if="task.plan.length" class="codex-plan">
-              <span>任务计划</span>
-              <ul>
-                <li
-                  v-for="step in task.plan"
-                  :key="step.step"
-                  :class="`codex-plan__step--${step.status}`"
-                >
-                  <span />
-                  {{ step.step }}
-                </li>
-              </ul>
-            </div>
-
             <div
               v-if="taskTimeline(task).length"
               class="codex-turn-timeline"
@@ -4607,7 +6777,347 @@ onBeforeUnmount(() => {
                 :key="entry.id"
               >
                 <div
-                  v-if="entry.kind === 'message'"
+                  v-if="entry.kind === 'userMessage'"
+                  class="codex-user-turn codex-user-turn--inline"
+                >
+                  <div class="codex-user-message">
+                    <span class="codex-user-steer-label">
+                      <CornerDownRight :size="11" aria-hidden="true" />
+                      引导
+                    </span>
+                    <p>{{ entry.text }}</p>
+                    <time>{{ formatTime(entry.createdAt) }}</time>
+                  </div>
+                </div>
+                <details
+                  v-else-if="entry.kind === 'executionGroup'"
+                  class="codex-execution-group"
+                >
+                  <summary class="codex-execution-group__summary">
+                    <span class="codex-execution-group__icon">
+                      <ListChecks :size="14" />
+                    </span>
+                    <span>执行过程</span>
+                    <small class="codex-execution-group__count">
+                      {{ entry.entries.length }} 项
+                    </small>
+                    <ChevronRight
+                      class="codex-execution-group__chevron"
+                      :size="13"
+                      aria-hidden="true"
+                    />
+                  </summary>
+                  <div class="codex-execution-group__items">
+                    <template
+                      v-for="child in entry.entries"
+                      :key="child.id"
+                    >
+                      <details
+                        v-if="child.kind === 'fileReadGroup'"
+                        class="codex-activity-group codex-activity-group--files"
+                      >
+                        <summary class="codex-activity-group__summary">
+                          <span class="codex-activity-group__icon">
+                            <FileText :size="14" />
+                          </span>
+                          <span>读取文件</span>
+                          <small class="codex-activity-group__count">
+                            {{ child.activities.length }}
+                          </small>
+                          <ChevronRight
+                            class="codex-activity-group__chevron"
+                            :size="13"
+                            aria-hidden="true"
+                          />
+                        </summary>
+                        <div class="codex-activity-group__items">
+                          <details
+                            v-for="activity in child.activities"
+                            :key="activity.id"
+                            class="codex-activity"
+                          >
+                            <summary>
+                              <span class="codex-activity__icon">
+                                <FileText :size="13" />
+                              </span>
+                              <span :title="activity.detail">
+                                {{ activityLabel(activity) }}
+                              </span>
+                              <small
+                                v-if="activity.status === 'running'"
+                              >
+                                <LoaderCircle
+                                  class="codex-spin"
+                                  :size="12"
+                                />
+                                {{ activityElapsedLabel(activity) }}
+                              </small>
+                              <small
+                                v-else-if="
+                                  activity.status === 'failed'
+                                "
+                              >
+                                <CircleAlert :size="12" />
+                              </small>
+                              <small v-else>
+                                <Check :size="12" />
+                              </small>
+                              <ChevronRight
+                                class="codex-activity__chevron"
+                                :size="13"
+                                aria-hidden="true"
+                              />
+                            </summary>
+                            <section
+                              v-if="activity.detail || activity.output"
+                              class="codex-activity__panel"
+                            >
+                              <header>
+                                {{ activityPanelLabel(activity) }}
+                              </header>
+                              <pre>{{ activityPanelBody(activity) }}</pre>
+                            </section>
+                          </details>
+                        </div>
+                      </details>
+
+                      <details
+                        v-else-if="child.kind === 'commandGroup'"
+                        class="codex-activity-group"
+                      >
+                        <summary class="codex-activity-group__summary">
+                          <span class="codex-activity-group__icon">
+                            <CodexTerminalMark :size="14" />
+                          </span>
+                          <span>运行命令</span>
+                          <small class="codex-activity-group__count">
+                            {{ child.activities.length }}
+                          </small>
+                          <ChevronRight
+                            class="codex-activity-group__chevron"
+                            :size="13"
+                            aria-hidden="true"
+                          />
+                        </summary>
+                        <div class="codex-activity-group__items">
+                          <details
+                            v-for="activity in child.activities"
+                            :key="activity.id"
+                            class="codex-activity"
+                          >
+                            <summary>
+                              <span class="codex-activity__icon">
+                                <component
+                                  :is="activityIcon(activity)"
+                                  :size="13"
+                                />
+                              </span>
+                              <span>{{ activityLabel(activity) }}</span>
+                              <small
+                                v-if="activity.status === 'running'"
+                              >
+                                <LoaderCircle
+                                  class="codex-spin"
+                                  :size="12"
+                                />
+                                {{ activityElapsedLabel(activity) }}
+                              </small>
+                              <small
+                                v-else-if="
+                                  activity.status === 'failed'
+                                "
+                              >
+                                <CircleAlert :size="12" />
+                              </small>
+                              <small v-else>
+                                <Check :size="12" />
+                              </small>
+                              <ChevronRight
+                                class="codex-activity__chevron"
+                                :size="13"
+                                aria-hidden="true"
+                              />
+                            </summary>
+                            <section
+                              v-if="activity.detail || activity.output"
+                              class="codex-activity__panel"
+                            >
+                              <header>
+                                {{ activityPanelLabel(activity) }}
+                              </header>
+                              <pre>{{ activityPanelBody(activity) }}</pre>
+                            </section>
+                          </details>
+                        </div>
+                      </details>
+
+                      <div
+                        v-else-if="
+                          child.activity.type === 'contextCompaction'
+                        "
+                        class="codex-activity-notice"
+                      >
+                        <Archive :size="15" aria-hidden="true" />
+                        <span>上下文已自动压缩</span>
+                      </div>
+
+                      <details
+                        v-else
+                        class="codex-activity"
+                      >
+                        <summary>
+                          <span class="codex-activity__icon">
+                            <component
+                              :is="activityIcon(child.activity)"
+                              :size="13"
+                            />
+                          </span>
+                          <span>{{ activityLabel(child.activity) }}</span>
+                          <small
+                            v-if="child.activity.status === 'running'"
+                          >
+                            <LoaderCircle
+                              class="codex-spin"
+                              :size="12"
+                            />
+                            {{ activityElapsedLabel(child.activity) }}
+                          </small>
+                          <small
+                            v-else-if="
+                              child.activity.status === 'failed'
+                            "
+                          >
+                            <CircleAlert :size="12" />
+                          </small>
+                          <small v-else>
+                            <Check :size="12" />
+                          </small>
+                          <ChevronRight
+                            class="codex-activity__chevron"
+                            :size="13"
+                            aria-hidden="true"
+                          />
+                        </summary>
+                        <section
+                          v-if="
+                            child.activity.detail ||
+                            child.activity.output
+                          "
+                          class="codex-activity__panel"
+                        >
+                          <header>
+                            {{ activityPanelLabel(child.activity) }}
+                          </header>
+                          <pre>{{ activityPanelBody(child.activity) }}</pre>
+                        </section>
+                      </details>
+                    </template>
+                  </div>
+                </details>
+                <section
+                  v-else-if="entry.kind === 'fileChangeGroup'"
+                  class="codex-file-changes"
+                >
+                  <header>
+                    <span class="codex-file-changes__icon">
+                      <Pencil :size="16" aria-hidden="true" />
+                    </span>
+                    <span class="codex-file-changes__copy">
+                      <strong>
+                        已编辑 {{ entry.changes.length }} 个文件
+                      </strong>
+                      <small>
+                        <span class="codex-file-changes__add">
+                          +{{
+                            fileChangeTotals(entry.changes).additions
+                          }}
+                        </span>
+                        <span class="codex-file-changes__delete">
+                          -{{
+                            fileChangeTotals(entry.changes).deletions
+                          }}
+                        </span>
+                      </small>
+                    </span>
+                    <div class="codex-file-changes__actions">
+                      <button
+                        type="button"
+                        :disabled="
+                          task.status === 'running' ||
+                          entry.changes.every(
+                            (change) => change.reverted || !change.diff,
+                          )
+                        "
+                        :title="
+                          task.status === 'running'
+                            ? '任务完成后才能撤销'
+                            : '撤销这些文件变更'
+                        "
+                        @click="requestUndoFileChanges(task, entry.changes)"
+                      >
+                        <Undo2 :size="13" />
+                        撤销
+                      </button>
+                      <button
+                        type="button"
+                        @click="openFileChangePreview(task, entry.changes)"
+                      >
+                        <Eye :size="13" />
+                        查看变更
+                      </button>
+                    </div>
+                  </header>
+
+                  <div class="codex-file-changes__list">
+                    <button
+                      v-for="change in visibleFileChanges(
+                        entry.id,
+                        entry.changes,
+                      )"
+                      :key="change.path"
+                      type="button"
+                      @click="openFileChangePreview(task, entry.changes)"
+                    >
+                      <code>{{ displayFileChangePath(change.path) }}</code>
+                      <span
+                        v-if="change.reverted"
+                        class="codex-file-changes__reverted"
+                      >
+                        已撤销
+                      </span>
+                      <span v-else class="codex-file-changes__stats">
+                        <small class="codex-file-changes__add">
+                          +{{ change.additions }}
+                        </small>
+                        <small class="codex-file-changes__delete">
+                          -{{ change.deletions }}
+                        </small>
+                      </span>
+                    </button>
+                  </div>
+
+                  <button
+                    v-if="entry.changes.length > 3"
+                    class="codex-file-changes__more"
+                    type="button"
+                    @click="toggleFileChangeGroup(entry.id)"
+                  >
+                    {{
+                      fileChangeExpanded(entry.id)
+                        ? '收起文件'
+                        : `再显示 ${entry.changes.length - 3} 个文件`
+                    }}
+                    <ChevronDown
+                      :size="13"
+                      :class="{
+                        'codex-file-changes__more--open':
+                          fileChangeExpanded(entry.id),
+                      }"
+                    />
+                  </button>
+                </section>
+                <div
+                  v-else-if="entry.kind === 'message'"
                   class="codex-assistant-message"
                 >
                   <div
@@ -4621,15 +7131,29 @@ onBeforeUnmount(() => {
                   />
                 </div>
 
+                <div
+                  v-else-if="
+                    entry.kind === 'activity' &&
+                    entry.activity.type === 'contextCompaction'
+                  "
+                  class="codex-activity-notice"
+                >
+                  <Archive :size="15" aria-hidden="true" />
+                  <span>上下文已自动压缩</span>
+                </div>
+
                 <details
-                  v-else-if="entry.kind === 'commandGroup'"
-                  class="codex-activity-group"
+                  v-else-if="entry.kind === 'fileReadGroup'"
+                  class="codex-activity-group codex-activity-group--files"
                 >
                   <summary class="codex-activity-group__summary">
-                    <SquareTerminal :size="13" aria-hidden="true" />
-                    <span>
-                      运行了 {{ entry.activities.length }} 个命令
+                    <span class="codex-activity-group__icon">
+                      <FileText :size="14" />
                     </span>
+                    <span>读取文件</span>
+                    <small class="codex-activity-group__count">
+                      {{ entry.activities.length }}
+                    </small>
                     <ChevronRight
                       class="codex-activity-group__chevron"
                       :size="13"
@@ -4643,10 +7167,73 @@ onBeforeUnmount(() => {
                       class="codex-activity"
                     >
                       <summary>
-                        <component
-                          :is="activityIcon(activity)"
+                        <span class="codex-activity__icon">
+                          <FileText :size="13" />
+                        </span>
+                        <span :title="activity.detail">
+                          {{ activityLabel(activity) }}
+                        </span>
+                        <small v-if="activity.status === 'running'">
+                          <LoaderCircle
+                            class="codex-spin"
+                            :size="12"
+                          />
+                          {{ activityElapsedLabel(activity) }}
+                        </small>
+                        <small v-else-if="activity.status === 'failed'">
+                          <CircleAlert :size="12" />
+                        </small>
+                        <small v-else>
+                          <Check :size="12" />
+                        </small>
+                        <ChevronRight
+                          class="codex-activity__chevron"
                           :size="13"
+                          aria-hidden="true"
                         />
+                      </summary>
+                      <section
+                        v-if="activity.detail || activity.output"
+                        class="codex-activity__panel"
+                      >
+                        <header>{{ activityPanelLabel(activity) }}</header>
+                        <pre>{{ activityPanelBody(activity) }}</pre>
+                      </section>
+                    </details>
+                  </div>
+                </details>
+
+                <details
+                  v-else-if="entry.kind === 'commandGroup'"
+                  class="codex-activity-group"
+                >
+                  <summary class="codex-activity-group__summary">
+                    <span class="codex-activity-group__icon">
+                      <CodexTerminalMark :size="14" />
+                    </span>
+                    <span>运行命令</span>
+                    <small class="codex-activity-group__count">
+                      {{ entry.activities.length }}
+                    </small>
+                    <ChevronRight
+                      class="codex-activity-group__chevron"
+                      :size="13"
+                      aria-hidden="true"
+                    />
+                  </summary>
+                  <div class="codex-activity-group__items">
+                    <details
+                      v-for="activity in entry.activities"
+                      :key="activity.id"
+                      class="codex-activity"
+                    >
+                      <summary>
+                        <span class="codex-activity__icon">
+                          <component
+                            :is="activityIcon(activity)"
+                            :size="13"
+                          />
+                        </span>
                         <span>{{ activityLabel(activity) }}</span>
                         <small v-if="activity.status === 'running'">
                           <LoaderCircle
@@ -4683,10 +7270,12 @@ onBeforeUnmount(() => {
                   class="codex-activity"
                 >
                   <summary>
-                    <component
-                      :is="activityIcon(entry.activity)"
-                      :size="13"
-                    />
+                    <span class="codex-activity__icon">
+                      <component
+                        :is="activityIcon(entry.activity)"
+                        :size="13"
+                      />
+                    </span>
                     <span>{{ activityLabel(entry.activity) }}</span>
                     <small v-if="entry.activity.status === 'running'">
                       <LoaderCircle class="codex-spin" :size="12" />
@@ -4735,10 +7324,11 @@ onBeforeUnmount(() => {
                   task.status === 'queued',
               }"
             >
-              <span
+              <UiFidgetSpinner
                 v-if="task.status === 'running'"
-                class="codex-turn-meta__dot"
-                aria-hidden="true"
+                class="codex-turn-meta__spinner"
+                :size="14"
+                aria-label="正在运行"
               />
               <span>{{ taskTurnHeadline(task) }}</span>
               <small v-if="taskIsWaitingForResponse(task)">
@@ -4749,6 +7339,19 @@ onBeforeUnmount(() => {
             <p v-if="task.error" class="codex-task-error">
               {{ task.error }}
             </p>
+
+            <div
+              v-if="task.codeReviewId && task.status === 'completed'"
+              class="codex-review-link"
+            >
+              <button
+                type="button"
+                @click="emit('openCodeReview', task.codeReviewId)"
+              >
+                <ScanSearch :size="13" />
+                前往代码评审
+              </button>
+            </div>
           </article>
         </div>
 
@@ -4771,8 +7374,89 @@ onBeforeUnmount(() => {
       </div>
 
       <footer class="codex-composer">
+        <Transition name="codex-floating-plan">
+          <section
+            v-if="floatingPlanTask"
+            class="codex-plan codex-plan--floating"
+            :class="{
+              'codex-plan--expanded': planExpanded,
+            }"
+            aria-label="当前任务整体计划"
+          >
+            <button
+              class="codex-plan__heading"
+              type="button"
+              :aria-expanded="planExpanded"
+              aria-controls="codex-floating-plan-steps"
+              @click="planExpanded = !planExpanded"
+            >
+              <span class="codex-plan__avatar">
+                <img
+                  v-if="assistantIcon"
+                  :src="assistantIcon"
+                  alt=""
+                />
+                <CodexMark v-else :size="13" />
+              </span>
+              <span class="codex-plan__identity">
+                <strong>整体计划</strong>
+                <small>
+                  {{ planStatusLabel(floatingPlanTask.plan) }}
+                </small>
+              </span>
+              <span
+                class="codex-plan__progress"
+                :class="{
+                  'codex-plan__progress--complete':
+                    planCompletedCount(floatingPlanTask.plan) ===
+                    floatingPlanTask.plan.length,
+                }"
+              >
+                {{ planCompletedCount(floatingPlanTask.plan) }}/{{
+                  floatingPlanTask.plan.length
+                }}
+              </span>
+              <ChevronDown
+                class="codex-plan__toggle"
+                :class="{
+                  'codex-plan__toggle--expanded': planExpanded,
+                }"
+                :size="14"
+                aria-hidden="true"
+              />
+            </button>
+            <ol
+              v-if="planExpanded"
+              id="codex-floating-plan-steps"
+              class="codex-plan__steps"
+            >
+              <li
+                v-for="step in floatingPlanTask.plan"
+                :key="step.step"
+                class="codex-plan__step"
+                :class="`codex-plan__step--${step.status}`"
+              >
+                <span class="codex-plan__marker">
+                  <Check
+                    v-if="step.status === 'completed'"
+                    :size="11"
+                    :stroke-width="2.5"
+                  />
+                  <UiFidgetSpinner
+                    v-else-if="step.status === 'inProgress'"
+                    :size="11"
+                  />
+                  <span v-else class="codex-plan__dot" />
+                </span>
+                <span class="codex-plan__step-copy">
+                  {{ step.step }}
+                </span>
+              </li>
+            </ol>
+          </section>
+        </Transition>
         <div
-          v-if="!activeSession?.tasks.length && activeSession"
+          v-if="!transcriptTasks.length && activeSession"
           class="codex-composer-project"
         >
           <button
@@ -4822,22 +7506,69 @@ onBeforeUnmount(() => {
             v-for="(task, index) in queuedTasks"
             :key="task.id"
             class="codex-queue__item"
+            :data-codex-queue-task-id="task.id"
+            :class="{
+              'codex-queue__item--dragging':
+                draggingQueueTaskId === task.id,
+              'codex-queue__item--drop-target':
+                queueDropTargetId === task.id &&
+                draggingQueueTaskId !== task.id,
+            }"
+            draggable="true"
+            @dragstart="startQueueDrag($event, task)"
+            @dragover.prevent="queueDropTargetId = task.id"
+            @drop.prevent="dropQueuedTask($event, task)"
+            @dragend="resetQueueDrag"
           >
-            <span class="codex-queue__index">{{ index + 1 }}</span>
+            <span
+              class="codex-queue__drag"
+              title="拖拽调整顺序"
+              aria-hidden="true"
+            >
+              <GripVertical :size="14" />
+              <small>{{ index + 1 }}</small>
+            </span>
             <span
               class="codex-queue__prompt"
               :title="task.displayPrompt || task.prompt"
             >
               {{ task.displayPrompt || task.prompt }}
             </span>
-            <button
-              type="button"
-              :aria-label="`取消排队任务 ${index + 1}`"
-              title="取消排队"
-              @click="removeQueuedTask(task)"
-            >
-              <X :size="13" />
-            </button>
+            <div class="codex-queue__actions">
+              <button
+                class="codex-queue__steer"
+                type="button"
+                :disabled="!canSteerQueuedTask(task)"
+                :title="
+                  task.gitBranchMode === 'create'
+                    ? '新增分支任务必须独立执行'
+                    : canSteerQueuedTask(task)
+                    ? '将消息引导到当前运行中的任务'
+                    : '当前任务暂不支持引导'
+                "
+                @click="steerQueuedTask(task)"
+              >
+                <UiFidgetSpinner
+                  v-if="steeringQueueTaskId === task.id"
+                  :size="13"
+                />
+                <CornerDownRight v-else :size="13" />
+                引导
+              </button>
+              <button
+                type="button"
+                :aria-label="`删除排队任务 ${index + 1}`"
+                title="删除排队任务"
+                @click="removeQueuedTask(task)"
+              >
+                <Trash2 :size="13" />
+              </button>
+              <UiActionMenu
+                :items="queueActionItems(task)"
+                :label="`排队任务 ${index + 1} 更多操作`"
+                @select="handleQueueAction(task, $event)"
+              />
+            </div>
           </div>
         </section>
         <div class="codex-composer__dock">
@@ -4871,6 +7602,39 @@ onBeforeUnmount(() => {
                 </span>
               </button>
               <button
+                class="codex-composer-add__branch"
+                type="button"
+                @click="handleComposerAddAction('branch')"
+              >
+                <GitBranch :size="15" />
+                <span>
+                  <strong>新增分支开发</strong>
+                  <small>仅本次任务允许创建并切换到新分支</small>
+                </span>
+              </button>
+              <button
+                class="codex-composer-add__commit"
+                type="button"
+                @click="handleComposerAddAction('commit')"
+              >
+                <GitCommitHorizontal :size="15" />
+                <span>
+                  <strong>提交代码</strong>
+                  <small>选择 Git 项目并创建一次本地提交</small>
+                </span>
+              </button>
+              <button
+                class="codex-composer-add__user-task"
+                type="button"
+                @click="handleComposerAddAction('userTask')"
+              >
+                <ListChecks :size="15" />
+                <span>
+                  <strong>选择任务</strong>
+                  <small>从任务列表选择一项交给 Codex 执行</small>
+                </span>
+              </button>
+              <button
                 class="codex-composer-add__development"
                 type="button"
                 @click="handleComposerAddAction('development')"
@@ -4901,6 +7665,37 @@ onBeforeUnmount(() => {
                 <span>
                   <strong>速记</strong>
                   <small>选择速记内容作为上下文</small>
+                </span>
+              </button>
+              <p class="codex-composer-add__section">内置 MCP</p>
+              <button
+                v-for="definition in BUILTIN_MCP_CATALOG"
+                :key="definition.id"
+                class="codex-composer-add__mcp"
+                :class="{
+                  'codex-composer-add__mcp--selected':
+                    selectedBuiltinMcpIds.includes(definition.id),
+                }"
+                type="button"
+                :aria-pressed="
+                  selectedBuiltinMcpIds.includes(definition.id)
+                "
+                :title="`${definition.name} · ${definition.id}`"
+                @click="toggleBuiltinMcp(definition.id)"
+              >
+                <PackageCheck
+                  v-if="definition.id === 'capability_set_update'"
+                  :size="15"
+                />
+                <Globe2 v-else :size="15" />
+                <span>
+                  <strong>{{ definition.name }}</strong>
+                  <small>{{ definition.description }}</small>
+                  <Check
+                    v-if="selectedBuiltinMcpIds.includes(definition.id)"
+                    class="codex-composer-add__mcp-check"
+                    :size="13"
+                  />
                 </span>
               </button>
               <p class="codex-composer-add__section">插件</p>
@@ -5084,7 +7879,7 @@ onBeforeUnmount(() => {
               v-if="zentao.loading"
               class="codex-composer-bug-picker__state"
             >
-              <LoaderCircle class="codex-spin" :size="14" />
+              <UiFidgetSpinner :size="14" />
               正在读取 Bug
             </div>
             <p
@@ -5231,6 +8026,159 @@ onBeforeUnmount(() => {
         </Transition>
         <Transition name="codex-composer-menu">
           <section
+            v-if="userTaskPickerOpen"
+            ref="userTaskPicker"
+            class="codex-composer-bug-picker codex-composer-user-task-picker"
+            aria-label="选择任务"
+          >
+            <header>
+              <span>
+                <ListChecks :size="15" />
+                <strong>选择任务</strong>
+              </span>
+              <small>
+                已选 {{ selectedUserTasks.length }} /
+                {{ filteredUserTaskChoices.length }}
+              </small>
+            </header>
+            <label class="codex-composer-bug-picker__search">
+              <Search :size="14" aria-hidden="true" />
+              <input
+                v-model="userTaskSearchQuery"
+                type="search"
+                placeholder="搜索任务名称、项目或说明"
+                autocomplete="off"
+              />
+            </label>
+            <div
+              v-if="filteredUserTaskChoices.length"
+              class="codex-composer-bug-picker__list"
+              role="listbox"
+              aria-label="任务列表"
+            >
+              <button
+                v-for="task in filteredUserTaskChoices"
+                :key="task.id"
+                class="codex-composer-note-option"
+                type="button"
+                role="option"
+                :aria-selected="selectedUserTaskIds.includes(task.id)"
+                @click="toggleUserTaskForExecution(task)"
+              >
+                <span class="codex-composer-note-option__icon">
+                  <ListChecks :size="14" />
+                </span>
+                <span class="codex-composer-bug-picker__copy">
+                  <strong>{{ task.title }}</strong>
+                  <small>{{ workTaskPreview(task) }}</small>
+                  <em>
+                    {{ task.project || '收件箱' }}
+                    · {{ workTaskStatusLabel(task) }}
+                  </em>
+                </span>
+                <Check
+                  v-if="selectedUserTaskIds.includes(task.id)"
+                  :size="14"
+                />
+              </button>
+            </div>
+            <p v-else class="codex-composer-bug-picker__state">
+              {{
+                userTaskSearchQuery.trim()
+                  ? '没有匹配的任务'
+                  : '暂无待执行任务，请先在任务页面创建'
+              }}
+            </p>
+            <button
+              v-if="selectedUserTask"
+              class="codex-composer-bug-picker__clear"
+              type="button"
+              @click="clearSelectedUserTask"
+            >
+              取消选择当前任务
+            </button>
+          </section>
+        </Transition>
+        <Transition name="codex-composer-menu">
+          <section
+            v-if="gitCommitPickerOpen"
+            ref="gitCommitPicker"
+            class="codex-composer-bug-picker codex-git-commit-picker"
+            aria-label="选择 Git 提交项目"
+          >
+            <header>
+              <span>
+                <GitCommitHorizontal :size="15" />
+                <strong>提交代码</strong>
+              </span>
+              <small>由 Codex 生成提交说明</small>
+            </header>
+            <label class="codex-composer-bug-picker__search">
+              <Search :size="14" aria-hidden="true" />
+              <input
+                v-model="gitCommitSearchQuery"
+                type="search"
+                placeholder="搜索 Git 项目名称或路径"
+                autocomplete="off"
+              />
+            </label>
+            <div
+              v-if="filteredGitCommitRepositories.length"
+              class="codex-composer-bug-picker__list"
+              role="listbox"
+              aria-label="Git 项目列表"
+            >
+              <button
+                v-for="repository in filteredGitCommitRepositories"
+                :key="repository.id"
+                type="button"
+                role="option"
+                :aria-selected="
+                  gitCommitRepositoryId === repository.id
+                "
+                @click="gitCommitRepositoryId = repository.id"
+              >
+                <span class="codex-git-commit-picker__icon">
+                  <GitBranch :size="14" />
+                </span>
+                <span class="codex-composer-bug-picker__copy">
+                  <strong>{{ repository.name }}</strong>
+                  <small>{{ repository.category }} · {{ repository.path }}</small>
+                </span>
+                <Check
+                  v-if="gitCommitRepositoryId === repository.id"
+                  :size="14"
+                />
+              </button>
+            </div>
+            <p v-else class="codex-composer-bug-picker__state">
+              {{
+                gitCommitSearchQuery.trim()
+                  ? '没有匹配的 Git 项目'
+                  : '当前工作空间还没有本地 Git 项目，请先在“研发 → Git 仓库”添加'
+              }}
+            </p>
+            <footer class="codex-development-resource-picker__footer">
+              <span>
+                {{
+                  selectedGitCommitRepository
+                    ? `将提交 ${selectedGitCommitRepository.name}`
+                    : '请选择 Git 项目'
+                }}
+              </span>
+              <UiButton
+                variant="primary"
+                size="sm"
+                :disabled="!selectedGitCommitRepository"
+                @click="submitGitCommitTask"
+              >
+                加入对话
+              </UiButton>
+            </footer>
+          </section>
+        </Transition>
+        <Transition name="codex-composer-menu">
+          <section
             v-if="developmentPickerOpen"
             ref="developmentPicker"
             class="codex-composer-bug-picker codex-development-resource-picker"
@@ -5277,7 +8225,7 @@ onBeforeUnmount(() => {
               "
               class="codex-composer-bug-picker__state"
             >
-              <LoaderCircle class="codex-spin" :size="14" />
+              <UiFidgetSpinner :size="14" />
               正在读取资源
             </div>
             <div
@@ -5298,7 +8246,26 @@ onBeforeUnmount(() => {
                 "
                 @click="toggleDevelopmentResource(resource)"
               >
-                <span class="codex-development-resource-option__icon">
+                <ShortcutVisual
+                  v-if="resource.iconUrls?.length"
+                  :sources="resource.iconUrls"
+                  :mode="
+                    resource.kind === 'application'
+                      ? 'application'
+                      : 'website'
+                  "
+                  :size="24"
+                />
+                <span
+                  v-else-if="resource.iconUrl"
+                  class="codex-development-resource-option__asset"
+                >
+                  <img :src="resource.iconUrl" alt="" />
+                </span>
+                <span
+                  v-else
+                  class="codex-development-resource-option__icon"
+                >
                   <component
                     :is="developmentResourceIcon(resource.kind)"
                     :size="14"
@@ -5404,6 +8371,24 @@ onBeforeUnmount(() => {
             </button>
           </div>
           <div
+            v-if="pendingDevelopmentBranch"
+            class="codex-composer-bug-context codex-composer-branch-context"
+          >
+            <GitBranch :size="14" aria-hidden="true" />
+            <span :title="pendingDevelopmentBranch">
+              <strong>新增分支</strong>
+              {{ pendingDevelopmentBranch }}
+            </span>
+            <button
+              type="button"
+              aria-label="取消新增分支开发"
+              title="取消"
+              @click="clearPendingDevelopmentBranch"
+            >
+              <X :size="13" />
+            </button>
+          </div>
+          <div
             v-if="selectedDevelopmentResources.length"
             class="codex-composer-bug-context codex-composer-resource-context"
           >
@@ -5426,6 +8411,54 @@ onBeforeUnmount(() => {
               aria-label="取消选择资源"
               title="取消选择"
               @click="clearDevelopmentResources"
+            >
+              <X :size="13" />
+            </button>
+          </div>
+          <div
+            v-if="selectedBuiltinMcps.length"
+            class="codex-composer-bug-context codex-composer-mcp-context"
+          >
+            <PackageCheck :size="14" aria-hidden="true" />
+            <span
+              :title="
+                selectedBuiltinMcps
+                  .map((definition) => definition.name)
+                  .join('\n')
+              "
+            >
+              <strong>内置 MCP</strong>
+              {{ selectedBuiltinMcps[0].name }}
+              <small v-if="selectedBuiltinMcps.length > 1">
+                +{{ selectedBuiltinMcps.length - 1 }}
+              </small>
+            </span>
+            <button
+              type="button"
+              aria-label="取消选择内置 MCP"
+              title="取消选择"
+              @click="clearBuiltinMcps"
+            >
+              <X :size="13" />
+            </button>
+          </div>
+          <div
+            v-if="selectedUserTask"
+            class="codex-composer-bug-context codex-composer-user-task-context"
+          >
+            <ListChecks :size="14" aria-hidden="true" />
+            <span :title="selectedUserTask.description || selectedUserTask.title">
+              <strong>任务</strong>
+              {{ selectedUserTask.title }}
+              <small v-if="selectedUserTasks.length > 1">
+                +{{ selectedUserTasks.length - 1 }}
+              </small>
+            </span>
+            <button
+              type="button"
+              aria-label="取消选择任务"
+              title="取消选择"
+              @click="clearSelectedUserTask"
             >
               <X :size="13" />
             </button>
@@ -5471,9 +8504,8 @@ onBeforeUnmount(() => {
                   }}
                 </small>
               </span>
-              <LoaderCircle
+              <UiFidgetSpinner
                 v-if="attachment.uploading"
-                class="codex-spin"
                 :size="13"
               />
               <button
@@ -5496,7 +8528,7 @@ onBeforeUnmount(() => {
             :disabled="!bridgeReady"
             @keydown="handleComposerKeydown"
             @paste="handleComposerPaste"
-            @input="resizeComposer"
+            @input="handleComposerInput"
           />
           <div class="codex-composer__footer">
             <div class="codex-composer__leading">
@@ -5603,9 +8635,8 @@ onBeforeUnmount(() => {
                 "
                 @click="interruptTask"
               >
-                <LoaderCircle
+                <UiFidgetSpinner
                   v-if="interruptingTaskId === runningTask?.id"
-                  class="codex-spin"
                   :size="14"
                 />
                 <Square v-else :size="14" />
@@ -5636,6 +8667,7 @@ onBeforeUnmount(() => {
     </section>
 
     <aside
+      ref="taskPanel"
       class="codex-tasks"
       :class="{ 'codex-tasks--open': taskPanelOpen }"
     >
@@ -5665,6 +8697,15 @@ onBeforeUnmount(() => {
           v-for="task in pagedTasks"
           :key="task.id"
           class="codex-task"
+          :data-codex-task-card-id="task.id"
+          role="button"
+          tabindex="0"
+          :aria-label="`跳转到任务“${
+            task.displayPrompt || task.prompt
+          }”的执行位置`"
+          @click="jumpToTaskExecution(task)"
+          @keydown.enter.prevent="jumpToTaskExecution(task)"
+          @keydown.space.prevent="jumpToTaskExecution(task)"
         >
           <header :class="`codex-task__header--${task.status}`">
             <component
@@ -5749,6 +8790,34 @@ onBeforeUnmount(() => {
               待更新 Bug 单
             </span>
           </div>
+          <div
+            v-if="isZentaoTestTask(task)"
+            class="codex-task__zentao-actions"
+            @click.stop
+            @keydown.stop
+          >
+            <button
+              type="button"
+              :title="`打开 Bug #${taskZentaoTestRemoteId(task)} 详情`"
+              @click="openTaskZentaoBug(task)"
+            >
+              <Bug :size="13" />
+              关联 Bug 单
+            </button>
+            <button
+              type="button"
+              :disabled="!canOpenTaskTestResult(task)"
+              :title="
+                canOpenTaskTestResult(task)
+                  ? '打开本次 Codex 测试结果'
+                  : '测试结果尚未生成'
+              "
+              @click="openTaskTestResult(task)"
+            >
+              <Images :size="13" />
+              测试结果
+            </button>
+          </div>
         </article>
       </div>
 
@@ -5819,6 +8888,108 @@ onBeforeUnmount(() => {
       </Transition>
     </Teleport>
 
+    <ZentaoTestResultDialog
+      v-if="taskTestResult"
+      :bug="taskTestResult.bug"
+      :result="taskTestResult.result"
+      :publishing-note="publishingTaskTestNote"
+      @close="closeTaskTestResult"
+      @sync-note="publishTaskTestResultComment"
+    />
+
+    <UiDialog
+      v-if="developmentBranchDialogOpen"
+      title="新增分支开发"
+      description="只对下一次 Codex 任务生效。确认后，Codex 才会从当前 HEAD 创建并切换到指定分支。"
+      size="wide"
+      height="compact"
+      initial-focus="#codex-development-branch"
+      @close="closeDevelopmentBranchDialog"
+    >
+      <form
+        id="codex-development-branch-form"
+        class="codex-branch-form"
+        @submit.prevent="confirmDevelopmentBranch"
+      >
+        <label for="codex-development-branch">
+          <span>分支名称</span>
+          <UiInput
+            id="codex-development-branch"
+            v-model="developmentBranchNameDraft"
+            :invalid="Boolean(developmentBranchNameError)"
+            maxlength="120"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="例如 feature/codex-login"
+            @input="developmentBranchNameError = ''"
+          />
+        </label>
+        <div class="codex-branch-form__current">
+          <GitBranch :size="14" aria-hidden="true" />
+          <span>
+            当前分支：
+            <strong>{{ activeSessionBranch || '发送后由 Codex 检查' }}</strong>
+          </span>
+        </div>
+        <p class="codex-branch-form__hint">
+          目标分支已存在、当前目录不是 Git 仓库或工作区状态不安全时，Codex
+          会停止并报告，不会覆盖已有分支。
+        </p>
+        <p
+          v-if="developmentBranchNameError"
+          class="codex-branch-form__error"
+          role="alert"
+        >
+          {{ developmentBranchNameError }}
+        </p>
+      </form>
+
+      <template #footer>
+        <UiButton size="lg" @click="closeDevelopmentBranchDialog">
+          取消
+        </UiButton>
+        <UiButton
+          variant="primary"
+          size="lg"
+          type="submit"
+          form="codex-development-branch-form"
+        >
+          <GitBranch :size="14" />
+          确认新增
+        </UiButton>
+      </template>
+    </UiDialog>
+
+    <UiDialog
+      v-if="editingQueueTask"
+      title="编辑排队消息"
+      size="wide"
+      height="compact"
+      initial-focus="#codex-queue-edit"
+      @close="closeQueueEdit"
+    >
+      <div class="codex-queue-editor">
+        <UiTextarea
+          id="codex-queue-edit"
+          v-model="queueEditDraft"
+          :rows="8"
+          maxlength="12000"
+          aria-label="编辑排队消息"
+        />
+      </div>
+      <template #footer>
+        <UiButton size="lg" @click="closeQueueEdit">取消</UiButton>
+        <UiButton
+          variant="primary"
+          size="lg"
+          :disabled="!queueEditDraft.trim()"
+          @click="saveQueueEdit"
+        >
+          保存修改
+        </UiButton>
+      </template>
+    </UiDialog>
+
     <UiDialog
       v-if="createProjectOpen"
       title="创建项目"
@@ -5878,9 +9049,8 @@ onBeforeUnmount(() => {
               @click="chooseProjectFolder"
             >
               <span class="codex-project-folder__icon">
-                <LoaderCircle
+                <UiFidgetSpinner
                   v-if="choosingProjectFolder"
-                  class="codex-spin"
                   :size="17"
                 />
                 <FolderOpen v-else :size="17" />
@@ -5981,6 +9151,54 @@ onBeforeUnmount(() => {
     </UiDialog>
 
     <UiDialog
+      v-if="fileChangePreview"
+      :title="fileChangePreview.title"
+      description="查看本次任务记录的逐文件变更。"
+      size="wide"
+      height="tall"
+      @close="fileChangePreview = null"
+    >
+      <div class="codex-file-diff-list">
+        <section
+          v-for="change in fileChangePreview.changes"
+          :key="change.path"
+          class="codex-file-diff"
+        >
+          <header>
+            <code>{{ displayFileChangePath(change.path) }}</code>
+            <span>{{ change.additions }} 行新增 · {{ change.deletions }} 行删除</span>
+          </header>
+          <pre v-if="change.diff"><code><span
+            v-for="(line, index) in change.diff.split('\n')"
+            :key="`${change.path}:${index}`"
+            :class="diffLineClass(line)"
+          >{{ line || ' ' }}</span></code></pre>
+          <p v-else>这条历史记录没有保存 diff 内容。</p>
+        </section>
+      </div>
+    </UiDialog>
+
+    <UiConfirmDialog
+      v-if="undoFileChangeTarget"
+      title="撤销文件变更？"
+      :description="`将尝试反向应用 ${undoFileChangeTarget.changes.length} 个文件的补丁。`"
+      warning="只有文件当前内容仍与任务记录一致时才能撤销；如果之后又修改过，操作会安全失败，不会覆盖新改动。"
+      confirm-label="撤销"
+      busy-label="正在撤销…"
+      :busy="undoingFileChanges"
+      @close="undoFileChangeTarget = null"
+      @confirm="confirmUndoFileChanges"
+    >
+      <code class="codex-file-undo-list">
+        {{
+          undoFileChangeTarget.changes
+            .map((change) => displayFileChangePath(change.path))
+            .join('\n')
+        }}
+      </code>
+    </UiConfirmDialog>
+
+    <UiDialog
       v-if="usageOpen"
       title="Token 用量"
       :description="`优先读取本机 CC Switch 数据，读取失败时使用 ${PRODUCT_NAME}自有统计。`"
@@ -6016,7 +9234,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div v-if="usageLoading" class="codex-usage-loading">
-          <LoaderCircle class="codex-spin" :size="16" />
+          <UiFidgetSpinner :size="16" />
           正在读取用量…
         </div>
 
@@ -6703,6 +9921,52 @@ onBeforeUnmount(() => {
   line-height: var(--line-caption);
 }
 
+.codex-branch-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 var(--space-5) var(--space-4);
+}
+
+.codex-branch-form > label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: var(--text-muted);
+  font-size: var(--font-caption);
+  font-weight: var(--weight-emphasis);
+}
+
+.codex-branch-form__current {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-muted);
+  font-size: var(--font-caption);
+}
+
+.codex-branch-form__current > svg {
+  color: var(--system-blue);
+}
+
+.codex-branch-form__current strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-weight: var(--weight-regular);
+}
+
+.codex-branch-form__hint,
+.codex-branch-form__error {
+  margin: 0;
+  color: var(--text-subtle);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+
+.codex-branch-form__error {
+  color: var(--system-red);
+}
+
 .codex-project-form {
   display: flex;
   min-height: 0;
@@ -7093,7 +10357,12 @@ onBeforeUnmount(() => {
   font-weight: var(--weight-emphasis);
 }
 
-.codex-session-running-dot {
+.codex-session-running-spinner {
+  flex: 0 0 auto;
+  color: var(--system-blue);
+}
+
+.codex-session-unread-dot {
   width: 6px;
   height: 6px;
   flex: 0 0 auto;
@@ -7386,6 +10655,18 @@ onBeforeUnmount(() => {
   gap: 5px;
 }
 
+.codex-user-turn--inline {
+  margin-top: 2px;
+}
+
+.codex-user-turn--inline .codex-user-message {
+  background: color-mix(
+    in srgb,
+    var(--system-blue) 8%,
+    var(--surface-secondary)
+  );
+}
+
 .codex-user-message {
   align-self: stretch;
   padding: 10px 14px;
@@ -7394,11 +10675,45 @@ onBeforeUnmount(() => {
   border-radius: 18px;
 }
 
+.codex-user-steer-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+  color: var(--system-blue);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+
 .codex-user-message p {
   margin: 0;
   font-size: var(--font-body);
   line-height: var(--line-body);
   white-space: pre-wrap;
+}
+
+.codex-user-branch {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  margin-top: 7px;
+  color: var(--text-muted);
+  font-size: var(--font-caption);
+}
+
+.codex-user-branch > svg {
+  flex: 0 0 auto;
+  color: var(--system-blue);
+}
+
+.codex-user-branch code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--system-blue);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .codex-user-message time {
@@ -7508,42 +10823,52 @@ onBeforeUnmount(() => {
 
 .codex-turn-meta {
   display: flex;
-  min-height: 20px;
+  min-height: 30px;
+  align-self: flex-start;
   align-items: center;
-  gap: 6px;
-  color: var(--codex-message-subtle);
+  gap: var(--space-2);
+  padding: 4px 10px;
+  color: var(--text-muted);
   font-size: var(--font-caption);
   line-height: var(--line-caption);
+  background: var(--surface-inset);
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
 }
 
 .codex-turn-meta small {
   overflow: hidden;
-  color: var(--codex-message-subtle);
+  color: var(--text-subtle);
   font-size: var(--font-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.codex-turn-meta__dot {
-  width: 6px;
-  height: 6px;
+.codex-turn-meta__spinner {
   flex: 0 0 auto;
-  background: var(--accent);
-  border-radius: 50%;
-  animation: codex-live-pulse 1.2s ease-in-out infinite;
+  color: var(--accent);
 }
 
 .codex-turn-meta--waiting {
   color: var(--system-orange);
+  background: color-mix(
+    in srgb,
+    var(--system-orange) 7%,
+    var(--surface-inset)
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--system-orange) 22%,
+    transparent
+  );
 }
 
 .codex-turn-meta--queued {
   color: var(--system-orange);
 }
 
-.codex-turn-meta--waiting .codex-turn-meta__dot {
-  background: var(--system-orange);
-  animation: none;
+.codex-turn-meta--waiting .codex-turn-meta__spinner {
+  color: var(--system-orange);
 }
 
 .codex-turn-meta--waiting small {
@@ -7557,51 +10882,613 @@ onBeforeUnmount(() => {
 .codex-plan {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--surface-inset);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
 }
 
-.codex-plan > span {
+.codex-plan--floating {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 840px;
+  margin: 0 auto var(--space-2);
+  overflow: hidden;
+  background: var(--canvas-raised);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 4%),
+    0 8px 28px rgb(0 0 0 / 7%);
+}
+
+.codex-plan--expanded {
+  max-height: min(44vh, 430px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.codex-plan__heading {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.codex-plan--floating .codex-plan__heading {
+  cursor: pointer;
+  border-radius: 7px 7px 0 0;
+  transition: background var(--duration-fast) var(--ease-apple);
+}
+
+.codex-plan--floating .codex-plan__heading:hover {
+  background: var(--hover-bg);
+}
+
+.codex-plan--floating:not(.codex-plan--expanded)
+  .codex-plan__heading {
+  padding-bottom: 0;
+  border-bottom-color: transparent;
+}
+
+.codex-plan__identity {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.codex-plan__identity strong,
+.codex-plan__identity small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-plan__identity strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--line-body);
+}
+
+.codex-plan__identity small {
   color: var(--text-subtle);
   font-size: var(--font-caption);
+  line-height: var(--line-caption);
 }
 
-.codex-plan ul {
+.codex-plan__avatar {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(
+    in srgb,
+    var(--accent) 18%,
+    transparent
+  );
+  border-radius: 50%;
+  place-items: center;
+}
+
+.codex-plan__avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.codex-plan__progress {
+  min-width: 34px;
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: var(--font-caption);
+  font-weight: var(--weight-emphasis);
+  text-align: center;
+  background: var(--accent-soft);
+  border-radius: var(--radius-badge);
+}
+
+.codex-plan__progress--complete {
+  color: var(--system-green);
+  background: color-mix(
+    in srgb,
+    var(--system-green) 10%,
+    transparent
+  );
+}
+
+.codex-plan__toggle {
+  flex: 0 0 auto;
+  color: var(--text-subtle);
+  transition: transform var(--duration-fast) var(--ease-apple);
+}
+
+.codex-plan__toggle--expanded {
+  transform: rotate(180deg);
+}
+
+.codex-plan__steps {
   display: flex;
   margin: 0;
   padding: 0;
   flex-direction: column;
-  gap: var(--space-1);
   list-style: none;
 }
 
-.codex-plan li {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--text-muted);
-  font-size: var(--font-caption);
+.codex-plan__step {
+  position: relative;
+  display: grid;
+  align-items: flex-start;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  min-height: 25px;
+  padding: 1px 0;
 }
 
-.codex-plan li > span {
-  width: 6px;
-  height: 6px;
+.codex-plan__marker {
+  position: relative;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  color: var(--text-subtle);
+  background: var(--canvas-raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 50%;
+  place-items: center;
+}
+
+.codex-plan__step:not(:last-child) .codex-plan__marker::after {
+  position: absolute;
+  top: 18px;
+  bottom: -8px;
+  left: 50%;
+  width: 1px;
+  content: "";
+  background: var(--line-soft);
+  transform: translateX(-50%);
+}
+
+.codex-plan__dot {
+  width: 4px;
+  height: 4px;
   background: var(--text-subtle);
   border-radius: 50%;
 }
 
-.codex-plan__step--inProgress > span {
-  background: var(--system-blue);
+.codex-plan__step-copy {
+  padding-top: 1px;
+  color: var(--text-muted);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
 }
 
-.codex-plan__step--completed > span {
-  background: var(--system-green);
+.codex-plan__step--completed .codex-plan__marker {
+  color: var(--system-green);
+  background: color-mix(
+    in srgb,
+    var(--system-green) 11%,
+    var(--canvas-raised)
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--system-green) 30%,
+    transparent
+  );
+}
+
+.codex-plan__step--completed .codex-plan__step-copy {
+  color: var(--text-subtle);
+}
+
+.codex-plan__step--inProgress .codex-plan__marker {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(
+    in srgb,
+    var(--accent) 32%,
+    transparent
+  );
+}
+
+.codex-plan__step--inProgress .codex-plan__step-copy {
+  color: var(--text);
+  font-weight: var(--weight-emphasis);
+}
+
+.codex-floating-plan-enter-active,
+.codex-floating-plan-leave-active {
+  transition:
+    opacity var(--duration-fast) var(--ease-apple),
+    transform var(--duration-fast) var(--ease-apple);
+}
+
+.codex-floating-plan-enter-from,
+.codex-floating-plan-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
 }
 
 .codex-turn-timeline {
   display: flex;
   min-width: 0;
   flex-direction: column;
+  gap: 5px;
+}
+
+.codex-file-changes {
+  overflow: hidden;
+  background: var(--canvas-raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+}
+
+.codex-file-changes > header {
+  display: grid;
+  min-height: 66px;
+  align-items: center;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
   gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+}
+
+.codex-file-changes__icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  color: var(--text-muted);
+  background: var(--surface-inset);
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  place-items: center;
+}
+
+.codex-file-changes__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.codex-file-changes__copy strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  font-weight: var(--weight-emphasis);
+}
+
+.codex-file-changes__copy small,
+.codex-file-changes__stats {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-caption);
+}
+
+.codex-file-changes__add {
+  color: var(--system-green);
+}
+
+.codex-file-changes__delete {
+  color: var(--system-red);
+}
+
+.codex-file-changes__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.codex-file-changes__actions button,
+.codex-file-changes__list > button,
+.codex-file-changes__more {
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.codex-file-changes__actions button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  font-size: var(--font-caption);
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+}
+
+.codex-file-changes__actions button:hover:not(:disabled),
+.codex-file-changes__list > button:hover,
+.codex-file-changes__more:hover {
+  color: var(--text);
+  background: var(--hover-bg);
+}
+
+.codex-file-changes__actions button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.codex-file-changes__list {
+  border-top: 1px solid var(--line-soft);
+}
+
+.codex-file-changes__list > button {
+  display: grid;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  text-align: left;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.codex-file-changes__list > button code {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-file-changes__stats small {
+  font-family: var(--font-mono);
+  font-size: var(--font-caption);
+}
+
+.codex-file-changes__reverted {
+  color: var(--text-subtle);
+  font-size: var(--font-caption);
+}
+
+.codex-file-changes__more {
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 var(--space-4);
+  font-size: var(--font-caption);
+  text-align: left;
+}
+
+.codex-file-changes__more > svg {
+  transition: transform var(--duration-fast) var(--ease-apple);
+}
+
+.codex-file-changes__more--open {
+  transform: rotate(180deg);
+}
+
+.codex-file-diff-list {
+  display: flex;
+  max-height: min(68vh, 760px);
+  padding: 0 var(--space-5) var(--space-5);
+  flex-direction: column;
+  gap: var(--space-3);
+  overflow: auto;
+}
+
+.codex-file-diff {
+  overflow: hidden;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+}
+
+.codex-file-diff > header {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 0 var(--space-3);
+  background: var(--surface-inset);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.codex-file-diff > header code {
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--font-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-file-diff > header span {
+  flex: 0 0 auto;
+  color: var(--text-subtle);
+  font-size: var(--font-caption);
+}
+
+.codex-file-diff > pre {
+  max-height: 420px;
+  margin: 0;
+  padding: var(--space-3) 0;
+  overflow: auto;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 19px;
+  background: var(--canvas);
+  tab-size: 2;
+}
+
+.codex-file-diff > pre code > span {
+  display: block;
+  min-width: max-content;
+  padding: 0 var(--space-3);
+  white-space: pre;
+}
+
+.codex-diff-line--add {
+  color: var(--system-green);
+  background: color-mix(
+    in srgb,
+    var(--system-green) 8%,
+    transparent
+  );
+}
+
+.codex-diff-line--delete {
+  color: var(--system-red);
+  background: color-mix(
+    in srgb,
+    var(--system-red) 8%,
+    transparent
+  );
+}
+
+.codex-diff-line--hunk {
+  color: var(--system-blue);
+  background: color-mix(
+    in srgb,
+    var(--system-blue) 7%,
+    transparent
+  );
+}
+
+.codex-diff-line--meta {
+  color: var(--text-subtle);
+}
+
+.codex-file-diff > p,
+.codex-file-undo-list {
+  margin: 0;
+  padding: var(--space-3);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+
+.codex-file-undo-list {
+  display: block;
+  white-space: pre-wrap;
+}
+
+.codex-execution-group {
+  width: 100%;
+}
+
+.codex-execution-group__summary {
+  display: grid;
+  min-height: 38px;
+  align-items: center;
+  grid-template-columns: 26px minmax(0, 1fr) auto 13px;
+  column-gap: 9px;
+  padding: 5px 9px;
+  color: var(--text-muted);
+  font-size: var(--font-body);
+  line-height: var(--codex-message-line);
+  cursor: pointer;
+  list-style: none;
+  background: var(--canvas-raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  box-shadow: var(--control-shadow);
+  transition:
+    color var(--duration-fast) var(--ease-apple),
+    background var(--duration-fast) var(--ease-apple),
+    border-color var(--duration-fast) var(--ease-apple);
+}
+
+.codex-execution-group__summary:hover {
+  color: var(--text);
+  border-color: color-mix(
+    in srgb,
+    var(--accent) 20%,
+    var(--line-soft)
+  );
+}
+
+.codex-execution-group__summary::-webkit-details-marker {
+  display: none;
+}
+
+.codex-execution-group__icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 6px;
+  place-items: center;
+}
+
+.codex-execution-group__summary > span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-weight: var(--weight-emphasis);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-execution-group__count {
+  padding: 1px 6px;
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--font-caption);
+  background: var(--surface-inset);
+  border-radius: var(--radius-badge);
+}
+
+.codex-execution-group__chevron {
+  color: var(--text-subtle);
+  transition: transform var(--duration-fast) var(--ease-apple);
+}
+
+.codex-execution-group[open] > .codex-execution-group__summary {
+  background: var(--surface-inset);
+}
+
+.codex-execution-group[open]
+  > .codex-execution-group__summary
+  .codex-execution-group__chevron {
+  transform: rotate(90deg);
+}
+
+.codex-execution-group__items {
+  display: flex;
+  margin-top: 4px;
+  padding-left: var(--space-4);
+  flex-direction: column;
+  gap: 4px;
+  border-left: 1px solid var(--line-soft);
+  transform: translateX(12px);
+}
+
+.codex-activity-notice {
+  display: flex;
+  min-height: 26px;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  color: var(--codex-message-muted);
+  font-size: var(--font-body);
+  line-height: var(--codex-message-line);
+}
+
+.codex-activity-notice > svg {
+  flex: 0 0 auto;
+  color: var(--text-subtle);
 }
 
 .codex-activity-group {
@@ -7610,35 +11497,53 @@ onBeforeUnmount(() => {
 
 .codex-activity-group__summary {
   display: grid;
-  min-height: 25px;
+  min-height: 34px;
   align-items: center;
-  grid-template-columns: 16px minmax(0, 1fr) 13px;
-  column-gap: var(--space-2);
-  padding: 0 var(--space-2);
-  color: var(--codex-message-muted);
+  grid-template-columns: 26px minmax(0, 1fr) auto 13px;
+  column-gap: 8px;
+  padding: 4px 8px;
+  color: var(--text-muted);
   font-size: var(--font-body);
   line-height: var(--codex-message-line);
   cursor: pointer;
   list-style: none;
-  border-radius: var(--radius-control);
+  background: color-mix(
+    in srgb,
+    var(--surface-inset) 72%,
+    transparent
+  );
+  border: 1px solid transparent;
+  border-radius: 7px;
   transition:
     color var(--duration-fast) var(--ease-apple),
-    background var(--duration-fast) var(--ease-apple);
+    background var(--duration-fast) var(--ease-apple),
+    border-color var(--duration-fast) var(--ease-apple);
 }
 
 .codex-activity-group__summary:hover {
-  color: var(--codex-message-text);
-  background: var(--hover-bg);
+  color: var(--text);
+  background: var(--canvas-raised);
+  border-color: var(--line-soft);
 }
 
 .codex-activity-group__summary::-webkit-details-marker {
   display: none;
 }
 
-.codex-activity-group__summary > svg {
-  width: 15px;
-  height: 15px;
-  color: var(--codex-message-subtle);
+.codex-activity-group__icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  color: var(--icon);
+  background: var(--canvas-raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  place-items: center;
+}
+
+.codex-activity-group__icon > svg {
+  width: 14px;
+  height: 14px;
   stroke-width: 1.8;
 }
 
@@ -7649,16 +11554,38 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.codex-activity-group__count {
+  min-width: 22px;
+  padding: 1px 6px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-caption);
+  text-align: center;
+  background: var(--surface-inset);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-badge);
+}
+
 .codex-activity-group__chevron {
   transition: transform var(--duration-fast) var(--ease-apple);
 }
 
 .codex-activity-group[open] > .codex-activity-group__summary {
-  color: var(--codex-message-text);
+  color: var(--text);
+  background: var(--canvas-raised);
+  border-color: var(--line-soft);
 }
 
-.codex-activity-group[open] > .codex-activity-group__summary > svg {
-  color: var(--codex-message-muted);
+.codex-activity-group[open]
+  > .codex-activity-group__summary
+  .codex-activity-group__icon {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(
+    in srgb,
+    var(--accent) 16%,
+    transparent
+  );
 }
 
 .codex-activity-group[open] > .codex-activity-group__summary
@@ -7671,7 +11598,7 @@ onBeforeUnmount(() => {
   width: calc(100% - var(--space-6));
   margin: var(--space-2) 0 0 var(--space-6);
   flex-direction: column;
-  gap: var(--space-3);
+  gap: 2px;
 }
 
 .codex-activity {
@@ -7685,23 +11612,23 @@ onBeforeUnmount(() => {
 
 .codex-activity summary {
   display: grid;
-  min-height: 25px;
+  min-height: 32px;
   align-items: center;
-  grid-template-columns: 16px minmax(0, 1fr) auto 13px;
-  column-gap: var(--space-2);
-  padding: 0 var(--space-2);
-  color: var(--codex-message-muted);
+  grid-template-columns: 26px minmax(0, 1fr) auto 13px;
+  column-gap: 8px;
+  padding: 3px 8px;
+  color: var(--text-muted);
   font-size: var(--font-body);
   cursor: pointer;
   list-style: none;
-  border-radius: var(--radius-control);
+  border-radius: 7px;
   transition:
     color var(--duration-fast) var(--ease-apple),
     background var(--duration-fast) var(--ease-apple);
 }
 
 .codex-activity summary:hover {
-  color: var(--codex-message-text);
+  color: var(--text);
   background: var(--hover-bg);
 }
 
@@ -7709,15 +11636,24 @@ onBeforeUnmount(() => {
   display: none;
 }
 
-.codex-activity summary > svg {
-  width: 15px;
-  height: 15px;
-  flex: 0 0 auto;
-  stroke-width: 1.8;
-  color: var(--codex-message-subtle);
+.codex-activity__icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  color: var(--icon);
+  background: var(--surface-inset);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  place-items: center;
 }
 
-.codex-activity summary > span {
+.codex-activity__icon > svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.8;
+}
+
+.codex-activity summary > span:not(.codex-activity__icon) {
   min-width: 0;
   overflow: hidden;
   font-size: var(--font-body);
@@ -7731,7 +11667,7 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   align-items: center;
   gap: 3px;
-  color: var(--codex-message-subtle);
+  color: var(--text-subtle);
   font-family: var(--font-mono);
   font-size: var(--font-caption);
   font-variant-numeric: tabular-nums;
@@ -7800,6 +11736,7 @@ onBeforeUnmount(() => {
 }
 
 .codex-markdown {
+  margin-left: 5px;
   color: var(--codex-message-text);
   font-size: var(--font-body);
   line-height: var(--codex-message-line);
@@ -7888,6 +11825,29 @@ onBeforeUnmount(() => {
   line-height: var(--line-caption);
 }
 
+.codex-review-link {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: var(--space-2);
+}
+
+.codex-review-link button {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  color: var(--accent);
+  font-size: var(--font-caption);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: var(--radius-control);
+}
+
+.codex-review-link button:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
 .codex-composer {
   position: relative;
   z-index: 2;
@@ -7900,9 +11860,11 @@ onBeforeUnmount(() => {
   display: flex;
   width: 100%;
   max-width: 840px;
-  max-height: 148px;
+  max-height: 210px;
   margin: 0 auto var(--space-2);
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   flex-direction: column;
   gap: var(--space-1);
 }
@@ -7928,28 +11890,47 @@ onBeforeUnmount(() => {
 }
 
 .codex-queue__item {
-  display: flex;
-  min-height: 34px;
+  display: grid;
+  min-height: 40px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) var(--space-1) var(--space-1)
-    var(--space-2);
+  padding: var(--space-1) var(--space-2);
   color: var(--text-muted);
   background: var(--surface-secondary);
   border-radius: var(--radius-panel);
+  transition:
+    opacity var(--duration-fast) var(--ease-apple),
+    box-shadow var(--duration-fast) var(--ease-apple);
 }
 
-.codex-queue__index {
-  display: grid;
-  width: 18px;
-  height: 18px;
+.codex-queue__item--dragging {
+  opacity: 0.45;
+}
+
+.codex-queue__item--drop-target {
+  box-shadow: inset 0 2px 0 var(--system-blue);
+}
+
+.codex-queue__drag {
+  display: inline-flex;
+  min-width: 28px;
+  height: 24px;
   flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
   color: var(--text-subtle);
+  cursor: grab;
+}
+
+.codex-queue__drag:active {
+  cursor: grabbing;
+}
+
+.codex-queue__drag small {
   font-family: var(--font-mono);
   font-size: var(--font-caption);
-  background: var(--surface-inset);
-  border-radius: 50%;
-  place-items: center;
 }
 
 .codex-queue__prompt {
@@ -7962,22 +11943,59 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.codex-queue__item > button {
-  display: grid;
+.codex-queue__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.codex-queue__actions > button,
+.codex-queue__actions :deep(.ui-action-menu__trigger) {
+  display: inline-flex;
   width: 24px;
   height: 24px;
   flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
   padding: 0;
   color: var(--icon);
   background: transparent;
-  border: 0;
   border-radius: var(--radius-control);
-  place-items: center;
 }
 
-.codex-queue__item > button:hover {
+.codex-queue__actions > .codex-queue__steer {
+  width: auto;
+  gap: 4px;
+  padding: 0 7px;
+  color: var(--system-blue);
+  font-size: var(--font-caption);
+  font-weight: var(--weight-emphasis);
+  background: var(--accent-soft);
+}
+
+.codex-queue__actions > button:hover:not(:disabled),
+.codex-queue__actions :deep(.ui-action-menu__trigger:hover) {
   color: var(--icon-hover);
   background: var(--hover-bg);
+}
+
+.codex-queue__actions > .codex-queue__steer:hover:not(:disabled) {
+  color: var(--system-blue);
+  background: color-mix(
+    in srgb,
+    var(--system-blue) 16%,
+    var(--canvas-raised)
+  );
+}
+
+.codex-queue__actions > button:disabled {
+  color: var(--text-subtle);
+  background: transparent;
+}
+
+.codex-queue-editor {
+  padding: var(--space-3) var(--space-5) var(--space-5);
 }
 
 .codex-composer__dock {
@@ -8358,6 +12376,22 @@ onBeforeUnmount(() => {
   color: #14a38b;
 }
 
+.codex-development-resource-option__asset {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  overflow: hidden;
+  background: var(--surface-inset);
+  border-radius: 6px;
+  place-items: center;
+}
+
+.codex-development-resource-option__asset > img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
 .codex-development-resource-picker__footer {
   display: flex;
   align-items: center;
@@ -8378,6 +12412,24 @@ onBeforeUnmount(() => {
   font-size: var(--font-caption);
   background: var(--label);
   border-radius: 7px;
+}
+
+.codex-git-commit-picker > header svg,
+.codex-git-commit-picker__icon {
+  color: var(--system-blue);
+}
+
+.codex-git-commit-picker__icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  background: color-mix(
+    in srgb,
+    var(--system-blue) 9%,
+    transparent
+  );
+  border-radius: 6px;
+  place-items: center;
 }
 
 .codex-composer-add {
@@ -8434,6 +12486,18 @@ onBeforeUnmount(() => {
   --codex-add-icon-color: #4c8bf5;
 }
 
+.codex-composer-add__branch {
+  --codex-add-icon-color: var(--system-blue);
+}
+
+.codex-composer-add__commit {
+  --codex-add-icon-color: var(--system-blue);
+}
+
+.codex-composer-add__user-task {
+  --codex-add-icon-color: var(--system-blue);
+}
+
 .codex-composer-add__development {
   --codex-add-icon-color: #14a38b;
 }
@@ -8444,6 +12508,28 @@ onBeforeUnmount(() => {
 
 .codex-composer-add__note {
   --codex-add-icon-color: var(--system-blue);
+}
+
+.codex-composer-add__mcp {
+  --codex-add-icon-color: var(--system-green);
+}
+
+.codex-composer-add__mcp > span {
+  align-items: center;
+}
+
+.codex-composer-add__mcp--selected {
+  background: color-mix(
+    in srgb,
+    var(--system-green) 8%,
+    transparent
+  );
+}
+
+.codex-composer-add__mcp-check {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--system-green);
 }
 
 .codex-composer-add__usage {
@@ -8592,6 +12678,49 @@ onBeforeUnmount(() => {
   font-family: var(--font-sans);
 }
 
+.codex-composer-branch-context {
+  background: color-mix(
+    in srgb,
+    var(--system-blue) 5%,
+    var(--canvas-raised)
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--system-blue) 16%,
+    var(--line-soft)
+  );
+}
+
+.codex-composer-branch-context > svg {
+  color: var(--system-blue);
+}
+
+.codex-composer-branch-context strong {
+  color: var(--system-blue);
+  font-family: var(--font-sans);
+}
+
+.codex-composer-user-task-context {
+  background: color-mix(
+    in srgb,
+    var(--system-blue) 4%,
+    var(--canvas-raised)
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--system-blue) 12%,
+    var(--line-soft)
+  );
+}
+
+.codex-composer-user-task-context > svg {
+  color: var(--system-blue);
+}
+
+.codex-composer-user-task-context strong {
+  font-family: var(--font-sans);
+}
+
 .codex-composer-resource-context {
   background: color-mix(in srgb, #14a38b 4%, var(--canvas-raised));
   border-color: color-mix(
@@ -8607,6 +12736,28 @@ onBeforeUnmount(() => {
 
 .codex-composer-resource-context strong {
   color: #14a38b;
+  font-family: var(--font-sans);
+}
+
+.codex-composer-mcp-context {
+  background: color-mix(
+    in srgb,
+    var(--system-green) 7%,
+    var(--canvas-raised)
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--system-green) 18%,
+    var(--line-soft)
+  );
+}
+
+.codex-composer-mcp-context > svg {
+  color: var(--system-green);
+}
+
+.codex-composer-mcp-context strong {
+  color: var(--system-green);
   font-family: var(--font-sans);
 }
 
@@ -9277,6 +13428,36 @@ onBeforeUnmount(() => {
   background: var(--canvas-raised);
   border-radius: 8px;
   box-shadow: var(--shadow-panel);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-apple),
+    box-shadow var(--duration-fast) var(--ease-apple);
+}
+
+.codex-task:hover {
+  background: var(--hover-bg);
+}
+
+.codex-task:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.codex-task-jump-target {
+  outline: 2px solid transparent;
+  outline-offset: 5px;
+  animation: codex-task-jump-pulse 1.4s var(--ease-apple);
+}
+
+@keyframes codex-task-jump-pulse {
+  15%,
+  70% {
+    outline-color: var(--accent);
+  }
+
+  100% {
+    outline-color: transparent;
+  }
 }
 
 .codex-task header {
@@ -9413,6 +13594,38 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--system-red) 14%, transparent);
 }
 
+.codex-task > .codex-task__zentao-actions {
+  padding-top: 9px;
+  margin-top: 10px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.codex-task__zentao-actions button {
+  display: inline-flex;
+  min-height: 26px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  color: var(--system-blue);
+  font-size: var(--font-caption);
+  font-weight: var(--weight-emphasis);
+  background: var(--accent-soft);
+  border-radius: var(--radius-control);
+}
+
+.codex-task__zentao-actions button:hover:not(:disabled) {
+  background: color-mix(
+    in srgb,
+    var(--system-blue) 16%,
+    var(--canvas-raised)
+  );
+}
+
+.codex-task__zentao-actions button:disabled {
+  color: var(--text-subtle);
+  background: var(--surface-inset);
+}
+
 .codex-mobile-panel-button,
 .codex-mobile-scrim {
   display: none;
@@ -9431,23 +13644,6 @@ onBeforeUnmount(() => {
 @keyframes codex-cursor {
   50% {
     opacity: 0;
-  }
-}
-
-@keyframes codex-live-pulse {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-
-  50% {
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .codex-turn-meta__dot {
-    animation: none;
   }
 }
 
@@ -9588,6 +13784,21 @@ onBeforeUnmount(() => {
 
   .codex-user-turn {
     max-width: 88%;
+  }
+
+  .codex-file-changes > header {
+    grid-template-columns: 32px minmax(0, 1fr);
+    padding: var(--space-3);
+  }
+
+  .codex-file-changes__actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+
+  .codex-file-changes__list > button,
+  .codex-file-changes__more {
+    padding-inline: var(--space-3);
   }
 
   .codex-composer {

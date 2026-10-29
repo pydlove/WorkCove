@@ -11,18 +11,23 @@ import java.util.Optional;
 
 public interface CalendarRepository {
 
-    List<CalendarEvent> findEvents(long ownerId);
+    List<CalendarEvent> findEvents(long ownerId, String workspaceId);
 
-    Optional<CalendarEvent> findEvent(long ownerId, String eventKey);
+    Optional<CalendarEvent> findEvent(
+            long ownerId,
+            String workspaceId,
+            String eventKey);
 
     CalendarEvent saveEventWithReminders(
             CalendarEvent event,
             List<CalendarReminder> reminders,
             Instant now);
 
-    void deleteEvent(long ownerId, String eventKey);
+    void deleteEvent(long ownerId, String workspaceId, String eventKey);
 
-    Optional<CalendarReminderSettings> findReminderSettings(long ownerId);
+    Optional<CalendarReminderSettings> findReminderSettings(
+            long ownerId,
+            String workspaceId);
 
     CalendarReminderSettings saveReminderSettings(
             CalendarReminderSettings settings);
@@ -42,11 +47,21 @@ public interface CalendarRepository {
 
     void createInAppNotification(InAppNotification notification);
 
-    List<InAppNotification> findNotifications(long ownerId, int limit);
+    List<InAppNotification> findNotifications(
+            long ownerId,
+            String workspaceId,
+            int limit);
 
-    int countUnreadNotifications(long ownerId);
+    int countUnreadNotifications(long ownerId, String workspaceId);
 
-    void markNotificationRead(long ownerId, long notificationId, Instant readAt);
+    void markNotificationRead(
+            long ownerId,
+            String workspaceId,
+            long notificationId,
+            Instant readAt);
 
-    void markAllNotificationsRead(long ownerId, Instant readAt);
+    void markAllNotificationsRead(
+            long ownerId,
+            String workspaceId,
+            Instant readAt);
 }

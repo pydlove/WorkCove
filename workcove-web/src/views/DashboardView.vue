@@ -12,16 +12,19 @@ import {
   ChevronDown,
   ChevronRight,
   Clock3,
-  Coffee,
   Code2,
   Database,
+  FileText,
   FolderKanban,
   FolderCode,
+  FlaskConical,
   GitBranch,
   Globe2,
+  History,
   Home,
   Inbox,
   KeyRound,
+  ListTodo,
   LogIn,
   LogOut,
   Mail,
@@ -35,9 +38,11 @@ import {
   RefreshCw,
   Rocket,
   RotateCcw,
+  ScanSearch,
   Search,
   Server,
   Settings,
+  Trash2,
   UserRound,
   X,
 } from '@lucide/vue'
@@ -75,25 +80,35 @@ import {
 import AppTitlebar from '@/components/business/AppTitlebar.vue'
 import ApplicationLibrary from '@/components/business/applications/ApplicationLibrary.vue'
 import DeploymentLibrary from '@/components/business/development/DeploymentLibrary.vue'
+import CodeReviewLibrary from '@/components/business/development/CodeReviewLibrary.vue'
 import GitRepositoryLibrary from '@/components/business/development/GitRepositoryLibrary.vue'
 import ServerManagement from '@/components/business/development/ServerManagement.vue'
+import TestEnvironmentLibrary from '@/components/business/development/TestEnvironmentLibrary.vue'
+import TestEnvironmentPickerDialog from '@/components/business/development/TestEnvironmentPickerDialog.vue'
 import WorkDirectoryLibrary from '@/components/business/development/WorkDirectoryLibrary.vue'
 import ZentaoBugLibrary from '@/components/business/development/ZentaoBugLibrary.vue'
 import MailWorkspace from '@/components/business/mail/MailWorkspace.vue'
 import ProfileEditor from '@/components/business/ProfileEditor.vue'
 import CodexIdentitySettings from '@/components/business/settings/CodexIdentitySettings.vue'
+import ScreensaverSettings from '@/components/business/settings/ScreensaverSettings.vue'
 import StyleGuidePanel from '@/components/business/settings/StyleGuidePanel.vue'
-import TaskRow from '@/components/business/TaskRow.vue'
+import TaskLibrary from '@/components/business/tasks/TaskLibrary.vue'
+import EmbeddedBrowserDialog from '@/components/business/websites/EmbeddedBrowserDialog.vue'
 import WebsiteLibrary from '@/components/business/websites/WebsiteLibrary.vue'
 import WorkbenchHome from '@/components/business/workbench/WorkbenchHome.vue'
 import WellnessReminderBar from '@/components/business/workbench/WellnessReminderBar.vue'
+import WellnessQuickActions from '@/components/business/workbench/WellnessQuickActions.vue'
 import WorkbenchWellnessPanel from '@/components/business/workbench/WorkbenchWellnessPanel.vue'
 import WellnessRestOverlay from '@/components/business/workbench/WellnessRestOverlay.vue'
 import WorkspaceSwitcher from '@/components/business/workspaces/WorkspaceSwitcher.vue'
 import BrandMark from '@/components/ui/BrandMark.vue'
 import CodexMark from '@/components/ui/CodexMark.vue'
+import UiConfirmDialog from '@/components/ui/UiConfirmDialog.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
+import UiFidgetSpinner from '@/components/ui/UiFidgetSpinner.vue'
 import UiSegmentedControl from '@/components/ui/UiSegmentedControl.vue'
+import UiSelect from '@/components/ui/UiSelect.vue'
+import ZentaoMark from '@/components/ui/ZentaoMark.vue'
 import { useActivityTracker } from '@/composables/useActivityTracker'
 import { usePagination } from '@/composables/usePagination'
 import {
@@ -103,14 +118,46 @@ import {
   saveUserWorkbenchData,
   saveUserWorkbenchSettings,
 } from '@/services/userWorkbench'
+import {
+  applyWorkTaskExecutionUpdate,
+  normalizeWorkTask,
+} from '@/services/userTasks'
+import {
+  canSearchWorkFiles,
+  openWorkFile,
+  searchWorkFiles,
+  type WorkFileSearchItem,
+} from '@/services/workFileSearch'
+import {
+  loadSearchHistory,
+  saveSearchHistory,
+  type SearchHistoryEntry,
+} from '@/services/searchHistory'
+import {
+  DEFAULT_VAULT_UNLOCK_MINUTES,
+  normalizeVaultUnlockMinutes,
+  VAULT_UNLOCK_MINUTE_OPTIONS,
+} from '@/services/vaultPreferences'
+import {
+  checkMailNotifications,
+  loadMailNotifications,
+  markAllMailNotificationsRead,
+  markMailNotificationRead,
+  unreadMailNotificationCount,
+  type MailInboxNotification,
+} from '@/services/mailNotifications'
+import { zentaoTestRepairPrompt } from '@/services/zentaoTestRepair'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useActivityStore } from '@/stores/useActivityStore'
 import { useCodexStore } from '@/stores/useCodexStore'
+import { useCodeReviewStore } from '@/stores/useCodeReviewStore'
 import { useDatabaseStore } from '@/stores/useDatabaseStore'
 import { useDeploymentStore } from '@/stores/useDeploymentStore'
 import { useGitRepositoryStore } from '@/stores/useGitRepositoryStore'
 import { useManagedServerStore } from '@/stores/useManagedServerStore'
 import { useShortcutStore } from '@/stores/useShortcutStore'
+import { useScreensaverStore } from '@/stores/useScreensaverStore'
+import { useTestEnvironmentStore } from '@/stores/useTestEnvironmentStore'
 import { useWorkDirectoryStore } from '@/stores/useWorkDirectoryStore'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import { useWorkNoteStore } from '@/stores/useWorkNoteStore'
@@ -125,16 +172,28 @@ import type {
   WorkNote,
   WorkProject,
   WorkTask,
+  WorkTaskExecutionUpdate,
+  WorkTaskInput,
+  WorkTaskProjectOption,
 } from '@/types/workbench'
+import type { CodexTestRepairTaskPayload } from '@/types/codex'
 import type { WorkNote as StoredWorkNote } from '@/types/workNote'
 import type { CalendarNotification } from '@/types/calendar'
+import type { TestEnvironment } from '@/types/testEnvironment'
 import type { ZentaoBug } from '@/types/zentao'
+import type { ZentaoTestResult } from '@/types/zentaoTest'
 import { openWebsiteUrl } from '@/utils/openWebsite'
 import {
   formatWellnessDuration,
   localDateKey,
+  wellnessClockMode,
+  wellnessClockOutConfirmation,
   wellnessDaySummary,
 } from '@/utils/wellness'
+
+type DashboardNotification =
+  | CalendarNotification
+  | MailInboxNotification
 
 type ViewId =
   | 'overview'
@@ -146,6 +205,8 @@ type ViewId =
   | 'databases'
   | 'deployments'
   | 'zentaoBugs'
+  | 'codeReviews'
+  | 'testEnvironments'
   | 'servers'
   | 'tasks'
   | 'notes'
@@ -156,7 +217,9 @@ type ViewId =
   | 'profile'
   | 'settings'
 
-type TaskFilter = 'all' | 'open' | 'done'
+type NavigationMode = 'normal' | 'accordion'
+type NavigationGroup = 'daily' | 'development' | 'resource'
+
 type DatabaseStatus =
   | 'checking'
   | 'connected'
@@ -184,11 +247,14 @@ type GlobalSearchKind =
   | 'project'
   | 'note'
   | 'codexSession'
+  | 'file'
   | 'workDirectory'
   | 'git'
   | 'database'
   | 'deployment'
   | 'bug'
+  | 'codeReview'
+  | 'testEnvironment'
   | 'server'
 
 interface GlobalSearchResult {
@@ -212,6 +278,8 @@ const viewIds: ViewId[] = [
   'databases',
   'deployments',
   'zentaoBugs',
+  'codeReviews',
+  'testEnvironments',
   'servers',
   'tasks',
   'notes',
@@ -250,11 +318,14 @@ const databaseStore = useDatabaseStore()
 const deploymentStore = useDeploymentStore()
 const managedServerStore = useManagedServerStore()
 const zentaoStore = useZentaoStore()
+const codeReviewStore = useCodeReviewStore()
+const testEnvironmentStore = useTestEnvironmentStore()
 const codexStore = useCodexStore()
 const noteLibraryStore = useWorkNoteStore()
 const wellnessStore = useWellnessStore()
+const screensaverStore = useScreensaverStore()
 const themeStore = useThemeStore()
-const now = new Date()
+const now = ref(new Date())
 useActivityTracker()
 
 function routeView(): ViewId {
@@ -270,18 +341,29 @@ const mobileNavOpen = ref(false)
 const sidebarCollapsed = ref(false)
 const profileMenuOpen = ref(false)
 const notificationCenterOpen = ref(false)
-const notifications = ref<CalendarNotification[]>([])
-const unreadNotificationCount = ref(0)
+const notifications = ref<DashboardNotification[]>([])
+const mailNotifications = ref<MailInboxNotification[]>([])
+const unreadCalendarNotificationCount = ref(0)
+const unreadNotificationCount = computed(
+  () =>
+    unreadCalendarNotificationCount.value +
+    unreadMailNotificationCount(mailNotifications.value),
+)
 const notificationsLoading = ref(false)
 const searchQuery = ref('')
 const searchInput = ref<HTMLInputElement | null>(null)
-const taskComposer = ref<HTMLInputElement | null>(null)
-const newTaskTitle = ref('')
+const searchHistoryOpen = ref(false)
+const searchHistoryEntries = ref<SearchHistoryEntry[]>([])
+const workFileResults = ref<WorkFileSearchItem[]>([])
+const workFileSearchLoading = ref(false)
+let workFileSearchTimer: number | null = null
+let workFileSearchSequence = 0
 const notesWorkspace = ref<{ startComposer: () => void } | null>(null)
 const notesQuickCapturePending = ref(false)
-const taskFilter = ref<TaskFilter>('all')
 const launchOnLogin = ref(true)
 const compactSidebar = ref(false)
+const navigationMode = ref<NavigationMode>('normal')
+const vaultUnlockMinutes = ref(DEFAULT_VAULT_UNLOCK_MINUTES)
 const codexDisplayName = ref(DEFAULT_CODEX_ASSISTANT_NAME)
 const codexIconDataUrl = ref<string | null>(null)
 const databaseStatus = ref<DatabaseStatus>('checking')
@@ -290,17 +372,38 @@ const codexDetail = ref('正在检测本地 Codex CLI')
 const ccSwitchStatus = ref<LocalIntegrationStatus>('checking')
 const ccSwitchDetail = ref('正在检测本地 CC Switch')
 const styleGuideOpen = ref(false)
+const codeReviewSelectionId = ref('')
 const codexMounted = ref(activeView.value === 'codex')
 const serverManagementMounted = ref(activeView.value === 'servers')
+const supportsEmbeddedBrowser = Boolean(
+  window.workCoveDesktop?.openEmbeddedBrowser,
+)
+const embeddedBrowserRequest =
+  ref<EmbeddedBrowserAutomationOpenRequest | null>(null)
+const testEnvironmentPickerBug = ref<ZentaoBug | null>(null)
+const zentaoBugOpenRequest = ref<{
+  bugId: number
+  remoteId: string
+  nonce: number
+} | null>(null)
+const testEnvironmentLaunching = ref(false)
 const developmentViews = new Set<ViewId>([
   'workDirectories',
   'gitRepositories',
   'databases',
   'deployments',
   'zentaoBugs',
+  'codeReviews',
+  'testEnvironments',
   'servers',
 ])
-const dailyViews = new Set<ViewId>(['codex', 'notes', 'calendar', 'mail'])
+const dailyViews = new Set<ViewId>([
+  'tasks',
+  'codex',
+  'notes',
+  'calendar',
+  'mail',
+])
 const resourceViews = new Set<ViewId>(['websites', 'apps', 'vault'])
 const dailyMenuOpen = ref(true)
 const developmentMenuOpen = ref(false)
@@ -412,6 +515,7 @@ const navigationPrimary: NavigationItem[] = [
   { id: 'overview', label: '工作台', icon: Home },
 ]
 const dailyNavigation: NavigationItem[] = [
+  { id: 'tasks', label: '任务', icon: ListTodo },
   { id: 'codex', label: 'Codex', icon: CodexMark },
   { id: 'notes', label: '速记', icon: NotebookPen },
   { id: 'calendar', label: '日历', icon: CalendarDays },
@@ -423,7 +527,13 @@ const developmentNavigation: NavigationItem[] = [
   { id: 'databases', label: '数据库', icon: Database },
   { id: 'servers', label: '服务器管理', icon: Server },
   { id: 'deployments', label: '部署', icon: Rocket },
-  { id: 'zentaoBugs', label: 'Bug 清单', icon: Bug },
+  { id: 'zentaoBugs', label: '禅道', icon: ZentaoMark },
+  { id: 'codeReviews', label: '代码评审', icon: ScanSearch },
+  {
+    id: 'testEnvironments',
+    label: '测试环境',
+    icon: FlaskConical,
+  },
 ]
 const resourceNavigation: NavigationItem[] = [
   { id: 'websites', label: '网址', icon: Globe2 },
@@ -436,15 +546,58 @@ const themeOptions: Array<{ value: ThemePreference; label: string }> = [
   { value: 'dark', label: '深色' },
   { value: 'system', label: '跟随系统' },
 ]
-const fontOptions: Array<{ value: FontPreference; label: string }> = [
-  { value: 'system', label: '系统' },
-  { value: 'codex', label: 'Codex' },
-  { value: 'avenir', label: 'Avenir' },
+const fontOptions: Array<{
+  value: FontPreference
+  label: string
+  description: string
+}> = [
+  {
+    value: 'system',
+    label: '苹方（系统默认）',
+    description: 'macOS 原生字形，克制清晰',
+  },
+  {
+    value: 'misans',
+    label: 'MiSans',
+    description: '柔和现代，推荐作为全局界面字体',
+  },
+  {
+    value: 'noto-sans',
+    label: '思源黑体',
+    description: '清晰稳重，适合长时间阅读',
+  },
+  {
+    value: 'hiragino',
+    label: '冬青黑体',
+    description: '字形偏窄，适合高密度信息',
+  },
+  {
+    value: 'wenkai',
+    label: '霞鹜文楷',
+    description: '阅读感和书写感更强，适合随笔',
+  },
+  {
+    value: 'noto-serif',
+    label: '思源宋体',
+    description: '衬线字形，适合标题和沉浸阅读',
+  },
+  {
+    value: 'codex',
+    label: 'Codex Inter',
+    description: '英文和数字更现代，中文使用苹方兜底',
+  },
+  {
+    value: 'avenir',
+    label: 'Avenir',
+    description: '几何感更强，英文界面更精致',
+  },
 ]
-const taskFilterOptions: Array<{ value: TaskFilter; label: string }> = [
-  { value: 'all', label: '全部' },
-  { value: 'open', label: '待完成' },
-  { value: 'done', label: '已完成' },
+const navigationModeOptions: Array<{
+  value: NavigationMode
+  label: string
+}> = [
+  { value: 'normal', label: '正常模式' },
+  { value: 'accordion', label: '手风琴模式' },
 ]
 const databaseStatusText = computed(() => {
   if (databaseStatus.value === 'connected') return '已连接'
@@ -547,9 +700,19 @@ const viewMeta: Record<
     description: '保存部署脚本，在研发服务器上执行并查看运行结果。',
   },
   zentaoBugs: {
-    label: 'Bug 清单',
+    label: '禅道',
     description:
-      '从禅道同步指定项目的 Bug，可查看详情、在平台内标记解决或交给 Codex。',
+      '管理禅道连接与同步项目，查看 Bug、确认状态并交给 Codex。',
+  },
+  codeReviews: {
+    label: '代码评审',
+    description:
+      '选择组员分支，由 Codex 先做异常初审，仅人工处理风险项和修改要求。',
+  },
+  testEnvironments: {
+    label: '测试环境',
+    description:
+      '保存 Codex 测试使用的地址与登录信息，可从已有网址快速创建。',
   },
   servers: {
     label: '服务器管理',
@@ -557,7 +720,8 @@ const viewMeta: Record<
   },
   tasks: {
     label: '任务',
-    description: '整理、推进并完成今天的工作。',
+    description:
+      '管理任务内容与状态，可选择任务交给 Codex 执行，并在任务中查看结果。',
   },
   notes: {
     label: '速记',
@@ -565,7 +729,7 @@ const viewMeta: Record<
   },
   vault: {
     label: '密码库',
-    description: '集中管理账号密码，验证后 5 分钟内可以查看。',
+    description: '集中管理账号密码，解锁有效期可在设置中调整。',
   },
   mail: {
     label: '邮件',
@@ -601,7 +765,7 @@ const displayName = computed(() => {
 const displayInitial = computed(() => displayName.value.charAt(0).toUpperCase())
 const accountLabel = computed(() => session.email || '本地账号')
 const greeting = computed(() => {
-  const hour = now.getHours()
+  const hour = now.value.getHours()
   if (hour < 6) return '夜深了'
   if (hour < 11) return '早上好'
   if (hour < 14) return '中午好'
@@ -613,7 +777,32 @@ const dateLabel = computed(() =>
     month: 'long',
     day: 'numeric',
     weekday: 'long',
-  }).format(now),
+  }).format(now.value),
+)
+const titlebarTimeLabel = computed(() =>
+  new Intl.DateTimeFormat('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(now.value),
+)
+const titlebarDateLabel = computed(() =>
+  new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    weekday: 'short',
+  }).format(now.value),
+)
+const titlebarDateTime = computed(() =>
+  new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'long',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(now.value),
 )
 const currentView = computed(() => viewMeta[activeView.value])
 const pageTitle = computed(() =>
@@ -626,6 +815,65 @@ const pageDescription = computed(() =>
     ? `今天是 ${dateLabel.value}，从这里开始今天的工作。`
     : currentView.value.description,
 )
+const workspaceTasks = computed(() =>
+  tasks.value.filter(
+    (task) =>
+      !task.workspaceId ||
+      task.workspaceId === workspaceStore.activeWorkspaceId,
+  ),
+)
+const activeWorkDirectoryRoots = computed(() => [
+  ...new Set(
+    workDirectoryStore.directories
+      .filter(
+        (directory) =>
+          directory.workspaceId === workspaceStore.activeWorkspaceId &&
+          directory.path.trim(),
+      )
+      .map((directory) => directory.path.trim()),
+  ),
+])
+const codexProjectOptions = computed<WorkTaskProjectOption[]>(() => {
+  const projects = new Map<string, WorkTaskProjectOption>()
+  for (const session of codexStore.sessions) {
+    if (session.workspaceId !== workspaceStore.activeWorkspaceId) continue
+    const rawPath = session.cwd.trim()
+    const path =
+      rawPath === '/'
+        ? rawPath
+        : rawPath.replace(/[\\/]+$/, '')
+    if (!path || projects.has(path)) continue
+    projects.set(path, {
+      id: path,
+      name: path.split(/[\\/]/).filter(Boolean).at(-1) || path,
+      path,
+    })
+  }
+  return [...projects.values()].sort((left, right) =>
+    left.name.localeCompare(right.name, 'zh-CN'),
+  )
+})
+
+function projectForTask(task: WorkTask) {
+  const taskPath = task.projectPath?.trim()
+  const normalizedTaskPath = taskPath
+    ? taskPath === '/'
+      ? taskPath
+      : taskPath.replace(/[\\/]+$/, '')
+    : ''
+  return (
+    codexProjectOptions.value.find(
+      (project) =>
+        project.path === normalizedTaskPath ||
+        (!task.projectPath && project.name === task.project),
+    ) ?? null
+  )
+}
+
+function taskProjectKey(task: WorkTask) {
+  const project = projectForTask(task)
+  return project?.path || task.projectPath || `unlinked:${task.project}`
+}
 const calendarDateQuery = computed(() => {
   const value = route.query.date
   return typeof value === 'string' &&
@@ -634,33 +882,12 @@ const calendarDateQuery = computed(() => {
     : ''
 })
 
-function setTaskFilter(value: string) {
-  taskFilter.value = value as TaskFilter
-}
-
 function setThemePreference(value: string) {
   themeStore.setPreference(value as ThemePreference)
 }
 function setFontPreference(value: string) {
   themeStore.setFontPreference(value as FontPreference)
 }
-const filteredTasks = computed(() => {
-  if (taskFilter.value === 'open') {
-    return tasks.value.filter((task) => !task.done)
-  }
-
-  if (taskFilter.value === 'done') {
-    return tasks.value.filter((task) => task.done)
-  }
-
-  return tasks.value
-})
-const {
-  currentPage: taskPage,
-  pageItems: pagedTasks,
-  setPage: setTaskPage,
-} = usePagination(filteredTasks, () => taskFilter.value)
-
 const viewSearchIcons: Record<ViewId, Component> = {
   overview: Home,
   codex: CodexMark,
@@ -670,9 +897,11 @@ const viewSearchIcons: Record<ViewId, Component> = {
   gitRepositories: GitBranch,
   databases: Database,
   deployments: Rocket,
-  zentaoBugs: Bug,
+  zentaoBugs: ZentaoMark,
+  codeReviews: ScanSearch,
+  testEnvironments: FlaskConical,
   servers: Server,
-  tasks: CheckCheck,
+  tasks: ListTodo,
   mail: Mail,
   notes: NotebookPen,
   vault: KeyRound,
@@ -681,6 +910,35 @@ const viewSearchIcons: Record<ViewId, Component> = {
   profile: UserRound,
   settings: Settings,
 }
+
+const searchHistoryIcons: Record<GlobalSearchKind, Component> = {
+  view: Search,
+  website: Globe2,
+  application: AppWindow,
+  task: Check,
+  workbenchNote: NotebookPen,
+  project: FolderKanban,
+  note: NotebookPen,
+  codexSession: CodexMark,
+  file: FileText,
+  workDirectory: FolderCode,
+  git: GitBranch,
+  database: Database,
+  deployment: Rocket,
+  bug: Bug,
+  codeReview: ScanSearch,
+  testEnvironment: FlaskConical,
+  server: Server,
+}
+
+const visibleSearchHistory = computed(() =>
+  searchHistoryEntries.value
+    .filter(
+      (entry) =>
+        entry.workspaceId === workspaceStore.activeWorkspaceId,
+    )
+    .slice(0, 30),
+)
 
 const searchResults = computed<GlobalSearchResult[]>(() => {
   const query = searchQuery.value.trim().toLocaleLowerCase('zh-CN')
@@ -743,8 +1001,16 @@ const searchResults = computed<GlobalSearchResult[]>(() => {
       icon: AppWindow,
     }))
 
-  const workTasks = tasks.value
-    .filter((task) => matches(task.title, task.project))
+  const workTasks = workspaceTasks.value
+    .filter((task) =>
+      matches(
+        task.title,
+        task.project,
+        task.description,
+        task.executionResult,
+        task.executionError,
+      ),
+    )
     .slice(0, 3)
     .map<GlobalSearchResult>((task) => ({
       key: `task:${task.id}`,
@@ -753,7 +1019,7 @@ const searchResults = computed<GlobalSearchResult[]>(() => {
       targetView: 'tasks',
       group: '任务',
       title: task.title,
-      subtitle: task.project,
+      subtitle: `${task.project} · ${taskExecutionLabel(task)}`,
       icon: Check,
     }))
 
@@ -890,6 +1156,30 @@ const searchResults = computed<GlobalSearchResult[]>(() => {
       icon: Database,
     }))
 
+  const testEnvironments = testEnvironmentStore.environments
+    .filter(
+      (environment) =>
+        environment.workspaceId === workspaceId,
+    )
+    .filter((environment) =>
+      matches(
+        environment.name,
+        environment.url,
+        environment.username,
+      ),
+    )
+    .slice(0, 3)
+    .map<GlobalSearchResult>((environment) => ({
+      key: `test-environment:${environment.id}`,
+      kind: 'testEnvironment',
+      targetId: String(environment.id),
+      targetView: 'testEnvironments',
+      group: '测试环境',
+      title: environment.name,
+      subtitle: environment.url,
+      icon: FlaskConical,
+    }))
+
   const deployments = deploymentStore.deployments
     .filter((deployment) => deployment.workspaceId === workspaceId)
     .filter((deployment) =>
@@ -935,6 +1225,29 @@ const searchResults = computed<GlobalSearchResult[]>(() => {
       icon: Bug,
     }))
 
+  const codeReviews = codeReviewStore.records
+    .filter((review) => review.workspaceId === workspaceId)
+    .filter((review) =>
+      matches(
+        review.repositoryName,
+        review.branchLabel,
+        review.baseBranch,
+        review.summary,
+        review.manualNote,
+      ),
+    )
+    .slice(0, 3)
+    .map<GlobalSearchResult>((review) => ({
+      key: `code-review:${review.id}`,
+      kind: 'codeReview',
+      targetId: review.id,
+      targetView: 'codeReviews',
+      group: '代码评审',
+      title: `${review.repositoryName} · ${review.branchLabel}`,
+      subtitle: review.summary || `第 ${review.iteration} 次评审`,
+      icon: ScanSearch,
+    }))
+
   const servers = managedServerStore.servers
     .filter((server) => server.workspaceId === workspaceId)
     .filter((server) =>
@@ -952,6 +1265,19 @@ const searchResults = computed<GlobalSearchResult[]>(() => {
       icon: Server,
     }))
 
+  const workFiles = workFileResults.value.map<GlobalSearchResult>(
+    (file) => ({
+      key: `file:${file.path}`,
+      kind: 'file',
+      targetId: file.path,
+      targetView: 'workDirectories',
+      group: '文件',
+      title: file.name,
+      subtitle: `${file.rootName} · ${file.relativePath}`,
+      icon: FileText,
+    }),
+  )
+
   return [
     ...pages,
     ...websites,
@@ -961,17 +1287,62 @@ const searchResults = computed<GlobalSearchResult[]>(() => {
     ...workProjects,
     ...libraryNotes,
     ...codexSessions,
+    ...workFiles,
     ...workDirectories,
     ...gitRepositories,
     ...databases,
+    ...testEnvironments,
     ...deployments,
     ...bugs,
+    ...codeReviews,
     ...servers,
   ]
 })
 
+function scheduleWorkFileSearch() {
+  const sequence = ++workFileSearchSequence
+  if (workFileSearchTimer !== null) {
+    window.clearTimeout(workFileSearchTimer)
+    workFileSearchTimer = null
+  }
+  workFileResults.value = []
+
+  const query = searchQuery.value.trim()
+  const roots = activeWorkDirectoryRoots.value
+  if (!query || roots.length === 0 || !canSearchWorkFiles()) {
+    workFileSearchLoading.value = false
+    return
+  }
+
+  workFileSearchLoading.value = true
+  workFileSearchTimer = window.setTimeout(async () => {
+    try {
+      const results = await searchWorkFiles(roots, query)
+      if (sequence === workFileSearchSequence) {
+        workFileResults.value = results
+      }
+    } catch {
+      if (sequence === workFileSearchSequence) {
+        workFileResults.value = []
+      }
+    } finally {
+      if (sequence === workFileSearchSequence) {
+        workFileSearchLoading.value = false
+      }
+    }
+  }, 180)
+}
+
+const todayWellnessDate = computed(() => localDateKey(now.value))
+const activeWorkToday = computed(() => {
+  const active = wellnessStore.data.activeWork
+  return active &&
+    localDateKey(active.startedAt) === todayWellnessDate.value
+    ? active
+    : null
+})
 const todayWorkSession = computed(() => {
-  const date = localDateKey(new Date())
+  const date = todayWellnessDate.value
   return (
     wellnessStore.data.workSessions
       .filter((work) => localDateKey(work.startedAt) === date)
@@ -983,14 +1354,30 @@ const todayWorkSession = computed(() => {
   )
 })
 const clockActionMode = computed(() => {
-  if (wellnessStore.data.activeWork) return 'clockOut'
-  return todayWorkSession.value ? 'update' : 'clockIn'
+  return wellnessClockMode(
+    wellnessStore.data,
+    now.value,
+  )
 })
+const clockOutConfirmation = computed(() =>
+  wellnessClockOutConfirmation(
+    wellnessStore.data.reminderSettings,
+    now.value,
+  ),
+)
+const clockOutConfirmOpen = ref(false)
 
 let toastTimer: number | null = null
 let notificationPollTimer: number | null = null
+let mailNotificationPollTimer: number | null = null
+let dayClockTimer: number | null = null
 let notificationRequestInFlight = false
+let notificationGeneration = 0
+let mailNotificationCheckInFlight = false
+let mailNotificationGeneration = 0
 let workbenchOwnerEmail = ''
+
+const MAIL_NOTIFICATION_POLL_MS = 120_000
 
 function notify(message: string) {
   toastMessage.value = message
@@ -1004,21 +1391,39 @@ function refreshCurrentPage() {
   window.location.reload()
 }
 
-function startRestFromFooter() {
-  if (!wellnessStore.startRest()) return
-  notify('休息计时开始，先离开屏幕一会儿')
+function syncWellnessClock(value = new Date()) {
+  now.value = value
+  if (!wellnessStore.ownerEmail) return
+  wellnessStore.ensureDay(value)
+  wellnessStore.closeStaleSessions(value)
 }
 
 function clockInFromFooter() {
-  if (!wellnessStore.clockIn()) {
+  syncWellnessClock()
+  if (todayWorkSession.value) {
     notify('今天已经完成上班打卡，一天只能打卡一次')
+    return
+  }
+  if (!wellnessStore.clockIn()) {
+    notify('当前无法完成上班打卡，请稍后重试')
     return
   }
   notify('打卡成功，已开始记录工作时间')
 }
 
+function requestClockOutFromFooter() {
+  syncWellnessClock()
+  if (!activeWorkToday.value) {
+    notify('当前没有进行中的上下班记录，请先完成上班打卡')
+    return
+  }
+  clockOutConfirmOpen.value = true
+}
+
 function clockOutFromFooter() {
-  if (!wellnessStore.data.activeWork) return
+  syncWellnessClock()
+  clockOutConfirmOpen.value = false
+  if (!activeWorkToday.value) return
   wellnessStore.clockOut()
   const summary = wellnessDaySummary(
     wellnessStore.data,
@@ -1030,6 +1435,7 @@ function clockOutFromFooter() {
 }
 
 function updateClockOutFromFooter() {
+  syncWellnessClock()
   if (!todayWorkSession.value) return
   wellnessStore.updateClockOut()
   const summary = wellnessDaySummary(
@@ -1055,10 +1461,102 @@ function continueRestFromFooter() {
   )
 }
 
-async function refreshUnreadNotifications() {
+function isMailNotification(
+  notification: DashboardNotification,
+): notification is MailInboxNotification {
+  return (
+    'source' in notification &&
+    notification.source === 'mail'
+  )
+}
+
+function mergeDashboardNotifications(
+  mailItems = mailNotifications.value,
+  calendarItems = notifications.value.filter(
+    (notification) => !isMailNotification(notification),
+  ),
+) {
+  return [...mailItems, ...calendarItems].sort(
+    (left, right) =>
+      new Date(right.createdAt).getTime() -
+      new Date(left.createdAt).getTime(),
+  )
+}
+
+function currentWorkspaceMailNotifications(
+  items: MailInboxNotification[],
+) {
+  const workspaceId = workspaceStore.activeWorkspaceId
+  return items.filter(
+    (notification) => notification.workspaceId === workspaceId,
+  )
+}
+
+async function refreshMailNotifications() {
+  const email = session.email.trim().toLocaleLowerCase('en-US')
+  const workspaceId = workspaceStore.activeWorkspaceId
+  if (!email || !workspaceId) {
+    mailNotifications.value = []
+    notifications.value = mergeDashboardNotifications([])
+    return
+  }
+
+  const existing = loadMailNotifications(email, workspaceId)
+  mailNotifications.value = existing
+  if (notificationCenterOpen.value) {
+    notifications.value = mergeDashboardNotifications(existing)
+  }
+  if (mailNotificationCheckInFlight) return
+
+  const generation = mailNotificationGeneration
+  mailNotificationCheckInFlight = true
   try {
-    const result = await getUnreadNotificationCount()
-    unreadNotificationCount.value = result.count
+    const items = await checkMailNotifications(email, workspaceId)
+    if (
+      generation !== mailNotificationGeneration ||
+      session.email.trim().toLocaleLowerCase('en-US') !== email ||
+      workspaceStore.activeWorkspaceId !== workspaceId
+    ) {
+      return
+    }
+    mailNotifications.value = items
+    if (notificationCenterOpen.value) {
+      notifications.value = mergeDashboardNotifications(items)
+    }
+  } catch {
+    // Mail notification checks stay silent; mailbox errors surface in Mail.
+  } finally {
+    if (
+      generation === mailNotificationGeneration &&
+      workspaceStore.activeWorkspaceId === workspaceId
+    ) {
+      mailNotificationCheckInFlight = false
+    }
+  }
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState !== 'visible') return
+  void refreshUnreadNotifications()
+  void refreshMailNotifications()
+}
+
+async function refreshUnreadNotifications() {
+  const workspaceId = workspaceStore.activeWorkspaceId
+  const generation = notificationGeneration
+  if (!workspaceId) {
+    unreadCalendarNotificationCount.value = 0
+    return
+  }
+  try {
+    const result = await getUnreadNotificationCount(workspaceId)
+    if (
+      generation !== notificationGeneration ||
+      workspaceStore.activeWorkspaceId !== workspaceId
+    ) {
+      return
+    }
+    unreadCalendarNotificationCount.value = result.count
   } catch {
     // Calendar data stays usable while the notification service is offline.
   }
@@ -1066,17 +1564,33 @@ async function refreshUnreadNotifications() {
 
 async function refreshNotificationCenter() {
   if (notificationRequestInFlight) return
+  const workspaceId = workspaceStore.activeWorkspaceId
+  if (!workspaceId) return
+  const generation = notificationGeneration
   notificationRequestInFlight = true
   notificationsLoading.value = true
   try {
     const [items, unread] = await Promise.all([
-      listCalendarNotifications(30),
-      getUnreadNotificationCount(),
+      listCalendarNotifications(workspaceId, 30),
+      getUnreadNotificationCount(workspaceId),
     ])
-    notifications.value = items
-    unreadNotificationCount.value = unread.count
+    if (
+      generation !== notificationGeneration ||
+      workspaceStore.activeWorkspaceId !== workspaceId
+    ) {
+      return
+    }
+    unreadCalendarNotificationCount.value = unread.count
+    notifications.value = mergeDashboardNotifications(
+      mailNotifications.value,
+      items,
+    )
   } catch (error) {
-    if (notificationCenterOpen.value) {
+    if (
+      generation === notificationGeneration &&
+      workspaceStore.activeWorkspaceId === workspaceId &&
+      notificationCenterOpen.value
+    ) {
       notify(
         error instanceof Error
           ? `通知加载失败：${error.message}`
@@ -1084,27 +1598,55 @@ async function refreshNotificationCenter() {
       )
     }
   } finally {
-    notificationsLoading.value = false
-    notificationRequestInFlight = false
+    if (
+      generation === notificationGeneration &&
+      workspaceStore.activeWorkspaceId === workspaceId
+    ) {
+      notificationsLoading.value = false
+      notificationRequestInFlight = false
+    }
   }
 }
 
 async function toggleNotificationCenter() {
   notificationCenterOpen.value = !notificationCenterOpen.value
   profileMenuOpen.value = false
+  searchHistoryOpen.value = false
   if (notificationCenterOpen.value) {
-    await refreshNotificationCenter()
+    await Promise.all([
+      refreshNotificationCenter(),
+      refreshMailNotifications(),
+    ])
   }
 }
 
-async function openNotification(notification: CalendarNotification) {
+async function openNotification(
+  notification: DashboardNotification,
+) {
+  if (isMailNotification(notification)) {
+    if (!notification.readAt) {
+      const email = session.email.trim().toLocaleLowerCase('en-US')
+      if (email) {
+        mailNotifications.value = currentWorkspaceMailNotifications(
+          markMailNotificationRead(email, notification.id),
+        )
+        notifications.value = mergeDashboardNotifications()
+      }
+    }
+    notificationCenterOpen.value = false
+    selectView('mail')
+    return
+  }
   if (!notification.readAt) {
     try {
-      await markCalendarNotificationRead(notification.id)
+      await markCalendarNotificationRead(
+        notification.id,
+        workspaceStore.activeWorkspaceId,
+      )
       notification.readAt = new Date().toISOString()
-      unreadNotificationCount.value = Math.max(
+      unreadCalendarNotificationCount.value = Math.max(
         0,
-        unreadNotificationCount.value - 1,
+        unreadCalendarNotificationCount.value - 1,
       )
     } catch {
       // Navigation remains useful if marking a notification read fails.
@@ -1122,13 +1664,35 @@ async function openNotification(notification: CalendarNotification) {
 async function markAllNotificationsRead() {
   if (unreadNotificationCount.value === 0) return
   try {
-    await markAllCalendarNotificationsRead()
+    if (unreadCalendarNotificationCount.value > 0) {
+      await markAllCalendarNotificationsRead(
+        workspaceStore.activeWorkspaceId,
+      )
+    }
+    const email = session.email.trim().toLocaleLowerCase('en-US')
+    if (email) {
+      mailNotifications.value = currentWorkspaceMailNotifications(
+        markAllMailNotificationsRead(
+          email,
+          workspaceStore.activeWorkspaceId,
+        ),
+      )
+    }
     const readAt = new Date().toISOString()
-    notifications.value = notifications.value.map((item) => ({
-      ...item,
-      readAt: item.readAt ?? readAt,
-    }))
-    unreadNotificationCount.value = 0
+    const calendarItems = notifications.value
+      .filter(
+        (item): item is CalendarNotification =>
+          !isMailNotification(item),
+      )
+      .map((item) => ({
+        ...item,
+        readAt: item.readAt ?? readAt,
+      }))
+    notifications.value = mergeDashboardNotifications(
+      mailNotifications.value,
+      calendarItems,
+    )
+    unreadCalendarNotificationCount.value = 0
   } catch (error) {
     notify(
       error instanceof Error
@@ -1159,17 +1723,28 @@ function notificationTime(value: string) {
   }).format(timestamp)
 }
 
+function taskExecutionLabel(task: WorkTask) {
+  const status = task.executionStatus ?? (task.done ? 'completed' : 'todo')
+  if (status === 'running') return '执行中'
+  if (status === 'completed') return '已完成'
+  if (status === 'failed') return '执行失败'
+  if (status === 'interrupted') return '已中断'
+  return '待执行'
+}
+
 function restoreUserWorkbench(email: string) {
   const normalizedEmail = email.trim().toLocaleLowerCase('en-US')
   workbenchOwnerEmail = normalizedEmail
   if (!normalizedEmail) return
 
   const data = loadUserWorkbenchData(normalizedEmail)
-  tasks.value = (
-    data
-      ? data.tasks
-      : defaultTasks
-  ).map((task) => ({ ...task }))
+  tasks.value = (data ? data.tasks : defaultTasks).map(
+    (task) =>
+      normalizeWorkTask(
+        { ...task },
+        workspaceStore.activeWorkspaceId,
+      ),
+  )
   notes.value = (
     data
       ? data.notes
@@ -1184,6 +1759,9 @@ function restoreUserWorkbench(email: string) {
   const settings = loadUserWorkbenchSettings(normalizedEmail)
   launchOnLogin.value = settings?.launchOnLogin ?? true
   compactSidebar.value = settings?.compactSidebar ?? false
+  navigationMode.value = settings?.navigationMode ?? 'normal'
+  vaultUnlockMinutes.value =
+    settings?.vaultUnlockMinutes ?? DEFAULT_VAULT_UNLOCK_MINUTES
   codexDisplayName.value =
     settings?.codexName ?? DEFAULT_CODEX_ASSISTANT_NAME
   codexIconDataUrl.value = settings?.codexIconDataUrl ?? null
@@ -1199,6 +1777,8 @@ function restoreUserWorkbench(email: string) {
     saveUserWorkbenchSettings(normalizedEmail, {
       launchOnLogin: launchOnLogin.value,
       compactSidebar: compactSidebar.value,
+      navigationMode: navigationMode.value,
+      vaultUnlockMinutes: vaultUnlockMinutes.value,
       codexName: codexDisplayName.value,
       codexIconDataUrl: codexIconDataUrl.value,
     })
@@ -1219,6 +1799,8 @@ function persistUserWorkbenchSettings() {
   saveUserWorkbenchSettings(workbenchOwnerEmail, {
     launchOnLogin: launchOnLogin.value,
     compactSidebar: compactSidebar.value,
+    navigationMode: navigationMode.value,
+    vaultUnlockMinutes: vaultUnlockMinutes.value,
     codexName: codexDisplayName.value,
     codexIconDataUrl: codexIconDataUrl.value,
   })
@@ -1238,42 +1820,164 @@ function toggleTask(id: number) {
   if (!task) return
 
   task.done = !task.done
+  task.executionStatus = task.done ? 'completed' : 'todo'
+  task.updatedAt = new Date().toISOString()
+  persistUserWorkbench()
 }
 
-async function addTask() {
-  const title = newTaskTitle.value.trim()
-  if (!title) return
-
+function createTask(input: WorkTaskInput) {
+  const now = new Date().toISOString()
   tasks.value.unshift({
-    id: Date.now(),
-    title,
-    project: '收件箱',
+    id: Date.now() * 1000 + Math.floor(Math.random() * 1000),
+    workspaceId: workspaceStore.activeWorkspaceId,
+    title: input.title,
+    description: input.description,
+    attachments: input.attachments ?? [],
+    project: input.project,
+    projectPath: input.projectPath ?? '',
     time: new Intl.DateTimeFormat('zh-CN', {
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
     }).format(new Date()),
     done: false,
-    priority: 'medium',
+    priority: input.priority,
+    executionStatus: 'todo',
+    createdAt: now,
+    updatedAt: now,
   })
-  newTaskTitle.value = ''
-  notify('任务已加入今天')
-  await nextTick()
-  taskComposer.value?.focus()
+  persistUserWorkbench()
+  notify('任务已创建')
 }
 
-async function focusTaskComposer() {
-  if (activeView.value !== 'overview' && activeView.value !== 'tasks') {
-    activeView.value = 'tasks'
+function createCodexTestRepairTask(
+  payload: CodexTestRepairTaskPayload,
+) {
+  if (
+    tasks.value.some(
+      (task) => task.codexTaskId === payload.codexTaskId,
+    )
+  ) {
+    return
   }
-  mobileNavOpen.value = false
-  await nextTick()
-  taskComposer.value?.focus()
+  const now = new Date().toISOString()
+  const taskId =
+    Date.now() * 1000 + Math.floor(Math.random() * 1000)
+  tasks.value.unshift({
+    id: taskId,
+    workspaceId:
+      payload.workspaceId ||
+      workspaceStore.activeWorkspaceId ||
+      workspaceStore.workspaces[0]?.id,
+    title: payload.title,
+    description: payload.description,
+    project: payload.project,
+    projectPath: payload.projectPath,
+    time: new Intl.DateTimeFormat('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date()),
+    done: false,
+    priority: 'high',
+    executionStatus: 'running',
+    codexSessionId: payload.codexSessionId,
+    codexTaskId: payload.codexTaskId,
+    lastExecutedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  })
+  const codexTask = codexStore.sessions
+    .flatMap((codexSession) => codexSession.tasks)
+    .find((task) => task.id === payload.codexTaskId)
+  if (codexTask) {
+    codexTask.userTaskId = taskId
+    codexStore.persist()
+  }
+  persistUserWorkbench()
+}
+
+function updateTask(id: number, input: WorkTaskInput) {
+  const task = tasks.value.find((item) => item.id === id)
+  if (!task) return
+  task.title = input.title
+  task.description = input.description
+  task.attachments = input.attachments ?? []
+  task.project = input.project
+  task.projectPath = input.projectPath ?? ''
+  task.priority = input.priority
+  task.updatedAt = new Date().toISOString()
+  persistUserWorkbench()
+  notify('任务已更新')
+}
+
+function deleteTask(id: number) {
+  tasks.value = tasks.value.filter((task) => task.id !== id)
+  persistUserWorkbench()
+  notify('任务已删除')
+}
+
+function executeWorkTask(task: WorkTask) {
+  executeWorkTasks([task])
+}
+
+function executeWorkTasks(batch: WorkTask[]) {
+  const taskIds = [...new Set(batch.map((task) => task.id))]
+  if (taskIds.length === 0) return
+  if (!workspaceStore.activeWorkspaceId) {
+    notify('工作空间尚未初始化')
+    return
+  }
+  const projectKeys = new Set(batch.map(taskProjectKey))
+  if (projectKeys.size > 1) {
+    notify('不同项目的任务请分批交给 Codex')
+    return
+  }
+  const project = batch[0] ? projectForTask(batch[0]) : null
+  const cwd = project?.path ?? batch[0]?.projectPath ?? ''
+  codexStore.load(session.email)
+  codexStore.requestPrefill(
+    workspaceStore.activeWorkspaceId,
+    cwd,
+    '',
+    { userTaskIds: taskIds },
+  )
+  selectView('codex')
+  notify(
+    taskIds.length > 1
+      ? `${taskIds.length} 个任务已带入${project ? `「${project.name}」` : ' Codex'}，确认后批量执行`
+      : `任务已带入${project ? `「${project.name}」` : ' Codex'}，确认后发送执行`,
+  )
+}
+
+function applyUserTaskExecution(update: WorkTaskExecutionUpdate) {
+  const nextTasks = applyWorkTaskExecutionUpdate(tasks.value, update)
+  if (nextTasks === tasks.value) return
+  tasks.value = nextTasks
+  persistUserWorkbench()
+}
+
+function openCodexSession(sessionId = '') {
+  if (sessionId) codexStore.selectSession(sessionId)
+  selectView('codex')
+}
+
+function openCodeReview(reviewId = '') {
+  codeReviewSelectionId.value = reviewId
+  selectView('codeReviews')
+}
+
+function handleCodexTaskPanelVisibility(open: boolean) {
+  if (!open) return
+  searchHistoryOpen.value = false
+  notificationCenterOpen.value = false
+  profileMenuOpen.value = false
 }
 
 function toggleSidebar() {
   profileMenuOpen.value = false
   notificationCenterOpen.value = false
+  searchHistoryOpen.value = false
   if (window.matchMedia('(max-width: 900px)').matches) {
     sidebarCollapsed.value = false
     mobileNavOpen.value = !mobileNavOpen.value
@@ -1293,6 +1997,7 @@ function selectView(
   mobileNavOpen.value = false
   profileMenuOpen.value = false
   notificationCenterOpen.value = false
+  searchHistoryOpen.value = false
   const routeNeedsUpdate =
     route.query.view !== view ||
     Object.entries(query).some(
@@ -1315,21 +2020,83 @@ function openCalendarDate(date: string) {
 }
 
 function syncNavigationMenus(view: ViewId) {
-  if (dailyViews.has(view)) dailyMenuOpen.value = true
-  if (developmentViews.has(view)) developmentMenuOpen.value = true
-  if (resourceViews.has(view)) resourceMenuOpen.value = true
+  if (dailyViews.has(view)) {
+    setNavigationGroupOpen('daily', true)
+  }
+  if (developmentViews.has(view)) {
+    setNavigationGroupOpen('development', true)
+  }
+  if (resourceViews.has(view)) {
+    setNavigationGroupOpen('resource', true)
+  }
 }
 
 function toggleDailyMenu() {
-  dailyMenuOpen.value = !dailyMenuOpen.value
+  toggleNavigationGroup('daily')
 }
 
 function toggleDevelopmentMenu() {
-  developmentMenuOpen.value = !developmentMenuOpen.value
+  toggleNavigationGroup('development')
 }
 
 function toggleResourceMenu() {
-  resourceMenuOpen.value = !resourceMenuOpen.value
+  toggleNavigationGroup('resource')
+}
+
+function navigationGroupOpen(group: NavigationGroup) {
+  if (group === 'daily') return dailyMenuOpen.value
+  if (group === 'development') return developmentMenuOpen.value
+  return resourceMenuOpen.value
+}
+
+function setNavigationGroupOpen(
+  group: NavigationGroup,
+  open: boolean,
+) {
+  if (navigationMode.value === 'accordion' && open) {
+    dailyMenuOpen.value = group === 'daily'
+    developmentMenuOpen.value = group === 'development'
+    resourceMenuOpen.value = group === 'resource'
+    return
+  }
+  if (group === 'daily') dailyMenuOpen.value = open
+  if (group === 'development') developmentMenuOpen.value = open
+  if (group === 'resource') resourceMenuOpen.value = open
+}
+
+function toggleNavigationGroup(group: NavigationGroup) {
+  setNavigationGroupOpen(group, !navigationGroupOpen(group))
+}
+
+function activeNavigationGroup(view: ViewId): NavigationGroup | null {
+  if (dailyViews.has(view)) return 'daily'
+  if (developmentViews.has(view)) return 'development'
+  if (resourceViews.has(view)) return 'resource'
+  return null
+}
+
+function normalizeAccordionNavigation() {
+  if (navigationMode.value !== 'accordion') return
+  const activeGroup = activeNavigationGroup(activeView.value)
+  const openGroup =
+    activeGroup ??
+    (dailyMenuOpen.value
+      ? 'daily'
+      : developmentMenuOpen.value
+        ? 'development'
+        : resourceMenuOpen.value
+          ? 'resource'
+          : 'daily')
+  setNavigationGroupOpen(openGroup, true)
+}
+
+function setNavigationMode(mode: NavigationMode) {
+  navigationMode.value = mode
+  normalizeAccordionNavigation()
+}
+
+function setVaultUnlockMinutes(value: string) {
+  vaultUnlockMinutes.value = normalizeVaultUnlockMinutes(value)
 }
 
 function solveZentaoBug(bug: ZentaoBug) {
@@ -1339,12 +2106,54 @@ function solveZentaoBug(bug: ZentaoBug) {
   )
 }
 
-async function testZentaoBug(bug: ZentaoBug) {
+function testZentaoBug(bug: ZentaoBug) {
+  testEnvironmentPickerBug.value = bug
+}
+
+function repairFailedZentaoTest(payload: {
+  bug: ZentaoBug
+  result: ZentaoTestResult
+}) {
+  zentaoStore.requestCodexPrefill(
+    [payload.bug.id],
+    zentaoTestRepairPrompt(payload.bug, payload.result),
+  )
+  selectView('codex')
+}
+
+function openZentaoBugFromCodex(payload: {
+  bugId: number
+  remoteId: string
+}) {
+  zentaoBugOpenRequest.value = {
+    ...payload,
+    nonce: Date.now() + Math.random(),
+  }
+  selectView('zentaoBugs')
+}
+
+function clearZentaoBugOpenRequest(nonce: number) {
+  if (zentaoBugOpenRequest.value?.nonce === nonce) {
+    zentaoBugOpenRequest.value = null
+  }
+}
+
+async function startZentaoTest(
+  environment: TestEnvironment,
+) {
+  const bug = testEnvironmentPickerBug.value
   if (!workspaceStore.activeWorkspaceId) {
     notify('工作空间尚未初始化')
     return
   }
+  if (!bug || testEnvironmentLaunching.value) return
+  testEnvironmentLaunching.value = true
   try {
+    const credentials =
+      await testEnvironmentStore.credentials(
+        environment.id,
+        workspaceStore.activeWorkspaceId,
+      )
     const run = await prepareZentaoTestRun(
       bug.id,
       workspaceStore.activeWorkspaceId,
@@ -1353,7 +2162,11 @@ async function testZentaoBug(bug: ZentaoBug) {
       bug.id,
       run.runId,
       run.evidenceDirectory,
+      environment,
+      credentials.username,
+      credentials.password,
     )
+    testEnvironmentPickerBug.value = null
     selectView('codex')
   } catch (error) {
     notify(
@@ -1361,7 +2174,14 @@ async function testZentaoBug(bug: ZentaoBug) {
         ? error.message
         : '无法创建 Codex 测试任务',
     )
+  } finally {
+    testEnvironmentLaunching.value = false
   }
+}
+
+function manageTestEnvironmentsFromPicker() {
+  testEnvironmentPickerBug.value = null
+  selectView('testEnvironments')
 }
 
 function solveZentaoBugs(bugs: ZentaoBug[], plan: string) {
@@ -1449,28 +2269,188 @@ function openCalendarNote(noteId: string) {
   selectView('notes')
 }
 
-async function handleSearchSelection(result: GlobalSearchResult) {
-  if (result.kind === 'website') {
+function historyEntryToResult(
+  entry: SearchHistoryEntry,
+): GlobalSearchResult | null {
+  if (!(entry.kind in searchHistoryIcons)) return null
+  const kind = entry.kind as GlobalSearchKind
+  const targetView = viewIds.includes(entry.targetView as ViewId)
+    ? (entry.targetView as ViewId)
+    : 'overview'
+  return {
+    key: entry.id,
+    kind,
+    targetId: entry.targetId,
+    targetView,
+    group: entry.group,
+    title: entry.title,
+    subtitle: entry.subtitle,
+    icon:
+      kind === 'view'
+        ? viewSearchIcons[targetView]
+        : searchHistoryIcons[kind],
+  }
+}
+
+function persistSearchHistory(entries: SearchHistoryEntry[]) {
+  searchHistoryEntries.value = entries.slice(0, 60)
+  if (session.email) {
+    saveSearchHistory(session.email, searchHistoryEntries.value)
+  }
+}
+
+function recordSearchHistory(
+  result: GlobalSearchResult,
+  rawQuery: string,
+) {
+  const workspaceId = workspaceStore.activeWorkspaceId
+  if (!workspaceId) return
+  const query = rawQuery.trim() || result.title
+  const createdAt = new Date().toISOString()
+  const entry: SearchHistoryEntry = {
+    id: window.crypto.randomUUID(),
+    workspaceId,
+    query,
+    kind: result.kind,
+    targetId: result.targetId,
+    targetView: result.targetView,
+    group: result.group,
+    title: result.title,
+    subtitle: result.subtitle,
+    createdAt,
+  }
+  persistSearchHistory([
+    entry,
+    ...searchHistoryEntries.value.filter(
+      (item) =>
+        !(
+          item.workspaceId === workspaceId &&
+          item.kind === result.kind &&
+          item.targetId === result.targetId &&
+          item.query === query
+        ),
+    ),
+  ])
+}
+
+function toggleSearchHistory() {
+  searchHistoryOpen.value = !searchHistoryOpen.value
+  profileMenuOpen.value = false
+  notificationCenterOpen.value = false
+  if (searchHistoryOpen.value) {
+    searchQuery.value = ''
+  }
+}
+
+function clearCurrentWorkspaceSearchHistory() {
+  persistSearchHistory(
+    searchHistoryEntries.value.filter(
+      (entry) =>
+        entry.workspaceId !== workspaceStore.activeWorkspaceId,
+    ),
+  )
+}
+
+function historyTimeLabel(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const today = new Date()
+  const start = new Date(today)
+  start.setHours(0, 0, 0, 0)
+  const dayDifference = Math.floor(
+    (start.getTime() -
+      new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate(),
+      ).getTime()) /
+      86_400_000,
+  )
+  const time = new Intl.DateTimeFormat('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+  if (dayDifference === 0) return time
+  if (dayDifference === 1) return `昨天 ${time}`
+  return `${date.getMonth() + 1}/${date.getDate()} ${time}`
+}
+
+async function performSearchResult(result: GlobalSearchResult) {
+  if (result.kind === 'file') {
+    const error = await openWorkFile(
+      result.targetId,
+      activeWorkDirectoryRoots.value,
+    )
+    if (error) {
+      notify(`无法打开文件：${error}`)
+      return false
+    }
+  } else if (result.kind === 'website') {
     const website = shortcutStore.websites.find(
       (item) => item.id === result.targetId,
     )
-    if (!website) return
+    if (!website) {
+      notify('网址已不存在，请重新搜索')
+      return false
+    }
     const error = await openWebsiteUrl(website.url)
     if (error) {
       notify(`无法打开网址：${error}`)
-      return
+      return false
     }
     shortcutStore.recordWebsiteClick(website.id)
   } else if (result.kind === 'note') {
+    if (
+      !noteLibraryStore.notes.some(
+        (note) => note.id === result.targetId,
+      )
+    ) {
+      notify('速记已不存在，请重新搜索')
+      return false
+    }
     noteLibraryStore.requestOpen(result.targetId)
     selectView('notes')
   } else if (result.kind === 'codexSession') {
+    if (
+      !codexStore.sessions.some(
+        (sessionItem) => sessionItem.id === result.targetId,
+      )
+    ) {
+      notify('Codex 会话已不存在，请重新搜索')
+      return false
+    }
     codexStore.selectSession(result.targetId)
     selectView('codex')
   } else {
     selectView(result.targetView)
   }
+  return true
+}
+
+async function handleSearchSelection(result: GlobalSearchResult) {
+  const query = searchQuery.value.trim()
+  const completed = await performSearchResult(result)
+  if (completed) {
+    recordSearchHistory(result, query)
+  }
   searchQuery.value = ''
+}
+
+async function openSearchHistoryEntry(entry: SearchHistoryEntry) {
+  searchHistoryOpen.value = false
+  const result = historyEntryToResult(entry)
+  if (!result) {
+    notify('这条历史记录已无法打开')
+    return
+  }
+  const completed = await performSearchResult(result)
+  if (!completed) return
+  persistSearchHistory([
+    { ...entry, createdAt: new Date().toISOString() },
+    ...searchHistoryEntries.value.filter(
+      (item) => item.id !== entry.id,
+    ),
+  ])
 }
 
 function handleGlobalShortcut(event: KeyboardEvent) {
@@ -1500,6 +2480,7 @@ function handleGlobalShortcut(event: KeyboardEvent) {
     mobileNavOpen.value = false
     profileMenuOpen.value = false
     notificationCenterOpen.value = false
+    searchHistoryOpen.value = false
   }
 }
 
@@ -1516,6 +2497,12 @@ function handleDocumentPointerDown(event: PointerEvent) {
     !event.target.closest('.notification-area')
   ) {
     notificationCenterOpen.value = false
+  }
+  if (
+    searchHistoryOpen.value &&
+    !event.target.closest('.search-history-area')
+  ) {
+    searchHistoryOpen.value = false
   }
 }
 
@@ -1608,18 +2595,38 @@ watch(
     deploymentStore.load(email)
     noteLibraryStore.load(email)
     codexStore.load(email)
+    codeReviewStore.load(email)
     wellnessStore.load(email)
+    screensaverStore.load(email)
+    searchHistoryEntries.value = email ? loadSearchHistory(email) : []
+    if (!email) testEnvironmentStore.clear()
     restoreUserWorkbench(email)
     const workspaceId = workspaceStore.activeWorkspaceId
     if (workspaceId) {
       void databaseStore.load(workspaceId).catch(() => {})
       void managedServerStore.load().catch(() => {})
       void zentaoStore.load(email, workspaceId).catch(() => {})
+      void testEnvironmentStore
+        .load(workspaceId)
+        .catch(() => {})
     }
     notifications.value = []
-    unreadNotificationCount.value = 0
+    mailNotifications.value =
+      email && workspaceId
+        ? loadMailNotifications(email, workspaceId)
+        : []
+    unreadCalendarNotificationCount.value = 0
+    notificationGeneration += 1
+    mailNotificationGeneration += 1
+    notificationRequestInFlight = false
+    mailNotificationCheckInFlight = false
+    notificationsLoading.value = false
     notificationCenterOpen.value = false
-    if (email) void refreshUnreadNotifications()
+    searchHistoryOpen.value = false
+    if (email) {
+      void refreshUnreadNotifications()
+      void refreshMailNotifications()
+    }
   },
   { immediate: true },
 )
@@ -1629,11 +2636,33 @@ watch(
   (workspaceId) => {
     if (!workspaceId) {
       databaseStore.clear()
+      testEnvironmentStore.clear()
+      mailNotifications.value = []
+      notifications.value = []
+      unreadCalendarNotificationCount.value = 0
+      mailNotificationGeneration += 1
+      mailNotificationCheckInFlight = false
       return
     }
     void databaseStore.load(workspaceId).catch(() => {})
     void managedServerStore.load().catch(() => {})
     void zentaoStore.load(session.email, workspaceId).catch(() => {})
+    void testEnvironmentStore.load(workspaceId).catch(() => {})
+    notifications.value = []
+    mailNotifications.value = session.email
+      ? loadMailNotifications(session.email, workspaceId)
+      : []
+    unreadCalendarNotificationCount.value = 0
+    notificationGeneration += 1
+    mailNotificationGeneration += 1
+    notificationRequestInFlight = false
+    mailNotificationCheckInFlight = false
+    notificationsLoading.value = false
+    notificationCenterOpen.value = false
+    if (session.email) {
+      void refreshUnreadNotifications()
+      void refreshMailNotifications()
+    }
   },
 )
 
@@ -1653,11 +2682,15 @@ watch(
   [
     launchOnLogin,
     compactSidebar,
+    navigationMode,
+    vaultUnlockMinutes,
     codexDisplayName,
     codexIconDataUrl,
   ],
   persistUserWorkbenchSettings,
 )
+
+watch(navigationMode, normalizeAccordionNavigation)
 
 watch(activeView, (view) => {
   if (view !== 'settings') return
@@ -1683,24 +2716,77 @@ watch(
     mobileNavOpen.value = false
     profileMenuOpen.value = false
     notificationCenterOpen.value = false
+    searchHistoryOpen.value = false
   },
 )
+
+watch(
+  [searchQuery, activeWorkDirectoryRoots],
+  scheduleWorkFileSearch,
+)
+
+function openStandaloneEmbeddedBrowser() {
+  if (!supportsEmbeddedBrowser) {
+    notify('内置浏览器仅支持桌面客户端')
+    return
+  }
+  embeddedBrowserRequest.value = {
+    requestId: `manual-${Date.now()}`,
+    url: 'about:blank',
+    title: '内置浏览器',
+  }
+}
+
+function handleEmbeddedBrowserAutomationOpen(
+  request: EmbeddedBrowserAutomationOpenRequest,
+) {
+  if (
+    !request ||
+    typeof request.url !== 'string' ||
+    !request.url.trim()
+  ) {
+    return
+  }
+  embeddedBrowserRequest.value = {
+    requestId: request.requestId || String(Date.now()),
+    url: request.url,
+    title: request.title || 'Codex 内置浏览器',
+  }
+}
 
 onMounted(() => {
   syncNavigationMenus(activeView.value)
   window.addEventListener('keydown', handleGlobalShortcut)
   window.addEventListener('workcove:storage-error', handleStorageError)
   document.addEventListener('pointerdown', handleDocumentPointerDown)
+  document.addEventListener(
+    'visibilitychange',
+    handleVisibilityChange,
+  )
+  window.workCoveDesktop?.onEmbeddedBrowserAutomationOpen(
+    handleEmbeddedBrowserAutomationOpen,
+  )
   void refreshDatabaseStatus()
   void refreshCodexStatus()
   void refreshCcSwitchStatus()
   void refreshSogouStatus()
   void refreshUnreadNotifications()
+  void refreshMailNotifications()
+  syncWellnessClock()
+  dayClockTimer = window.setInterval(
+    () => syncWellnessClock(),
+    30_000,
+  )
   notificationPollTimer = window.setInterval(() => {
     if (document.visibilityState === 'visible') {
       void refreshUnreadNotifications()
     }
   }, 45_000)
+  mailNotificationPollTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      void refreshMailNotifications()
+    }
+  }, MAIL_NOTIFICATION_POLL_MS)
 })
 
 onBeforeUnmount(() => {
@@ -1710,10 +2796,25 @@ onBeforeUnmount(() => {
     handleStorageError,
   )
   document.removeEventListener('pointerdown', handleDocumentPointerDown)
+  document.removeEventListener(
+    'visibilitychange',
+    handleVisibilityChange,
+  )
+  window.workCoveDesktop?.offEmbeddedBrowserAutomationOpen()
   if (toastTimer) window.clearTimeout(toastTimer)
   if (notificationPollTimer) {
     window.clearInterval(notificationPollTimer)
   }
+  if (mailNotificationPollTimer) {
+    window.clearInterval(mailNotificationPollTimer)
+  }
+  if (dayClockTimer) {
+    window.clearInterval(dayClockTimer)
+  }
+  if (workFileSearchTimer !== null) {
+    window.clearTimeout(workFileSearchTimer)
+  }
+  workFileSearchSequence += 1
 })
 </script>
 
@@ -1722,6 +2823,14 @@ onBeforeUnmount(() => {
     <section class="workbench-window">
       <AppTitlebar :title="currentView.label">
         <template #actions>
+          <time
+            class="titlebar-clock"
+            :datetime="now.toISOString()"
+            :title="titlebarDateTime"
+          >
+            <strong>{{ titlebarTimeLabel }}</strong>
+            <small>{{ titlebarDateLabel }}</small>
+          </time>
           <button
             class="mobile-menu-trigger"
             type="button"
@@ -1747,6 +2856,7 @@ onBeforeUnmount(() => {
           :class="{
             'workbench-sidebar--open': mobileNavOpen,
             'workbench-sidebar--collapsed': sidebarCollapsed,
+            'workbench-sidebar--compact': compactSidebar,
           }"
         >
           <div class="sidebar-brand">
@@ -1779,6 +2889,7 @@ onBeforeUnmount(() => {
               class="nav-item nav-item--group nav-item--group-start"
               :class="{
                 'nav-item--group-active':
+                  activeView === 'tasks' ||
                   activeView === 'codex' ||
                   activeView === 'notes' ||
                   activeView === 'calendar' ||
@@ -1829,7 +2940,9 @@ onBeforeUnmount(() => {
                   activeView === 'databases' ||
                   activeView === 'servers' ||
                   activeView === 'deployments' ||
-                  activeView === 'zentaoBugs',
+                  activeView === 'zentaoBugs' ||
+                  activeView === 'codeReviews' ||
+                  activeView === 'testEnvironments',
               }"
               type="button"
               :aria-expanded="developmentMenuOpen"
@@ -2022,7 +3135,7 @@ onBeforeUnmount(() => {
                   v-model="searchQuery"
                   type="search"
                   aria-label="全局搜索"
-                  placeholder="搜索页面、任务、资源…"
+                  placeholder="搜索页面、任务、文件…"
                 />
                 <kbd aria-label="快捷键 Command K">
                   <span aria-hidden="true">⌘</span>
@@ -2030,13 +3143,31 @@ onBeforeUnmount(() => {
                 </kbd>
 
                 <div v-if="searchQuery.trim()" class="search-results">
-                  <p v-if="searchResults.length === 0" class="search-empty">
-                    没有找到相关内容
+                  <p
+                    v-if="
+                      searchResults.length === 0 &&
+                      !workFileSearchLoading
+                    "
+                    class="search-empty"
+                  >
+                    没有找到相关页面、资源或工作目录文件
                   </p>
+                  <div
+                    v-if="workFileSearchLoading"
+                    class="search-results__status"
+                  >
+                    <UiFidgetSpinner :size="13" />
+                    正在搜索工作目录…
+                  </div>
                   <button
                     v-for="result in searchResults"
                     :key="result.key"
                     type="button"
+                    :title="
+                      result.kind === 'file'
+                        ? result.targetId
+                        : undefined
+                    "
                     @click="handleSearchSelection(result)"
                   >
                     <component :is="result.icon" :size="15" />
@@ -2054,6 +3185,17 @@ onBeforeUnmount(() => {
 
             <div class="toolbar-actions">
               <button
+                class="toolbar-icon browser-launch-button"
+                type="button"
+                aria-label="打开内置浏览器"
+                title="打开内置浏览器"
+                :disabled="!supportsEmbeddedBrowser"
+                @click="openStandaloneEmbeddedBrowser"
+              >
+                <Globe2 :size="16" />
+              </button>
+
+              <button
                 class="toolbar-icon page-refresh-button"
                 type="button"
                 aria-label="刷新页面"
@@ -2062,6 +3204,87 @@ onBeforeUnmount(() => {
               >
                 <RefreshCw :size="16" />
               </button>
+
+              <div class="search-history-area">
+                <button
+                  class="toolbar-icon"
+                  type="button"
+                  aria-label="搜索与操作历史"
+                  title="搜索与操作历史"
+                  aria-haspopup="dialog"
+                  :aria-expanded="searchHistoryOpen"
+                  @click="toggleSearchHistory"
+                >
+                  <History :size="16" />
+                </button>
+
+                <section
+                  v-if="searchHistoryOpen"
+                  class="notification-center search-history-panel"
+                  aria-label="搜索与操作历史"
+                >
+                  <header class="notification-center__header">
+                    <div>
+                      <strong>搜索与操作历史</strong>
+                      <small>
+                        {{ visibleSearchHistory.length }} 条当前工作区记录
+                      </small>
+                    </div>
+                    <button
+                      v-if="visibleSearchHistory.length"
+                      type="button"
+                      title="清空当前工作区历史"
+                      @click="clearCurrentWorkspaceSearchHistory"
+                    >
+                      <Trash2 :size="13" />
+                      清空
+                    </button>
+                  </header>
+
+                  <div class="search-history-list">
+                    <p
+                      v-if="visibleSearchHistory.length === 0"
+                      class="notification-center__empty"
+                    >
+                      <span><History :size="18" /></span>
+                      暂无搜索与操作记录
+                    </p>
+                    <template v-else>
+                      <button
+                        v-for="entry in visibleSearchHistory"
+                        :key="entry.id"
+                        class="search-history-item"
+                        type="button"
+                        :title="entry.subtitle"
+                        @click="openSearchHistoryEntry(entry)"
+                      >
+                        <span class="search-history-item__icon">
+                          <component
+                            :is="
+                              entry.kind === 'view'
+                                ? viewSearchIcons[
+                                    entry.targetView as ViewId
+                                  ] || Home
+                                : searchHistoryIcons[
+                                    entry.kind as GlobalSearchKind
+                                  ] || Search
+                            "
+                            :size="15"
+                          />
+                        </span>
+                        <span class="search-history-item__copy">
+                          <strong>{{ entry.title }}</strong>
+                          <small>
+                            搜索「{{ entry.query }}」· {{ entry.group }}
+                          </small>
+                          <span>{{ entry.subtitle }}</span>
+                        </span>
+                        <time>{{ historyTimeLabel(entry.createdAt) }}</time>
+                      </button>
+                    </template>
+                  </div>
+                </section>
+              </div>
 
               <div class="notification-area">
                 <button
@@ -2126,7 +3349,7 @@ onBeforeUnmount(() => {
                       <span>
                         <Inbox :size="18" />
                       </span>
-                      日程提醒会出现在这里
+                      日程提醒和新邮件会出现在这里
                     </p>
                     <template v-else>
                       <button
@@ -2141,7 +3364,11 @@ onBeforeUnmount(() => {
                         @click="openNotification(notification)"
                       >
                         <span class="notification-item__icon">
-                          <CalendarDays :size="15" />
+                          <Mail
+                            v-if="isMailNotification(notification)"
+                            :size="15"
+                          />
+                          <CalendarDays v-else :size="15" />
                         </span>
                         <span class="notification-item__copy">
                           <span>
@@ -2214,9 +3441,17 @@ onBeforeUnmount(() => {
               <CodexWorkspace
                 v-if="codexMounted"
                 v-show="activeView === 'codex'"
+                :active="activeView === 'codex'"
                 :assistant-name="codexAssistantName"
                 :assistant-icon="codexIconDataUrl"
+                :user-tasks="workspaceTasks"
+                :search-history-open="searchHistoryOpen"
                 @notify="notify"
+                @user-task-update="applyUserTaskExecution"
+                @repair-task-created="createCodexTestRepairTask"
+                @open-zentao-bug="openZentaoBugFromCodex"
+                @open-code-review="openCodeReview"
+                @task-panel-visibility="handleCodexTaskPanelVisibility"
               />
 
               <ServerManagement
@@ -2263,64 +3498,44 @@ onBeforeUnmount(() => {
                 @notify="notify"
               />
 
+              <TestEnvironmentLibrary
+                v-else-if="activeView === 'testEnvironments'"
+                @notify="notify"
+              />
+
               <ZentaoBugLibrary
                 v-else-if="activeView === 'zentaoBugs'"
+                :open-bug-request="zentaoBugOpenRequest"
                 @notify="notify"
                 @solve-bug="solveZentaoBug"
                 @solve-bugs="solveZentaoBugs"
                 @test-bug="testZentaoBug"
+                @repair-failed-test="repairFailedZentaoTest"
+                @open-codex="openCodexSession"
+                @open-bug-handled="clearZentaoBugOpenRequest"
+              />
+
+              <CodeReviewLibrary
+                v-else-if="activeView === 'codeReviews'"
+                :focus-id="codeReviewSelectionId"
+                @notify="notify"
+                @open-codex="openCodexSession"
               />
 
               <template v-else-if="activeView === 'servers'" />
 
-              <section v-else-if="activeView === 'tasks'" class="content-section">
-                <header class="section-heading section-heading--bordered">
-                  <div>
-                    <h2>全部任务</h2>
-                  </div>
-                  <UiSegmentedControl
-                    :model-value="taskFilter"
-                    :items="taskFilterOptions"
-                    aria-label="任务筛选"
-                    @update:model-value="setTaskFilter"
-                  />
-                </header>
-
-                <div class="task-list task-list--roomy">
-                  <TaskRow
-                    v-for="task in pagedTasks"
-                    :key="task.id"
-                    :task="task"
-                    @toggle="toggleTask"
-                  />
-                </div>
-
-                <div v-if="filteredTasks.length === 0" class="empty-state">
-                  <Check :size="22" />
-                  <p>这里暂时没有任务</p>
-                </div>
-
-                <UiPagination
-                  :page="taskPage"
-                  :total="filteredTasks.length"
-                  label="任务分页"
-                  @update:page="setTaskPage"
-                />
-
-                <form class="task-composer task-composer--roomy" @submit.prevent="addTask">
-                  <Plus :size="16" />
-                  <input
-                    ref="taskComposer"
-                    v-model="newTaskTitle"
-                    type="text"
-                    aria-label="新任务名称"
-                    placeholder="写下下一项任务"
-                  />
-                  <button type="submit" :disabled="!newTaskTitle.trim()">
-                    添加任务
-                  </button>
-                </form>
-              </section>
+              <TaskLibrary
+                v-else-if="activeView === 'tasks'"
+                :tasks="workspaceTasks"
+                :projects="codexProjectOptions"
+                @create="createTask"
+                @update="updateTask"
+                @delete="deleteTask"
+                @toggle="toggleTask"
+                @execute="executeWorkTask"
+                @execute-batch="executeWorkTasks"
+                @open-codex="openCodexSession"
+              />
 
               <WorkNotes
                 v-else-if="activeView === 'notes'"
@@ -2331,6 +3546,7 @@ onBeforeUnmount(() => {
 
               <WorkVault
                 v-else-if="activeView === 'vault'"
+                :unlock-minutes="vaultUnlockMinutes"
                 @notify="notify"
               />
 
@@ -2418,17 +3634,42 @@ onBeforeUnmount(() => {
                     <div>
                       <strong>字体风格</strong>
                       <span>
-                        为界面选择系统字体、Codex 风格或 Avenir。
+                        字体选择会全局生效，并同步保存到当前账号。
+                      </span>
+                    </div>
+                    <div class="appearance-font-control">
+                      <UiSelect
+                        :model-value="themeStore.fontPreference"
+                        :options="fontOptions"
+                        aria-label="全局字体"
+                        searchable
+                        :menu-height="360"
+                        @update:model-value="setFontPreference"
+                      />
+                      <span class="appearance-font-preview">
+                        检查当前分支、工作区与通知去重实现
+                      </span>
+                    </div>
+                  </div>
+                  <div class="appearance-row">
+                    <div>
+                      <strong>导航展开方式</strong>
+                      <span>
+                        正常模式可同时展开多个分组，手风琴模式一次只展开一个。
                       </span>
                     </div>
                     <UiSegmentedControl
-                      :model-value="themeStore.fontPreference"
-                      :items="fontOptions"
-                      aria-label="字体风格"
-                      @update:model-value="setFontPreference"
+                      :model-value="navigationMode"
+                      :items="navigationModeOptions"
+                      aria-label="导航展开方式"
+                      @update:model-value="
+                        setNavigationMode($event as NavigationMode)
+                      "
                     />
                   </div>
                 </div>
+
+                <ScreensaverSettings @notify="notify" />
 
                 <div class="settings-group">
                   <header>
@@ -2444,10 +3685,25 @@ onBeforeUnmount(() => {
                   <label class="setting-row">
                     <div>
                       <strong>紧凑侧边栏</strong>
-                      <span>在较窄的窗口中减少导航占用空间。</span>
+                      <span>压缩导航宽度与间距，同时保留图标和名称。</span>
                     </div>
                     <input v-model="compactSidebar" type="checkbox" />
                   </label>
+                  <div class="setting-row">
+                    <div>
+                      <strong>密码库自动上锁</strong>
+                      <span>
+                        解锁密码库后，达到所选时间自动重新上锁，默认 1 小时。
+                      </span>
+                    </div>
+                    <UiSelect
+                      class="setting-row__select"
+                      :model-value="String(vaultUnlockMinutes)"
+                      :options="VAULT_UNLOCK_MINUTE_OPTIONS"
+                      aria-label="密码库自动上锁时间"
+                      @update:model-value="setVaultUnlockMinutes"
+                    />
+                  </div>
                 </div>
 
                 <CodexIdentitySettings
@@ -2600,12 +3856,20 @@ onBeforeUnmount(() => {
       <WellnessReminderBar />
 
       <footer class="app-footer">
-        <span
-          class="app-footer__copyright"
-          title="Copyright © 2026 panyong"
-        >
-          Copyright © 2026 panyong
-        </span>
+        <div class="app-footer__meta">
+          <span
+            class="app-footer__copyright"
+            title="Copyright © 2026 panyong"
+          >
+            Copyright © 2026 panyong
+          </span>
+          <span
+            class="app-footer__version"
+            title="产品版本"
+          >
+            v{{ PRODUCT_VERSION_LABEL }}
+          </span>
+        </div>
         <div class="app-footer__actions">
           <button
             v-if="clockActionMode === 'clockIn'"
@@ -2624,7 +3888,7 @@ onBeforeUnmount(() => {
             type="button"
             aria-label="下班"
             title="结束今天的工作"
-            @click="clockOutFromFooter"
+            @click="requestClockOutFromFooter"
           >
             <LogOut :size="14" />
             下班
@@ -2640,23 +3904,51 @@ onBeforeUnmount(() => {
             <Clock3 :size="14" />
             更新打卡
           </button>
-          <button
-            class="app-footer__rest"
-            type="button"
-            aria-label="休息一下"
-            title="休息一下"
-            :disabled="Boolean(wellnessStore.data.activeRest)"
-            @click="startRestFromFooter"
-          >
-            <Coffee :size="15" />
-          </button>
+          <WellnessQuickActions @notify="notify" />
         </div>
       </footer>
+
+      <UiConfirmDialog
+        v-if="clockOutConfirmOpen"
+        :title="
+          clockOutConfirmation.early
+            ? '还未到计划下班时间，确认下班？'
+            : '确认结束今天的工作？'
+        "
+        description="下班后会停止今天的工作计时，之后仍可更新下班时间。"
+        :warning="clockOutConfirmation.warning"
+        confirm-label="确认下班"
+        @close="clockOutConfirmOpen = false"
+        @confirm="clockOutFromFooter"
+      />
 
       <WellnessRestOverlay
         v-if="wellnessStore.data.activeRest"
         :started-at="wellnessStore.data.activeRest.startedAt"
         @continue="continueRestFromFooter"
+      />
+
+      <EmbeddedBrowserDialog
+        v-if="embeddedBrowserRequest"
+        :key="embeddedBrowserRequest.requestId"
+        :url="embeddedBrowserRequest.url"
+        :title="embeddedBrowserRequest.title"
+        :workspace-id="workspaceStore.activeWorkspaceId"
+        @close="embeddedBrowserRequest = null"
+        @notify="notify"
+      />
+
+      <TestEnvironmentPickerDialog
+        v-if="
+          testEnvironmentPickerBug &&
+          workspaceStore.activeWorkspaceId
+        "
+        :bug="testEnvironmentPickerBug"
+        :workspace-id="workspaceStore.activeWorkspaceId"
+        :launching="testEnvironmentLaunching"
+        @close="testEnvironmentPickerBug = null"
+        @manage="manageTestEnvironmentsFromPicker"
+        @start="startZentaoTest"
       />
 
       <Transition name="toast">
@@ -2694,6 +3986,33 @@ onBeforeUnmount(() => {
   box-shadow: none;
 }
 
+.titlebar-clock {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--text-subtle);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.titlebar-clock strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--font-body);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-emphasis);
+}
+
+.titlebar-clock small {
+  font-size: var(--font-caption);
+}
+
+@media (max-width: 720px) {
+  .titlebar-clock small {
+    display: none;
+  }
+}
+
 .workspace {
   position: relative;
   display: flex;
@@ -2719,6 +4038,61 @@ onBeforeUnmount(() => {
     padding var(--duration-window) var(--ease-apple),
     opacity var(--duration-fast) var(--ease-apple),
     transform var(--duration-window) var(--ease-apple);
+}
+
+.workbench-sidebar.workbench-sidebar--compact {
+  width: 188px;
+  min-width: 188px;
+  padding: 18px 8px 12px;
+}
+
+.workbench-sidebar--compact .sidebar-brand {
+  gap: 8px;
+  padding: 0 5px;
+  margin-bottom: 18px;
+}
+
+.workbench-sidebar--compact .sidebar-brand__copy span {
+  font-size: 16px;
+}
+
+.workbench-sidebar--compact .sidebar-brand__copy small {
+  display: none;
+}
+
+.workbench-sidebar--compact .sidebar-navigation {
+  gap: 1px;
+  padding-right: 4px;
+  padding-bottom: 6px;
+}
+
+.workbench-sidebar--compact .nav-item {
+  height: 32px;
+  flex-basis: 32px;
+  gap: 9px;
+  padding: 0 8px;
+  font-size: 13px;
+}
+
+.workbench-sidebar--compact .nav-item--group-start {
+  margin-top: 8px;
+}
+
+.workbench-sidebar--compact .nav-item--sub {
+  height: 30px;
+  flex-basis: 30px;
+  padding-left: 8px;
+  font-size: 12px;
+}
+
+.workbench-sidebar--compact .nav-submenu {
+  padding-left: 8px;
+  margin-left: 10px;
+}
+
+.workbench-sidebar--compact .sidebar-profile-trigger {
+  padding-right: 4px;
+  padding-left: 4px;
 }
 
 .workbench-sidebar.workbench-sidebar--collapsed {
@@ -2925,11 +4299,30 @@ onBeforeUnmount(() => {
 }
 
 .app-footer__copyright {
-  max-width: calc(100% - 190px);
   overflow: hidden;
   color: var(--text-subtle);
   font-size: var(--font-caption);
   text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-footer__meta {
+  display: flex;
+  max-width: calc(100% - 190px);
+  min-width: 0;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--space-4);
+}
+
+.app-footer__version {
+  flex: 0 0 auto;
+  overflow: hidden;
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--font-caption);
+  font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3007,36 +4400,6 @@ onBeforeUnmount(() => {
 .app-footer__clock-action--update:hover {
   color: var(--text);
   background: var(--hover-bg);
-}
-
-.app-footer__rest {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  color: var(--accent);
-  background: color-mix(
-    in srgb,
-    var(--accent) 13%,
-    transparent
-  );
-  border-radius: var(--radius-control);
-  box-shadow: inset 0 0 0 0.5px
-    color-mix(in srgb, var(--accent) 30%, transparent);
-  place-items: center;
-}
-
-.app-footer__rest:hover:not(:disabled) {
-  color: var(--accent-strong);
-  background: color-mix(
-    in srgb,
-    var(--accent) 20%,
-    transparent
-  );
-}
-
-.app-footer__rest:disabled {
-  opacity: 0.4;
 }
 
 .workspace-main {
@@ -3213,6 +4576,15 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
+.search-results__status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-subtle);
+  font-size: var(--font-caption);
+}
+
 .toolbar-actions {
   display: flex;
   flex: 0 0 auto;
@@ -3232,9 +4604,13 @@ onBeforeUnmount(() => {
   place-items: center;
 }
 
-.toolbar-icon:hover {
+.toolbar-icon:hover:not(:disabled) {
   color: #3e4540;
   background: rgb(31 41 38 / 5%);
+}
+
+.toolbar-icon:disabled {
+  opacity: 0.38;
 }
 
 .sidebar-toggle-button {
@@ -3254,6 +4630,88 @@ onBeforeUnmount(() => {
 
 .notification-area {
   position: relative;
+}
+
+.search-history-area {
+  position: relative;
+}
+
+.search-history-panel {
+  right: -42px;
+  width: min(390px, calc(100vw - 24px));
+}
+
+.search-history-list {
+  display: flex;
+  min-height: 0;
+  padding: 6px;
+  overflow-y: auto;
+  flex-direction: column;
+}
+
+.search-history-item {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  border-radius: var(--radius-control);
+}
+
+.search-history-item:hover {
+  background: var(--hover-bg);
+}
+
+.search-history-item__icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius-control);
+  place-items: center;
+}
+
+.search-history-item__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.search-history-item__copy strong,
+.search-history-item__copy small,
+.search-history-item__copy > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-history-item__copy strong {
+  color: var(--text);
+  font-size: var(--font-caption);
+  font-weight: var(--weight-emphasis);
+}
+
+.search-history-item__copy small {
+  color: var(--accent);
+  font-size: var(--font-caption);
+}
+
+.search-history-item__copy > span {
+  color: var(--text-subtle);
+  font-size: var(--font-caption);
+}
+
+.search-history-item time {
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--font-caption);
+  white-space: nowrap;
 }
 
 .notification-badge {
@@ -5153,6 +6611,13 @@ onBeforeUnmount(() => {
   flex: 1;
 }
 
+.setting-row > .setting-row__select {
+  display: flex;
+  width: 180px;
+  flex: 0 0 auto;
+  flex-direction: row;
+}
+
 .setting-row > .setting-integration-icon {
   display: grid;
   width: 30px;
@@ -5368,6 +6833,12 @@ onBeforeUnmount(() => {
     transition: transform 210ms cubic-bezier(0.2, 0.75, 0.3, 1);
   }
 
+  .workbench-sidebar.workbench-sidebar--compact {
+    width: 248px;
+    min-width: 248px;
+    padding: 22px 14px 16px;
+  }
+
   .workbench-sidebar--open {
     transform: translateX(0);
     box-shadow: 18px 0 42px rgb(31 41 38 / 16%);
@@ -5512,11 +6983,11 @@ onBeforeUnmount(() => {
 
 @media (max-width: 560px) {
   .global-search {
-    width: min(100%, 210px);
+    width: min(100%, 180px);
   }
 
   .global-search:focus-within {
-    width: min(100%, 250px);
+    width: min(100%, 190px);
   }
 
   .global-search kbd {
@@ -5528,6 +6999,8 @@ onBeforeUnmount(() => {
   }
 
   .page-refresh-button,
+  .browser-launch-button,
+  .search-history-area .toolbar-icon,
   .notification-area .toolbar-icon {
     display: grid;
   }
@@ -5634,6 +7107,29 @@ onBeforeUnmount(() => {
   margin-top: var(--space-1);
   color: var(--text-subtle);
   font-size: var(--font-caption);
+}
+
+.appearance-font-control {
+  display: flex;
+  width: 320px;
+  max-width: 100%;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.appearance-font-control :deep(.ui-select) {
+  width: 100%;
+}
+
+.appearance-row .appearance-font-preview {
+  overflow: hidden;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settings-navigation {
@@ -5819,7 +7315,7 @@ html[data-theme="light"] {
     color: #59636e;
   }
 
-  .toolbar-icon:hover {
+  .toolbar-icon:hover:not(:disabled) {
     color: var(--text);
     background: rgb(31 35 40 / 5%);
   }
@@ -6151,7 +7647,8 @@ html[data-theme="dark"] {
 }
 
 .search-results button small,
-.search-empty {
+.search-empty,
+.search-results__status {
   color: #6e7681;
 }
 
@@ -6159,7 +7656,7 @@ html[data-theme="dark"] {
   color: #8b949e;
 }
 
-.toolbar-icon:hover {
+.toolbar-icon:hover:not(:disabled) {
   color: #f0f6fc;
   background: rgb(240 246 252 / 6%);
 }
@@ -6829,6 +8326,16 @@ html[data-theme="dark"] {
 }
 
 @media (max-width: 760px) {
+  .setting-row:has(.setting-row__select) {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .setting-row > .setting-row__select {
+    width: 100%;
+  }
+
   .appearance-row {
     align-items: stretch;
     flex-direction: column;
@@ -6838,6 +8345,10 @@ html[data-theme="dark"] {
   .theme-segmented {
     width: 100%;
     flex-basis: auto;
+  }
+
+  .appearance-font-control {
+    width: 100%;
   }
 }
 </style>

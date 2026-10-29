@@ -98,7 +98,8 @@ public class VaultController {
         validateAction(action);
         VaultService.UnlockGrant grant = vaultService.unlockWithPassword(
                 currentUser(request).id(),
-                body.password());
+                body.password(),
+                body.unlockMinutes());
         addVaultCookie(response, grant);
         return new VaultUnlockResponse(grant.expiresAt());
     }
@@ -136,7 +137,8 @@ public class VaultController {
                         body.credentialId(),
                         responseJson(body.response()),
                         origin.origin(),
-                        origin.rpId());
+                        origin.rpId(),
+                        body.unlockMinutes());
         addVaultCookie(response, grant);
         return new VaultUnlockResponse(grant.expiresAt());
     }
@@ -154,9 +156,12 @@ public class VaultController {
     }
 
     @GetMapping("/entries")
-    public List<VaultEntryResponse> entries(HttpServletRequest request) {
+    public List<VaultEntryResponse> entries(
+            @RequestParam String workspaceId,
+            HttpServletRequest request) {
         return vaultService.entries(
                         currentUser(request).id(),
+                        workspaceId,
                         vaultToken(request))
                 .stream()
                 .map(VaultEntryResponse::from)
@@ -165,9 +170,11 @@ public class VaultController {
 
     @GetMapping("/categories")
     public List<VaultCategoryResponse> categories(
+            @RequestParam String workspaceId,
             HttpServletRequest request) {
         return vaultService.categories(
                         currentUser(request).id(),
+                        workspaceId,
                         vaultToken(request))
                 .stream()
                 .map(VaultCategoryResponse::from)
@@ -183,6 +190,7 @@ public class VaultController {
         validateAction(action);
         return VaultCategoryResponse.from(vaultService.addCategory(
                 currentUser(request).id(),
+                body.workspaceId(),
                 vaultToken(request),
                 body.name()));
     }
@@ -197,6 +205,7 @@ public class VaultController {
         validateAction(action);
         return VaultCategoryResponse.from(vaultService.renameCategory(
                 currentUser(request).id(),
+                body.workspaceId(),
                 vaultToken(request),
                 id,
                 body.name()));
@@ -208,11 +217,13 @@ public class VaultController {
             @RequestHeader(value = "X-WorkCove-Action", required = false)
             String action,
             @PathVariable long id,
+            @RequestParam String workspaceId,
             @RequestParam long reassignTo,
             HttpServletRequest request) {
         validateAction(action);
         vaultService.deleteCategory(
                 currentUser(request).id(),
+                workspaceId,
                 vaultToken(request),
                 id,
                 reassignTo);
@@ -227,6 +238,7 @@ public class VaultController {
         validateAction(action);
         return VaultEntryResponse.from(vaultService.saveEntry(
                 currentUser(request).id(),
+                body.workspaceId(),
                 vaultToken(request),
                 null,
                 body.toInput()));
@@ -242,6 +254,7 @@ public class VaultController {
         validateAction(action);
         return VaultEntryResponse.from(vaultService.saveEntry(
                 currentUser(request).id(),
+                body.workspaceId(),
                 vaultToken(request),
                 id,
                 body.toInput()));
@@ -250,9 +263,11 @@ public class VaultController {
     @GetMapping("/entries/{id}/secret")
     public ResponseEntity<VaultSecretResponse> password(
             @PathVariable long id,
+            @RequestParam String workspaceId,
             HttpServletRequest request) {
         String password = vaultService.revealPassword(
                 currentUser(request).id(),
+                workspaceId,
                 id,
                 vaultToken(request));
         return ResponseEntity.ok()
@@ -267,12 +282,46 @@ public class VaultController {
             @RequestHeader(value = "X-WorkCove-Action", required = false)
             String action,
             @PathVariable long id,
+            @RequestParam String workspaceId,
             HttpServletRequest request) {
         validateAction(action);
         vaultService.deleteEntry(
                 currentUser(request).id(),
+                workspaceId,
                 id,
                 vaultToken(request));
+    }
+
+    @PostMapping("/entries/{id}/copy")
+    public VaultEntryResponse copyEntry(
+            @RequestHeader(value = "X-WorkCove-Action", required = false)
+            String action,
+            @PathVariable long id,
+            @RequestBody VaultTransferRequest body,
+            HttpServletRequest request) {
+        validateAction(action);
+        return VaultEntryResponse.from(vaultService.copyEntry(
+                currentUser(request).id(),
+                body.sourceWorkspaceId(),
+                vaultToken(request),
+                id,
+                body.targetWorkspaceId()));
+    }
+
+    @PostMapping("/entries/{id}/move")
+    public VaultEntryResponse moveEntry(
+            @RequestHeader(value = "X-WorkCove-Action", required = false)
+            String action,
+            @PathVariable long id,
+            @RequestBody VaultTransferRequest body,
+            HttpServletRequest request) {
+        validateAction(action);
+        return VaultEntryResponse.from(vaultService.moveEntry(
+                currentUser(request).id(),
+                body.sourceWorkspaceId(),
+                vaultToken(request),
+                id,
+                body.targetWorkspaceId()));
     }
 
     @PostMapping("/passkeys/registration/options")
@@ -413,12 +462,15 @@ public class VaultController {
     private record WebAuthnOrigin(String origin, String rpId) {
     }
 
-    public record PasswordUnlockRequest(String password) {
+    public record PasswordUnlockRequest(
+            String password,
+            Integer unlockMinutes) {
     }
 
     public record PasskeyAssertionRequest(
             String credentialId,
-            JsonNode response) {
+            JsonNode response,
+            Integer unlockMinutes) {
     }
 
     public record RegistrationResponseRequest(JsonNode response) {
@@ -427,11 +479,14 @@ public class VaultController {
     public record VaultUnlockResponse(Instant expiresAt) {
     }
 
-    public record VaultCategoryRequest(String name) {
+    public record VaultCategoryRequest(
+            String workspaceId,
+            String name) {
     }
 
     public record VaultCategoryResponse(
             long id,
+            String workspaceId,
             String name,
             int sortOrder) {
 
@@ -439,6 +494,7 @@ public class VaultController {
                 VaultService.VaultCategoryView category) {
             return new VaultCategoryResponse(
                     category.id(),
+                    category.workspaceId(),
                     category.name(),
                     category.sortOrder());
         }
@@ -451,6 +507,7 @@ public class VaultController {
     }
 
     public record VaultEntryRequest(
+            String workspaceId,
             String name,
             String username,
             String password,
@@ -471,6 +528,7 @@ public class VaultController {
 
     public record VaultEntryResponse(
             long id,
+            String workspaceId,
             String name,
             String username,
             String url,
@@ -482,6 +540,7 @@ public class VaultController {
                 VaultService.VaultEntryView entry) {
             return new VaultEntryResponse(
                     entry.id(),
+                    entry.workspaceId(),
                     entry.name(),
                     entry.username(),
                     entry.url(),
@@ -492,6 +551,11 @@ public class VaultController {
     }
 
     public record VaultSecretResponse(String password) {
+    }
+
+    public record VaultTransferRequest(
+            String sourceWorkspaceId,
+            String targetWorkspaceId) {
     }
 
     public record PasskeyAuthenticationOptionsResponse(

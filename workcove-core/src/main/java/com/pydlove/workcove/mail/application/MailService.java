@@ -128,20 +128,6 @@ public class MailService {
             throw new DomainException("邮箱密码过长");
         }
 
-        MailConnectionSettings settings = new MailConnectionSettings(
-                displayName,
-                emailAddress,
-                username,
-                password,
-                imapHost,
-                command.imapPort(),
-                command.imapSsl(),
-                smtpHost,
-                command.smtpPort(),
-                command.smtpSsl(),
-                command.smtpAuth());
-        gateway.verify(settings);
-
         Instant now = clock.instant();
         MailAccount saved = repository.save(new MailAccount(
                 existing == null ? null : existing.id(),
@@ -233,16 +219,44 @@ public class MailService {
         }
     }
 
+    public MailMessagePage checkInbox(
+            long ownerId,
+            String rawWorkspaceId,
+            long accountId,
+            int limit) {
+        if (limit < 1 || limit > 50) {
+            throw new DomainException("邮件检查数量必须在 1 到 50 之间");
+        }
+        String workspaceId = workspaceId(rawWorkspaceId);
+        MailConnection account = connection(
+                ownerId,
+                workspaceId,
+                accountId);
+        return gateway.messages(
+                account.settings(),
+                "INBOX",
+                false,
+                limit,
+                0);
+    }
+
     public List<MailFolder> folders(
             long ownerId,
             String rawWorkspaceId,
             long accountId) {
         String workspaceId = workspaceId(rawWorkspaceId);
         requireAccount(ownerId, workspaceId, accountId);
-        return cacheRepository.findFolders(
+        List<MailFolder> cached = cacheRepository.findFolders(
                 ownerId,
                 workspaceId,
                 accountId);
+        if (!cached.isEmpty()) return cached;
+        return List.of(new MailFolder(
+                "收件箱",
+                "INBOX",
+                MailFolderRole.INBOX,
+                0,
+                0));
     }
 
     public MailSyncResult sync(
@@ -468,22 +482,27 @@ public class MailService {
                 value)
                 .orElse(null);
         if (cached != null && detailCached(cached)) return cached;
-        MailConnection account = connection(
-                ownerId,
-                workspaceId,
-                accountId);
-        MailMessageDetail detail = gateway.message(
-                account.settings(),
-                valueFolderPath,
-                value);
-        cacheRepository.updateMessageDetail(
-                ownerId,
-                workspaceId,
-                accountId,
-                valueFolderPath,
-                detail,
-                clock.instant());
-        return detail;
+        try {
+            MailConnection account = connection(
+                    ownerId,
+                    workspaceId,
+                    accountId);
+            MailMessageDetail detail = gateway.message(
+                    account.settings(),
+                    valueFolderPath,
+                    value);
+            cacheRepository.updateMessageDetail(
+                    ownerId,
+                    workspaceId,
+                    accountId,
+                    valueFolderPath,
+                    detail,
+                    clock.instant());
+            return detail;
+        } catch (RuntimeException exception) {
+            if (cached != null) return cached;
+            throw exception;
+        }
     }
 
     public void reply(

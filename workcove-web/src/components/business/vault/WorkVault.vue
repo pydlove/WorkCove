@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  ArrowRightLeft,
   ArrowUpRight,
   Copy,
   Eye,
@@ -10,7 +11,6 @@ import {
   LockKeyhole,
   Pencil,
   Plus,
-  Search,
   ShieldCheck,
   Trash2,
   UserRound,
@@ -25,32 +25,44 @@ import {
 
 import {
   createVaultEntry,
+  copyVaultEntry,
   deleteVaultEntry,
   getVaultSecret,
   getVaultStatus,
   listVaultCategories,
   listVaultEntries,
   lockVault,
+  moveVaultEntry,
   unlockVaultWithPassword,
   updateVaultEntry,
 } from '@/api/vault'
 import { ApiError } from '@/api/http'
 import VaultCategoryDialog from '@/components/business/vault/VaultCategoryDialog.vue'
 import VaultEntryDialog from '@/components/business/vault/VaultEntryDialog.vue'
+import WorkspaceTransferDialog, {
+  type WorkspaceTransferMode,
+} from '@/components/business/workspaces/WorkspaceTransferDialog.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCategoryFilterBar from '@/components/ui/UiCategoryFilterBar.vue'
 import UiCategorySelect from '@/components/ui/UiCategorySelect.vue'
 import UiConfirmDialog from '@/components/ui/UiConfirmDialog.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
+import UiFidgetSpinner from '@/components/ui/UiFidgetSpinner.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
+import UiSearchInput from '@/components/ui/UiSearchInput.vue'
 import { usePagination } from '@/composables/usePagination'
 import { useAuthStore } from '@/stores/useAuthStore'
+import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import {
   platformPasskeyAvailable,
   registerVaultPasskey,
   unlockVaultPasskey,
 } from '@/services/vaultPasskeys'
+import {
+  DEFAULT_VAULT_UNLOCK_MINUTES,
+  vaultUnlockMinutesLabel,
+} from '@/services/vaultPreferences'
 import type {
   VaultCategory,
   VaultEntry,
@@ -65,7 +77,17 @@ const emit = defineEmits<{
   notify: [message: string]
 }>()
 
+const props = withDefaults(
+  defineProps<{
+    unlockMinutes?: number
+  }>(),
+  {
+    unlockMinutes: DEFAULT_VAULT_UNLOCK_MINUTES,
+  },
+)
+
 const auth = useAuthStore()
+const workspaces = useWorkspaceStore()
 const state = ref<VaultState>('checking')
 const expiresAt = ref<number | null>(null)
 const now = ref(Date.now())
@@ -93,11 +115,16 @@ const dialogOpen = ref(false)
 const editingEntry = ref<VaultEntry | null>(null)
 const saving = ref(false)
 const deleteTarget = ref<VaultEntry | null>(null)
+const transferTarget = ref<VaultEntry | null>(null)
 const deleting = ref(false)
+const transferring = ref(false)
 const copiedKey = ref('')
 let clockTimer: number | null = null
 let copiedTimer: number | null = null
 let expiryNotified = false
+let vaultLoadGeneration = 0
+
+const workspaceId = computed(() => workspaces.activeWorkspaceId)
 
 const categoryNames = computed(() =>
   categories.value.map((category) => category.name),
@@ -148,8 +175,16 @@ const remainingSeconds = computed(() => {
 })
 
 const countdownLabel = computed(() => {
-  const minutes = Math.floor(remainingSeconds.value / 60)
+  const hours = Math.floor(remainingSeconds.value / 3600)
+  const minutes = Math.floor((remainingSeconds.value % 3600) / 60)
   const seconds = remainingSeconds.value % 60
+  if (hours > 0) {
+    return [
+      hours,
+      String(minutes).padStart(2, '0'),
+      String(seconds).padStart(2, '0'),
+    ].join(':')
+  }
   return `${minutes}:${String(seconds).padStart(2, '0')}`
 })
 
@@ -164,6 +199,9 @@ const touchIdEnabled = computed(
 )
 const touchIdSupported = computed(
   () => platformPasskeyReady.value || nativeTouchIdAvailable.value,
+)
+const unlockDurationLabel = computed(() =>
+  vaultUnlockMinutesLabel(props.unlockMinutes),
 )
 
 watch(remainingSeconds, (seconds) => {
@@ -207,7 +245,10 @@ async function unlockWithPassword() {
   unlocking.value = true
   errorMessage.value = ''
   try {
-    const result = await unlockVaultWithPassword(password.value)
+    const result = await unlockVaultWithPassword(
+      password.value,
+      props.unlockMinutes,
+    )
     password.value = ''
     applyUnlock(result.expiresAt)
     await loadEntries()
@@ -223,7 +264,7 @@ async function unlockWithPasskey() {
   unlocking.value = true
   errorMessage.value = ''
   try {
-    const result = await unlockVaultPasskey()
+    const result = await unlockVaultPasskey(props.unlockMinutes)
     applyUnlock(result.expiresAt)
     await loadEntries()
   } catch (error) {
@@ -250,7 +291,10 @@ async function unlockWithTouchId() {
   errorMessage.value = ''
   try {
     const secret = await bridge.unlockTouchIdSecret(auth.email)
-    const result = await unlockVaultWithPassword(secret)
+    const result = await unlockVaultWithPassword(
+      secret,
+      props.unlockMinutes,
+    )
     applyUnlock(result.expiresAt)
     await loadEntries()
   } catch (error) {
@@ -261,13 +305,26 @@ async function unlockWithTouchId() {
 }
 
 async function loadEntries() {
+  const scope = workspaceId.value
+  if (!scope) {
+    entries.value = []
+    categories.value = []
+    return
+  }
+  const generation = ++vaultLoadGeneration
   loadingEntries.value = true
   errorMessage.value = ''
   try {
     const [nextEntries, nextCategories] = await Promise.all([
-      listVaultEntries(),
-      listVaultCategories(),
+      listVaultEntries(scope),
+      listVaultCategories(scope),
     ])
+    if (
+      generation !== vaultLoadGeneration ||
+      workspaceId.value !== scope
+    ) {
+      return
+    }
     entries.value = nextEntries
     categories.value = nextCategories
     if (
@@ -280,9 +337,19 @@ async function loadEntries() {
     }
     setPage(1)
   } catch (error) {
-    handleVaultError(error)
+    if (
+      generation === vaultLoadGeneration &&
+      workspaceId.value === scope
+    ) {
+      handleVaultError(error)
+    }
   } finally {
-    loadingEntries.value = false
+    if (
+      generation === vaultLoadGeneration &&
+      workspaceId.value === scope
+    ) {
+      loadingEntries.value = false
+    }
   }
 }
 
@@ -306,7 +373,10 @@ function expireVault() {
   clearVaultContent()
   if (!expiryNotified) {
     expiryNotified = true
-    emit('notify', '密码库验证已超过 5 分钟，请重新解锁')
+    emit(
+      'notify',
+      `密码库验证已超过 ${unlockDurationLabel.value}，请重新解锁`,
+    )
   }
 }
 
@@ -334,8 +404,15 @@ async function togglePassword(entry: VaultEntry) {
     revealedPassword.value = ''
     return
   }
+  const scope = workspaceId.value
   try {
-    const result = await getVaultSecret(entry.id)
+    const result = await getVaultSecret(entry.id, scope)
+    if (
+      workspaceId.value !== scope ||
+      !entries.value.some((item) => item.id === entry.id)
+    ) {
+      return
+    }
     revealedId.value = entry.id
     revealedPassword.value = result.password
   } catch (error) {
@@ -344,10 +421,12 @@ async function togglePassword(entry: VaultEntry) {
 }
 
 async function copyPassword(entry: VaultEntry) {
+  const scope = workspaceId.value
   try {
     const result = revealedId.value === entry.id
       ? { password: revealedPassword.value }
-      : await getVaultSecret(entry.id)
+      : await getVaultSecret(entry.id, scope)
+    if (workspaceId.value !== scope) return
     await copyText(result.password, `password-${entry.id}`)
     emit('notify', `已复制「${entry.name}」的密码`)
   } catch (error) {
@@ -387,8 +466,9 @@ async function openEntryUrl(entry: VaultEntry) {
 
 async function changeEntryCategory(entry: VaultEntry, category: string) {
   if (!category || category === entry.category) return
+  const scope = workspaceId.value
   try {
-    const updated = await updateVaultEntry(entry.id, {
+    const updated = await updateVaultEntry(entry.id, scope, {
       name: entry.name,
       username: entry.username,
       password: '',
@@ -396,6 +476,7 @@ async function changeEntryCategory(entry: VaultEntry, category: string) {
       category,
       notes: entry.notes,
     })
+    if (workspaceId.value !== scope) return
     entries.value = entries.value.map((item) =>
       item.id === updated.id ? updated : item,
     )
@@ -419,6 +500,58 @@ function editEntry(entry: VaultEntry) {
   dialogOpen.value = true
 }
 
+function openWorkspaceTransfer(entry: VaultEntry) {
+  transferTarget.value = entry
+}
+
+async function handleWorkspaceTransfer(
+  mode: WorkspaceTransferMode,
+  targetWorkspaceId: string,
+) {
+  const entry = transferTarget.value
+  if (!entry || transferring.value) return
+  const targetWorkspace = workspaces.workspaces.find(
+    (workspace) => workspace.id === targetWorkspaceId,
+  )
+  if (!targetWorkspace) {
+    errorMessage.value = '目标工作空间不存在'
+    return
+  }
+  const scope = workspaceId.value
+  transferring.value = true
+  errorMessage.value = ''
+  try {
+    if (mode === 'copy') {
+      await copyVaultEntry(
+        entry.id,
+        scope,
+        targetWorkspaceId,
+      )
+    } else {
+      await moveVaultEntry(
+        entry.id,
+        scope,
+        targetWorkspaceId,
+      )
+    }
+    if (workspaceId.value !== scope) return
+    transferTarget.value = null
+    if (revealedId.value === entry.id) {
+      revealedId.value = null
+      revealedPassword.value = ''
+    }
+    emit(
+      'notify',
+      `${mode === 'copy' ? '已复制' : '已移动'}「${entry.name}」到「${targetWorkspace.name}」`,
+    )
+    await loadEntries()
+  } catch (error) {
+    handleVaultError(error)
+  } finally {
+    transferring.value = false
+  }
+}
+
 function closeDialog() {
   dialogOpen.value = false
   editingEntry.value = null
@@ -426,14 +559,22 @@ function closeDialog() {
 
 async function saveEntry(input: VaultEntryInput) {
   if (saving.value) return
+  const scope = workspaceId.value
+  if (!scope) return
   saving.value = true
   errorMessage.value = ''
   try {
     if (editingEntry.value) {
-      await updateVaultEntry(editingEntry.value.id, input)
+      await updateVaultEntry(
+        editingEntry.value.id,
+        scope,
+        input,
+      )
+      if (workspaceId.value !== scope) return
       emit('notify', '密码条目已更新')
     } else {
-      await createVaultEntry(input)
+      await createVaultEntry(scope, input)
+      if (workspaceId.value !== scope) return
       emit('notify', '密码条目已添加')
     }
     closeDialog()
@@ -448,9 +589,11 @@ async function saveEntry(input: VaultEntryInput) {
 async function confirmDelete() {
   const target = deleteTarget.value
   if (!target || deleting.value) return
+  const scope = workspaceId.value
   deleting.value = true
   try {
-    await deleteVaultEntry(target.id)
+    await deleteVaultEntry(target.id, scope)
+    if (workspaceId.value !== scope) return
     if (revealedId.value === target.id) {
       revealedId.value = null
       revealedPassword.value = ''
@@ -502,7 +645,10 @@ async function saveTouchIdSetup() {
   savingTouchId.value = true
   touchIdSetupError.value = ''
   try {
-    const result = await unlockVaultWithPassword(secret)
+    const result = await unlockVaultWithPassword(
+      secret,
+      props.unlockMinutes,
+    )
     await bridge.storeTouchIdSecret(auth.email, secret)
     applyUnlock(result.expiresAt)
     nativeTouchIdEnabled.value = true
@@ -531,6 +677,33 @@ function formatDate(value: string) {
     hour12: false,
   }).format(new Date(value))
 }
+
+watch(
+  () => auth.email,
+  (email) => workspaces.load(email),
+  { immediate: true },
+)
+
+watch(workspaceId, async () => {
+  vaultLoadGeneration += 1
+  loadingEntries.value = false
+  errorMessage.value = ''
+  revealedId.value = null
+  revealedPassword.value = ''
+  copiedKey.value = ''
+  dialogOpen.value = false
+  editingEntry.value = null
+  deleteTarget.value = null
+  transferTarget.value = null
+  categoryManagerOpen.value = false
+  selectedCategory.value = '全部'
+  if (state.value === 'unlocked') {
+    await loadEntries()
+  } else {
+    entries.value = []
+    categories.value = []
+  }
+})
 
 onMounted(async () => {
   platformPasskeyReady.value = await platformPasskeyAvailable()
@@ -575,7 +748,7 @@ onBeforeUnmount(() => {
           <p class="vault-locked__kicker">本地加密保险库</p>
           <h2>验证后查看密码</h2>
           <p class="vault-locked__copy">
-            验证通过后 5 分钟内可以查看和复制密码，超时后自动锁定。
+            验证通过后 {{ unlockDurationLabel }}内可以查看和复制密码，超时后自动锁定。
           </p>
         </div>
 
@@ -591,7 +764,8 @@ onBeforeUnmount(() => {
           "
           @click="unlockWithTouchId"
         >
-          <Fingerprint :size="21" />
+          <UiFidgetSpinner v-if="unlocking" :size="20" />
+          <Fingerprint v-else :size="21" />
           <span>
             <strong>{{ unlocking ? '正在验证…' : '使用触控 ID' }}</strong>
             <small>
@@ -627,9 +801,10 @@ onBeforeUnmount(() => {
             variant="primary"
             size="lg"
             type="submit"
+            :loading="unlocking"
             :disabled="!password || unlocking"
           >
-            <Lock :size="15" />
+            <Lock v-if="!unlocking" :size="15" />
             {{ unlocking ? '正在验证…' : '解锁密码库' }}
           </UiButton>
         </form>
@@ -674,15 +849,11 @@ onBeforeUnmount(() => {
             {{ countdownLabel }} 后锁定
           </span>
         </div>
-        <label class="vault-search">
-          <Search :size="15" aria-hidden="true" />
-          <input
-            v-model="searchQuery"
-            type="search"
-            aria-label="搜索密码条目"
-            placeholder="搜索名称、账号、网址或分类"
-          />
-        </label>
+        <UiSearchInput
+          v-model="searchQuery"
+          label="搜索密码条目"
+          placeholder="搜索名称、账号、网址或分类"
+        />
         <button
           v-if="
             !nativeTouchIdEnabled &&
@@ -702,7 +873,8 @@ onBeforeUnmount(() => {
               : enablePasskey()
           "
         >
-          <Fingerprint :size="16" />
+          <UiFidgetSpinner v-if="registeringPasskey" :size="15" />
+          <Fingerprint v-else :size="16" />
           {{ registeringPasskey ? '正在启用…' : '启用触控 ID' }}
         </button>
         <UiButton variant="primary" @click="addEntry">
@@ -735,6 +907,7 @@ onBeforeUnmount(() => {
 
       <div class="vault-list">
         <div v-if="loadingEntries" class="vault-empty">
+          <UiFidgetSpinner :size="20" />
           正在读取密码库…
         </div>
         <div v-else-if="filteredEntries.length === 0" class="vault-empty">
@@ -827,6 +1000,14 @@ onBeforeUnmount(() => {
               </button>
               <button
                 type="button"
+                :aria-label="`复制或移动 ${entry.name} 到其他工作空间`"
+                title="复制或移动到其他工作空间"
+                @click="openWorkspaceTransfer(entry)"
+              >
+                <ArrowRightLeft :size="14" />
+              </button>
+              <button
+                type="button"
                 :aria-label="`编辑 ${entry.name}`"
                 title="编辑"
                 @click="editEntry(entry)"
@@ -908,9 +1089,10 @@ onBeforeUnmount(() => {
           size="lg"
           type="submit"
           form="vault-touch-id-setup"
+          :loading="savingTouchId"
           :disabled="!touchIdSetupPassword || savingTouchId"
         >
-          <Fingerprint :size="14" />
+          <Fingerprint v-if="!savingTouchId" :size="14" />
           {{ savingTouchId ? '正在启用…' : '启用触控 ID' }}
         </UiButton>
       </template>
@@ -921,12 +1103,14 @@ onBeforeUnmount(() => {
       :entry="editingEntry"
       :categories="categoryNames"
       :default-category="defaultDialogCategory"
+      :saving="saving"
       @close="closeDialog"
       @save="saveEntry"
     />
 
     <VaultCategoryDialog
       v-if="categoryManagerOpen"
+      :workspace-id="workspaceId"
       :categories="categories"
       :entries="entries"
       @close="categoryManagerOpen = false"
@@ -943,6 +1127,14 @@ onBeforeUnmount(() => {
       :busy="deleting"
       @close="deleteTarget = null"
       @confirm="confirmDelete"
+    />
+
+    <WorkspaceTransferDialog
+      v-if="transferTarget"
+      :item-label="`密码「${transferTarget.name}」`"
+      :source-workspace-id="workspaceId"
+      @close="transferTarget = null"
+      @transfer="handleWorkspaceTransfer"
     />
   </section>
 </template>
@@ -1186,34 +1378,6 @@ onBeforeUnmount(() => {
   gap: 3px;
   color: var(--system-green);
   font-family: var(--font-mono);
-}
-
-.vault-search {
-  display: flex;
-  width: min(100%, 240px);
-  height: var(--control-md);
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px;
-  color: var(--text-subtle);
-  background: var(--field-bg);
-  border: 1px solid var(--field-border);
-  border-radius: var(--radius-control);
-}
-
-.vault-search:focus-within {
-  border-color: var(--system-blue);
-  box-shadow: var(--focus-ring);
-}
-
-.vault-search input {
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-  color: var(--text);
-  font-size: var(--font-caption);
-  background: transparent;
-  border: 0;
 }
 
 .vault-passkey-button,
@@ -1473,11 +1637,6 @@ onBeforeUnmount(() => {
 
   .vault-toolbar__count {
     flex-basis: 100%;
-  }
-
-  .vault-search {
-    width: auto;
-    flex: 1;
   }
 
   .vault-passkey-button {

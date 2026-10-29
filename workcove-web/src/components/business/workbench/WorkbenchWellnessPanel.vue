@@ -42,14 +42,14 @@ const wellnessHelp = computed(() => ({
     risk:
       '长期饮水不足可能引起口干、注意力下降、便秘，并增加泌尿系统结石的风险。',
     advice:
-      `建议每 ${wellness.data.reminderSettings.waterMinutes} 分钟少量补水；运动、出汗或天气炎热时适当增加。`,
+      `建议在工作日时间内每 ${wellness.data.reminderSettings.waterMinutes} 分钟少量补水；运动、出汗或天气炎热时适当增加。`,
   },
   stand: {
     title: '工位活动',
     risk:
       '久坐不动可能导致腰颈僵硬、肌肉紧张、血液循环变慢，并增加静脉血栓和代谢问题的风险。',
     advice:
-      `建议每 ${wellness.data.reminderSettings.movementMinutes} 分钟做一次扭腰、伸展或肩颈放松等原地活动。`,
+      `建议在工作日时间内每 ${wellness.data.reminderSettings.movementMinutes} 分钟做一次扭腰、伸展或肩颈放松等原地活动。`,
   },
   restroom: {
     title: '及时如厕',

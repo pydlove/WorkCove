@@ -13,7 +13,7 @@
 
     <groupId>com.pydlove.workcove</groupId>
     <artifactId>workcove</artifactId>
-    <version>0.2.5-SNAPSHOT</version>
+    <version>0.2.6-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>8小时工作台</name>

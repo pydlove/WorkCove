@@ -47,8 +47,12 @@ public class CalendarController {
     }
 
     @GetMapping("/events")
-    public List<CalendarEventView> events(HttpServletRequest request) {
-        return calendarService.events(currentUserId(request));
+    public List<CalendarEventView> events(
+            @RequestParam String workspaceId,
+            HttpServletRequest request) {
+        return calendarService.events(
+                currentUserId(request),
+                workspaceId);
     }
 
     @PostMapping("/events")
@@ -82,17 +86,22 @@ public class CalendarController {
             @RequestHeader(value = "X-WorkCove-Action", required = false)
             String action,
             @PathVariable String eventKey,
+            @RequestParam String workspaceId,
             HttpServletRequest request) {
         validateAction(action);
         calendarService.deleteEvent(
                 currentUserId(request),
+                workspaceId,
                 eventKey);
     }
 
     @GetMapping("/reminder-settings")
     public CalendarReminderSettingsView reminderSettings(
+            @RequestParam String workspaceId,
             HttpServletRequest request) {
-        return calendarService.reminderSettings(currentUserId(request));
+        return calendarService.reminderSettings(
+                currentUserId(request),
+                workspaceId);
     }
 
     @PutMapping("/reminder-settings")
@@ -104,6 +113,7 @@ public class CalendarController {
         validateAction(action);
         return calendarService.saveReminderSettings(
                 currentUserId(request),
+                body.workspaceId(),
                 body.defaultInApp(),
                 body.defaultEmail(),
                 body.defaultMinutesBefore());
@@ -111,18 +121,23 @@ public class CalendarController {
 
     @GetMapping("/notifications")
     public List<NotificationView> notifications(
+            @RequestParam String workspaceId,
             @RequestParam(defaultValue = "20") int limit,
             HttpServletRequest request) {
         return calendarService.notifications(
                 currentUserId(request),
+                workspaceId,
                 limit);
     }
 
     @GetMapping("/notifications/unread-count")
-    public UnreadCountResponse unreadCount(HttpServletRequest request) {
+    public UnreadCountResponse unreadCount(
+            @RequestParam String workspaceId,
+            HttpServletRequest request) {
         return new UnreadCountResponse(
                 calendarService.unreadNotificationCount(
-                        currentUserId(request)));
+                        currentUserId(request),
+                        workspaceId));
     }
 
     @PostMapping("/notifications/{id}/read")
@@ -131,10 +146,12 @@ public class CalendarController {
             @RequestHeader(value = "X-WorkCove-Action", required = false)
             String action,
             @PathVariable long id,
+            @RequestParam String workspaceId,
             HttpServletRequest request) {
         validateAction(action);
         calendarService.markNotificationRead(
                 currentUserId(request),
+                workspaceId,
                 id);
     }
 
@@ -143,10 +160,12 @@ public class CalendarController {
     public void markAllNotificationsRead(
             @RequestHeader(value = "X-WorkCove-Action", required = false)
             String action,
+            @RequestParam String workspaceId,
             HttpServletRequest request) {
         validateAction(action);
         calendarService.markAllNotificationsRead(
-                currentUserId(request));
+                currentUserId(request),
+                workspaceId);
     }
 
     private long currentUserId(HttpServletRequest request) {
@@ -191,6 +210,7 @@ public class CalendarController {
     }
 
     public record ReminderSettingsRequest(
+            String workspaceId,
             boolean defaultInApp,
             boolean defaultEmail,
             int defaultMinutesBefore) {

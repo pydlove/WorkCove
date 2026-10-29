@@ -23,6 +23,7 @@ function normalizeTime(value: string) {
 export const useCalendarStore = defineStore('calendar', {
   state: () => ({
     ownerEmail: '',
+    workspaceId: '',
     events: [] as CalendarEvent[],
     reminderSettings: {
       defaultInApp: true,
@@ -31,40 +32,72 @@ export const useCalendarStore = defineStore('calendar', {
     } as CalendarReminderSettings,
     loading: false,
     loaded: false,
+    loadSequence: 0,
   }),
   actions: {
-    async load(email: string, force = false) {
+    async load(email: string, workspaceId: string, force = false) {
       const normalizedEmail = email.trim().toLocaleLowerCase('en-US')
-      if (!normalizedEmail) {
+      if (!normalizedEmail || !workspaceId) {
         this.ownerEmail = ''
+        this.workspaceId = ''
         this.events = []
         this.loaded = false
         this.loading = false
+        this.loadSequence += 1
         return
       }
       if (
         !force &&
         this.loaded &&
-        this.ownerEmail === normalizedEmail
+        this.ownerEmail === normalizedEmail &&
+        this.workspaceId === workspaceId
       ) {
         return
       }
+      const sequence = ++this.loadSequence
+      const ownerChanged = this.ownerEmail !== normalizedEmail
       this.ownerEmail = normalizedEmail
+      const workspaceChanged = this.workspaceId !== workspaceId
+      this.workspaceId = workspaceId
+      if (ownerChanged || workspaceChanged) {
+        this.events = []
+        this.loaded = false
+        this.reminderSettings = {
+          defaultInApp: true,
+          defaultEmail: false,
+          defaultMinutesBefore: 10,
+        }
+      }
       this.loading = true
       this.loaded = false
       try {
         const [events, settings] = await Promise.all([
-          loadUserCalendar(normalizedEmail),
-          loadCalendarReminderSettings(normalizedEmail),
+          loadUserCalendar(normalizedEmail, workspaceId),
+          loadCalendarReminderSettings(normalizedEmail, workspaceId),
         ])
+        if (
+          sequence !== this.loadSequence ||
+          this.workspaceId !== workspaceId
+        ) {
+          return
+        }
         this.events = events
         this.reminderSettings = settings
         this.loaded = true
       } finally {
-        this.loading = false
+        if (
+          sequence === this.loadSequence &&
+          this.workspaceId === workspaceId
+        ) {
+          this.loading = false
+        }
       }
     },
     async save(input: CalendarEventInput) {
+      const workspaceId = this.workspaceId
+      if (!workspaceId || input.workspaceId !== workspaceId) {
+        throw new Error('日程不属于当前工作空间')
+      }
       const title = input.title.trim()
       if (!title) throw new Error('请输入日程名称')
       if ([...title].length > 120) {
@@ -90,6 +123,7 @@ export const useCalendarStore = defineStore('calendar', {
       const saved = input.id
         ? await updateCalendarEvent(payload)
         : await createCalendarEvent(payload)
+      if (this.workspaceId !== workspaceId) return saved
       const existing = this.events.some((event) => event.id === saved.id)
       this.events = existing
         ? this.events.map((event) =>
@@ -104,11 +138,20 @@ export const useCalendarStore = defineStore('calendar', {
       return saved
     },
     async remove(id: string) {
-      await deleteCalendarEvent(id)
+      const workspaceId = this.workspaceId
+      if (!workspaceId) return
+      await deleteCalendarEvent(id, workspaceId)
+      if (this.workspaceId !== workspaceId) return
       this.events = this.events.filter((event) => event.id !== id)
     },
     async saveReminderSettings(settings: CalendarReminderSettings) {
-      const saved = await saveCalendarReminderSettings(settings)
+      const workspaceId = this.workspaceId
+      if (!workspaceId) throw new Error('工作空间尚未初始化')
+      const saved = await saveCalendarReminderSettings(
+        workspaceId,
+        settings,
+      )
+      if (this.workspaceId !== workspaceId) return
       this.reminderSettings = {
         defaultInApp: saved.defaultInApp,
         defaultEmail: saved.defaultEmail,

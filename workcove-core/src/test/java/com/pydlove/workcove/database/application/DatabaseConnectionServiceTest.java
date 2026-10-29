@@ -16,6 +16,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class DatabaseConnectionServiceTest {
 
@@ -69,7 +70,11 @@ class DatabaseConnectionServiceTest {
                         8123,
                         "secret"));
 
-        var result = service.execute(OWNER_ID, created.id(), "SELECT 1");
+        var result = service.execute(
+                OWNER_ID,
+                "default",
+                created.id(),
+                "SELECT 1");
 
         assertEquals(true, result.resultSet());
         assertEquals("secret", gateway.lastSpec.password());
@@ -85,10 +90,25 @@ class DatabaseConnectionServiceTest {
                 null,
                 command("生产 MySQL", DatabaseType.MYSQL, "db.local", 3306, "secret"));
 
-        var schemas = service.databases(OWNER_ID, created.id());
-        var tables = service.tables(OWNER_ID, created.id(), "analytics");
-        var columns = service.columns(OWNER_ID, created.id(), "auth_user");
-        var data = service.tableData(OWNER_ID, created.id(), "auth_user");
+        var schemas = service.databases(
+                OWNER_ID,
+                "default",
+                created.id());
+        var tables = service.tables(
+                OWNER_ID,
+                "default",
+                created.id(),
+                "analytics");
+        var columns = service.columns(
+                OWNER_ID,
+                "default",
+                created.id(),
+                "auth_user");
+        var data = service.tableData(
+                OWNER_ID,
+                "default",
+                created.id(),
+                "auth_user");
 
         assertEquals(1, schemas.size());
         assertEquals("analytics", schemas.get(0).name());
@@ -100,6 +120,35 @@ class DatabaseConnectionServiceTest {
         assertEquals("PRI", columns.get(0).key());
         assertEquals(true, data.resultSet());
         assertEquals("1", data.rows().get(0).get(0));
+    }
+
+    @Test
+    void rejectsConnectionAccessFromAnotherWorkspace() {
+        var created = service.save(
+                OWNER_ID,
+                "default",
+                null,
+                command("生产 MySQL", DatabaseType.MYSQL, "db.local", 3306, "secret"));
+
+        assertThrows(
+                com.pydlove.workcove.shared.domain.DomainException.class,
+                () -> service.execute(
+                        OWNER_ID,
+                        "workspace-b",
+                        created.id(),
+                        "SELECT 1"));
+        assertThrows(
+                com.pydlove.workcove.shared.domain.DomainException.class,
+                () -> service.databases(
+                        OWNER_ID,
+                        "workspace-b",
+                        created.id()));
+        assertThrows(
+                com.pydlove.workcove.shared.domain.DomainException.class,
+                () -> service.delete(
+                        OWNER_ID,
+                        "workspace-b",
+                        created.id()));
     }
 
     private static DatabaseConnectionService.DatabaseConnectionCommand command(
@@ -149,12 +198,14 @@ class DatabaseConnectionServiceTest {
         }
 
         @Override
-        public Optional<DatabaseConnection> findByIdAndOwner(
+        public Optional<DatabaseConnection> findByIdAndOwnerAndWorkspace(
                 long id,
-                long ownerId) {
+                long ownerId,
+                String workspaceId) {
             return connection != null
                     && connection.getId() == id
                     && connection.getOwnerId() == ownerId
+                    && connection.getWorkspaceId().equals(workspaceId)
                     ? Optional.of(connection)
                     : Optional.empty();
         }
@@ -179,10 +230,14 @@ class DatabaseConnectionServiceTest {
         }
 
         @Override
-        public void deleteByIdAndOwner(long id, long ownerId) {
+        public void deleteByIdAndOwnerAndWorkspace(
+                long id,
+                long ownerId,
+                String workspaceId) {
             if (connection != null
                     && connection.getId() == id
-                    && connection.getOwnerId() == ownerId) {
+                    && connection.getOwnerId() == ownerId
+                    && connection.getWorkspaceId().equals(workspaceId)) {
                 connection = null;
             }
         }

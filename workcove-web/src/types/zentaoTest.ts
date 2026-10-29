@@ -25,4 +25,6 @@ export interface ZentaoTestResult {
   proof: string
   screenshots: string[]
   createdAt: string
+  zentaoNoteAt?: string | null
+  zentaoNoteError?: string
 }

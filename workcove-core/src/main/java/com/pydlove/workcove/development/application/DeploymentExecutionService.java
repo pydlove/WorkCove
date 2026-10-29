@@ -62,12 +62,12 @@ public class DeploymentExecutionService {
         String scriptContent = requireScript(command.scriptContent());
 
         ManagedServer server = serverRepository
-                .findByIdAndOwnerId(command.serverId(), ownerId)
+                .findByIdAndOwnerIdAndWorkspaceId(
+                        command.serverId(),
+                        ownerId,
+                        workspaceId)
                 .orElseThrow(() -> new DomainException(
                         "服务器不存在或无权访问"));
-        if (!server.getWorkspaceId().equals(workspaceId)) {
-            throw new DomainException("服务器不属于当前工作空间");
-        }
 
         SshTerminalGateway.HostKey expectedHostKey =
                 server.getHostKeyPublicKey() == null

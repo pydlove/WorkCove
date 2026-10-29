@@ -18,6 +18,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -39,6 +40,16 @@ public final class ProcessCodexGateway implements CodexGateway {
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(90);
     private static final Duration INITIALIZE_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration INTERRUPT_TIMEOUT = Duration.ofSeconds(10);
+    private static final String BROWSER_MCP_COMMAND =
+            "WORKCOVE_BROWSER_MCP_COMMAND";
+    private static final String BROWSER_MCP_SCRIPT =
+            "WORKCOVE_BROWSER_MCP_SCRIPT";
+    private static final String BROWSER_CONTROL_URL =
+            "WORKCOVE_BROWSER_CONTROL_URL";
+    private static final String BROWSER_CONTROL_TOKEN =
+            "WORKCOVE_BROWSER_CONTROL_TOKEN";
+    private static final String BROWSER_CONTROL_FILE =
+            "WORKCOVE_BROWSER_CONTROL_FILE";
 
     private final ObjectMapper objectMapper;
     private final AtomicLong requestIds = new AtomicLong();
@@ -128,6 +139,43 @@ public final class ProcessCodexGateway implements CodexGateway {
                         model,
                         reasoningEffort,
                         writableRoots));
+    }
+
+    @Override
+    public Map<String, Object> steerTurn(
+            String threadId,
+            String expectedTurnId,
+            String text,
+            List<CodexAttachment> attachments) {
+        return request(
+                "turn/steer",
+                steerParams(
+                        threadId,
+                        expectedTurnId,
+                        text,
+                        attachments));
+    }
+
+    Map<String, Object> steerParams(
+            String threadId,
+            String expectedTurnId,
+            String text,
+            List<CodexAttachment> attachments) {
+        Map<String, Object> startParams = turnParams(
+                threadId,
+                text,
+                null,
+                attachments,
+                null,
+                null,
+                null);
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("threadId", startParams.get("threadId"));
+        params.put("expectedTurnId", requireText(
+                expectedTurnId,
+                "任务 ID 无效"));
+        params.put("input", startParams.get("input"));
+        return params;
     }
 
     Map<String, Object> turnParams(
@@ -244,6 +292,167 @@ public final class ProcessCodexGateway implements CodexGateway {
                         requireText(name, "会话名称不能为空")));
     }
 
+    Map<String, String> browserMcpEnvironment(
+            Map<String, String> environment) {
+        Map<String, String> merged = new HashMap<>(
+                environment == null ? Map.of() : environment);
+        if (hasBrowserMcpEnvironment(merged)) {
+            return merged;
+        }
+
+        Path descriptor = browserControlDescriptor(merged);
+        if (descriptor == null) {
+            return merged;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(descriptor.toFile());
+            putIfText(merged, BROWSER_MCP_COMMAND, root.path("command"));
+            putIfText(merged, BROWSER_MCP_SCRIPT, root.path("script"));
+            putIfText(merged, BROWSER_CONTROL_URL, root.path("url"));
+            putIfText(merged, BROWSER_CONTROL_TOKEN, root.path("token"));
+            merged.putIfAbsent(BROWSER_CONTROL_FILE, descriptor.toString());
+            return merged;
+        } catch (IOException exception) {
+            return merged;
+        }
+    }
+
+    private boolean hasBrowserMcpEnvironment(
+            Map<String, String> environment) {
+        return Stream.of(
+                        BROWSER_MCP_COMMAND,
+                        BROWSER_MCP_SCRIPT,
+                        BROWSER_CONTROL_URL,
+                        BROWSER_CONTROL_TOKEN)
+                .map(environment::get)
+                .allMatch(value -> value != null && !value.isBlank());
+    }
+
+    private void putIfText(
+            Map<String, String> environment,
+            String key,
+            JsonNode value) {
+        String text = value.isTextual() ? value.asText().trim() : "";
+        if (!text.isEmpty()) {
+            environment.putIfAbsent(key, text);
+        }
+    }
+
+    private Path browserControlDescriptor(
+            Map<String, String> environment) {
+        String explicit = environment.getOrDefault(
+                BROWSER_CONTROL_FILE,
+                "").trim();
+        if (!explicit.isEmpty()) {
+            Path path = Path.of(explicit);
+            return Files.isRegularFile(path) ? path : null;
+        }
+
+        String home = System.getProperty("user.home", "");
+        if (home.isBlank()) {
+            return null;
+        }
+        Path homePath = Path.of(home);
+        String osName = System.getProperty("os.name", "")
+                .toLowerCase(Locale.ROOT);
+        Path appData;
+        if (osName.contains("mac")) {
+            appData = homePath.resolve(
+                    "Library/Application Support");
+        } else if (osName.contains("win")) {
+            String roaming = System.getenv("APPDATA");
+            appData = roaming == null || roaming.isBlank()
+                    ? homePath.resolve("AppData/Roaming")
+                    : Path.of(roaming);
+        } else {
+            appData = homePath.resolve(".config");
+        }
+
+        for (String directory : List.of(
+                "com.pydlove.workcove.dev",
+                "com.pydlove.workcove")) {
+            Path candidate = appData
+                    .resolve(directory)
+                    .resolve("browser-control.json");
+            if (Files.isRegularFile(candidate)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    static List<String> appServerArguments(
+            String executable,
+            Map<String, String> environment) {
+        List<String> arguments = new ArrayList<>();
+        arguments.add(executable);
+        arguments.add("app-server");
+
+        Map<String, String> env =
+                environment == null ? Map.of() : environment;
+        String mcpCommand =
+                env.getOrDefault(BROWSER_MCP_COMMAND, "").trim();
+        String mcpScript =
+                env.getOrDefault(BROWSER_MCP_SCRIPT, "").trim();
+        String controlUrl =
+                env.getOrDefault(BROWSER_CONTROL_URL, "").trim();
+        String controlToken =
+                env.getOrDefault(BROWSER_CONTROL_TOKEN, "").trim();
+        if (mcpCommand.isEmpty()
+                || mcpScript.isEmpty()
+                || controlUrl.isEmpty()
+                || controlToken.isEmpty()) {
+            return arguments;
+        }
+
+        addConfigOverride(
+                arguments,
+                "mcp_servers.workcove_browser.command",
+                tomlString(mcpCommand));
+        addConfigOverride(
+                arguments,
+                "mcp_servers.workcove_browser.args",
+                "[" + tomlString(mcpScript) + "]");
+        addConfigOverride(
+                arguments,
+                "mcp_servers.workcove_browser.env_vars",
+                "[\"ELECTRON_RUN_AS_NODE\",\""
+                        + BROWSER_CONTROL_URL
+                        + "\",\""
+                        + BROWSER_CONTROL_TOKEN
+                        + "\"]");
+        addConfigOverride(
+                arguments,
+                "mcp_servers.workcove_browser.startup_timeout_sec",
+                "20");
+        addConfigOverride(
+                arguments,
+                "mcp_servers.workcove_browser.tool_timeout_sec",
+                "180");
+        addConfigOverride(
+                arguments,
+                "mcp_servers.workcove_browser.default_tools_approval_mode",
+                tomlString("auto"));
+        return arguments;
+    }
+
+    private static void addConfigOverride(
+            List<String> arguments,
+            String key,
+            String value) {
+        arguments.add("-c");
+        arguments.add(key + "=" + value);
+    }
+
+    private static String tomlString(String value) {
+        String escaped = value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r");
+        return "\"" + escaped + "\"";
+    }
+
     private synchronized void ensureStarted() {
         if (process != null && process.isAlive()) {
             return;
@@ -254,8 +463,24 @@ public final class ProcessCodexGateway implements CodexGateway {
         }
 
         try {
-            ProcessBuilder builder = new ProcessBuilder(executable, "app-server");
+            Map<String, String> processEnvironment =
+                    browserMcpEnvironment(System.getenv());
+            ProcessBuilder builder = new ProcessBuilder(
+                    appServerArguments(
+                            executable,
+                            processEnvironment));
             builder.directory(Path.of(System.getProperty("user.home")).toFile());
+            if (hasBrowserMcpEnvironment(processEnvironment)) {
+                builder.environment().put(
+                        "ELECTRON_RUN_AS_NODE",
+                        "1");
+                builder.environment().put(
+                        BROWSER_CONTROL_URL,
+                        processEnvironment.get(BROWSER_CONTROL_URL));
+                builder.environment().put(
+                        BROWSER_CONTROL_TOKEN,
+                        processEnvironment.get(BROWSER_CONTROL_TOKEN));
+            }
             Path executableDirectory = Path.of(executable)
                     .toAbsolutePath()
                     .getParent();

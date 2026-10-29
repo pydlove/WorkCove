@@ -5,6 +5,7 @@ import java.time.Instant;
 public record VaultCategory(
         Long id,
         long ownerId,
+        String workspaceId,
         String name,
         int sortOrder,
         Instant createdAt,

@@ -5,7 +5,6 @@ import {
   Link2,
   List,
   ListOrdered,
-  LoaderCircle,
   Quote,
   Send,
   Underline,
@@ -435,15 +434,11 @@ function escapeHtml(value: string) {
       <UiButton
         variant="primary"
         size="lg"
+        :loading="mail.sending"
         :disabled="mail.sending"
         @click="send"
       >
-        <LoaderCircle
-          v-if="mail.sending"
-          class="mail-compose__spin"
-          :size="14"
-        />
-        <Send v-else :size="14" />
+        <Send v-if="!mail.sending" :size="14" />
         {{ mail.sending ? '发送中…' : '发送' }}
       </UiButton>
     </template>

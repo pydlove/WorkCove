@@ -52,46 +52,56 @@ public class JdbcVaultRepository
     }
 
     @Override
-    public List<VaultCategory> findCategoriesByOwnerId(long ownerId) {
+    public List<VaultCategory> findCategoriesByOwnerIdAndWorkspaceId(
+            long ownerId,
+            String workspaceId) {
         return jdbc.query(
                 """
-                SELECT id, owner_id, name, sort_order, created_at, updated_at
+                SELECT id, owner_id, workspace_id, name, sort_order,
+                       created_at, updated_at
                 FROM vault_category
-                WHERE owner_id = ?
+                WHERE owner_id = ? AND workspace_id = ?
                 ORDER BY sort_order, id
                 """,
                 CATEGORY_MAPPER,
-                ownerId);
+                ownerId,
+                workspaceId);
     }
 
     @Override
-    public Optional<VaultCategory> findCategoryByIdAndOwnerId(
+    public Optional<VaultCategory> findCategoryByIdAndOwnerIdAndWorkspaceId(
             long id,
-            long ownerId) {
+            long ownerId,
+            String workspaceId) {
         return jdbc.query(
                 """
-                SELECT id, owner_id, name, sort_order, created_at, updated_at
+                SELECT id, owner_id, workspace_id, name, sort_order,
+                       created_at, updated_at
                 FROM vault_category
-                WHERE id = ? AND owner_id = ?
+                WHERE id = ? AND owner_id = ? AND workspace_id = ?
                 """,
                 CATEGORY_MAPPER,
                 id,
-                ownerId).stream().findFirst();
+                ownerId,
+                workspaceId).stream().findFirst();
     }
 
     @Override
-    public Optional<VaultCategory> findCategoryByNameAndOwnerId(
+    public Optional<VaultCategory> findCategoryByNameAndOwnerIdAndWorkspaceId(
             String name,
-            long ownerId) {
+            long ownerId,
+            String workspaceId) {
         return jdbc.query(
                 """
-                SELECT id, owner_id, name, sort_order, created_at, updated_at
+                SELECT id, owner_id, workspace_id, name, sort_order,
+                       created_at, updated_at
                 FROM vault_category
-                WHERE name = ? AND owner_id = ?
+                WHERE name = ? AND owner_id = ? AND workspace_id = ?
                 """,
                 CATEGORY_MAPPER,
                 name,
-                ownerId).stream().findFirst();
+                ownerId,
+                workspaceId).stream().findFirst();
     }
 
     @Override
@@ -101,23 +111,28 @@ public class JdbcVaultRepository
             PreparedStatement statement = connection.prepareStatement(
                     """
                     INSERT INTO vault_category (
-                        owner_id, name, sort_order, created_at, updated_at
+                        owner_id, workspace_id, name, sort_order,
+                        created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     Statement.RETURN_GENERATED_KEYS);
             statement.setLong(1, category.ownerId());
-            statement.setString(2, category.name());
-            statement.setInt(3, category.sortOrder());
-            statement.setTimestamp(4, timestamp(category.createdAt()));
-            statement.setTimestamp(5, timestamp(category.updatedAt()));
+            statement.setString(2, category.workspaceId());
+            statement.setString(3, category.name());
+            statement.setInt(4, category.sortOrder());
+            statement.setTimestamp(5, timestamp(category.createdAt()));
+            statement.setTimestamp(6, timestamp(category.updatedAt()));
             return statement;
         }, keys);
         Number key = keys.getKey();
         if (key == null) {
             throw new IllegalStateException("密码分类创建失败");
         }
-        return findCategoryByIdAndOwnerId(key.longValue(), category.ownerId())
+        return findCategoryByIdAndOwnerIdAndWorkspaceId(
+                key.longValue(),
+                category.ownerId(),
+                category.workspaceId())
                 .orElseThrow();
     }
 
@@ -125,6 +140,7 @@ public class JdbcVaultRepository
     @Transactional
     public void renameCategory(
             long ownerId,
+            String workspaceId,
             long id,
             String currentName,
             String nextName,
@@ -133,21 +149,23 @@ public class JdbcVaultRepository
                 """
                 UPDATE vault_category
                 SET name = ?, updated_at = ?
-                WHERE id = ? AND owner_id = ?
+                WHERE id = ? AND owner_id = ? AND workspace_id = ?
                 """,
                 nextName,
                 timestamp(updatedAt),
                 id,
-                ownerId);
+                ownerId,
+                workspaceId);
         jdbc.update(
                 """
                 UPDATE vault_entry
                 SET category = ?, updated_at = ?
-                WHERE owner_id = ? AND category = ?
+                WHERE owner_id = ? AND workspace_id = ? AND category = ?
                 """,
                 nextName,
                 timestamp(updatedAt),
                 ownerId,
+                workspaceId,
                 currentName);
     }
 
@@ -155,6 +173,7 @@ public class JdbcVaultRepository
     @Transactional
     public void deleteCategoryAndReassignEntries(
             long ownerId,
+            String workspaceId,
             long id,
             String categoryName,
             String fallbackName,
@@ -163,44 +182,58 @@ public class JdbcVaultRepository
                 """
                 UPDATE vault_entry
                 SET category = ?, updated_at = ?
-                WHERE owner_id = ? AND category = ?
+                WHERE owner_id = ? AND workspace_id = ? AND category = ?
                 """,
                 fallbackName,
                 timestamp(updatedAt),
                 ownerId,
+                workspaceId,
                 categoryName);
         jdbc.update(
-                "DELETE FROM vault_category WHERE id = ? AND owner_id = ?",
+                """
+                DELETE FROM vault_category
+                WHERE id = ? AND owner_id = ? AND workspace_id = ?
+                """,
                 id,
-                ownerId);
+                ownerId,
+                workspaceId);
     }
 
     @Override
-    public List<VaultEntry> findEntriesByOwnerId(long ownerId) {
+    public List<VaultEntry> findEntriesByOwnerIdAndWorkspaceId(
+            long ownerId,
+            String workspaceId) {
         return jdbc.query(
                 """
-                SELECT id, owner_id, name, username, password_ciphertext,
-                       url, category, notes, created_at, updated_at
+                SELECT id, owner_id, workspace_id, name, username,
+                       password_ciphertext, url, category, notes,
+                       created_at, updated_at
                 FROM vault_entry
-                WHERE owner_id = ?
+                WHERE owner_id = ? AND workspace_id = ?
                 ORDER BY updated_at DESC, id DESC
                 """,
                 ENTRY_MAPPER,
-                ownerId);
+                ownerId,
+                workspaceId);
     }
 
     @Override
-    public Optional<VaultEntry> findByIdAndOwnerId(long id, long ownerId) {
+    public Optional<VaultEntry> findByIdAndOwnerIdAndWorkspaceId(
+            long id,
+            long ownerId,
+            String workspaceId) {
         return jdbc.query(
                 """
-                SELECT id, owner_id, name, username, password_ciphertext,
-                       url, category, notes, created_at, updated_at
+                SELECT id, owner_id, workspace_id, name, username,
+                       password_ciphertext, url, category, notes,
+                       created_at, updated_at
                 FROM vault_entry
-                WHERE id = ? AND owner_id = ?
+                WHERE id = ? AND owner_id = ? AND workspace_id = ?
                 """,
                 ENTRY_MAPPER,
                 id,
-                ownerId).stream().findFirst();
+                ownerId,
+                workspaceId).stream().findFirst();
     }
 
     @Override
@@ -211,28 +244,33 @@ public class JdbcVaultRepository
                 PreparedStatement statement = connection.prepareStatement(
                         """
                         INSERT INTO vault_entry (
-                            owner_id, name, username, password_ciphertext,
-                            url, category, notes, created_at, updated_at
+                            owner_id, workspace_id, name, username,
+                            password_ciphertext, url, category, notes,
+                            created_at, updated_at
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         Statement.RETURN_GENERATED_KEYS);
                 statement.setLong(1, entry.ownerId());
-                statement.setString(2, entry.name());
-                statement.setString(3, entry.username());
-                statement.setString(4, entry.passwordCiphertext());
-                statement.setString(5, entry.url());
-                statement.setString(6, entry.category());
-                statement.setString(7, entry.notes());
-                statement.setTimestamp(8, timestamp(entry.createdAt()));
-                statement.setTimestamp(9, timestamp(entry.updatedAt()));
+                statement.setString(2, entry.workspaceId());
+                statement.setString(3, entry.name());
+                statement.setString(4, entry.username());
+                statement.setString(5, entry.passwordCiphertext());
+                statement.setString(6, entry.url());
+                statement.setString(7, entry.category());
+                statement.setString(8, entry.notes());
+                statement.setTimestamp(9, timestamp(entry.createdAt()));
+                statement.setTimestamp(10, timestamp(entry.updatedAt()));
                 return statement;
             }, keys);
             Number key = keys.getKey();
             if (key == null) {
                 throw new IllegalStateException("密码条目创建失败");
             }
-            return findByIdAndOwnerId(key.longValue(), entry.ownerId())
+            return findByIdAndOwnerIdAndWorkspaceId(
+                    key.longValue(),
+                    entry.ownerId(),
+                    entry.workspaceId())
                     .orElseThrow();
         }
         jdbc.update(
@@ -245,7 +283,7 @@ public class JdbcVaultRepository
                     category = ?,
                     notes = ?,
                     updated_at = ?
-                WHERE id = ? AND owner_id = ?
+                WHERE id = ? AND owner_id = ? AND workspace_id = ?
                 """,
                 entry.name(),
                 entry.username(),
@@ -255,17 +293,50 @@ public class JdbcVaultRepository
                 entry.notes(),
                 timestamp(entry.updatedAt()),
                 entry.id(),
-                entry.ownerId());
-        return findByIdAndOwnerId(entry.id(), entry.ownerId())
+                entry.ownerId(),
+                entry.workspaceId());
+        return findByIdAndOwnerIdAndWorkspaceId(
+                entry.id(),
+                entry.ownerId(),
+                entry.workspaceId())
                 .orElseThrow();
     }
 
     @Override
-    public void deleteByIdAndOwnerId(long id, long ownerId) {
+    public void deleteByIdAndOwnerIdAndWorkspaceId(
+            long id,
+            long ownerId,
+            String workspaceId) {
         jdbc.update(
-                "DELETE FROM vault_entry WHERE id = ? AND owner_id = ?",
+                """
+                DELETE FROM vault_entry
+                WHERE id = ? AND owner_id = ? AND workspace_id = ?
+                """,
                 id,
-                ownerId);
+                ownerId,
+                workspaceId);
+    }
+
+    @Override
+    public void moveToWorkspace(
+            long id,
+            long ownerId,
+            String sourceWorkspaceId,
+            String targetWorkspaceId,
+            String category,
+            Instant updatedAt) {
+        jdbc.update(
+                """
+                UPDATE vault_entry
+                SET workspace_id = ?, category = ?, updated_at = ?
+                WHERE id = ? AND owner_id = ? AND workspace_id = ?
+                """,
+                targetWorkspaceId,
+                category,
+                timestamp(updatedAt),
+                id,
+                ownerId,
+                sourceWorkspaceId);
     }
 
     @Override
@@ -496,6 +567,7 @@ public class JdbcVaultRepository
         return new VaultEntry(
                 result.getLong("id"),
                 result.getLong("owner_id"),
+                result.getString("workspace_id"),
                 result.getString("name"),
                 result.getString("username"),
                 result.getString("password_ciphertext"),
@@ -512,6 +584,7 @@ public class JdbcVaultRepository
         return new VaultCategory(
                 result.getLong("id"),
                 result.getLong("owner_id"),
+                result.getString("workspace_id"),
                 result.getString("name"),
                 result.getInt("sort_order"),
                 instant(result, "created_at"),

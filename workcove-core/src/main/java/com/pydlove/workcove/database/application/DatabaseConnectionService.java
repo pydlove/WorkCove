@@ -49,7 +49,7 @@ public class DatabaseConnectionService {
         Objects.requireNonNull(command, "数据库连接");
         DatabaseConnection existing = id == null
                 ? null
-                : require(ownerId, id);
+                : require(ownerId, workspaceId, id);
         if (existing != null
                 && !existing.getWorkspaceId().equals(workspaceId)) {
             throw new DomainException("数据库连接不存在或无权访问");
@@ -87,9 +87,12 @@ public class DatabaseConnectionService {
         return DatabaseConnectionView.from(repository.save(connection));
     }
 
-    public void delete(long ownerId, long id) {
-        require(ownerId, id);
-        repository.deleteByIdAndOwner(id, ownerId);
+    public void delete(long ownerId, String workspaceId, long id) {
+        require(ownerId, workspaceId, id);
+        repository.deleteByIdAndOwnerAndWorkspace(
+                id,
+                ownerId,
+                workspaceId);
     }
 
     public DatabaseQueryGateway.ConnectionTest test(
@@ -100,7 +103,7 @@ public class DatabaseConnectionService {
         Objects.requireNonNull(command, "数据库连接");
         DatabaseConnection existing = id == null
                 ? null
-                : require(ownerId, id);
+                : require(ownerId, workspaceId, id);
         if (existing != null
                 && !existing.getWorkspaceId().equals(workspaceId)) {
             throw new DomainException("数据库连接不存在或无权访问");
@@ -136,9 +139,10 @@ public class DatabaseConnectionService {
 
     public DatabaseQueryGateway.QueryResult execute(
             long ownerId,
+            String workspaceId,
             long id,
             String sql) {
-        DatabaseConnection connection = require(ownerId, id);
+        DatabaseConnection connection = require(ownerId, workspaceId, id);
         String normalizedSql = sql == null ? "" : sql.trim();
         if (normalizedSql.isEmpty()) {
             throw new DomainException("请输入 SQL");
@@ -152,15 +156,19 @@ public class DatabaseConnectionService {
                 MAX_ROWS);
     }
 
-    public List<DatabaseTableView> tables(long ownerId, long id) {
-        return tables(ownerId, id, null);
+    public List<DatabaseTableView> tables(
+            long ownerId,
+            String workspaceId,
+            long id) {
+        return tables(ownerId, workspaceId, id, null);
     }
 
     public List<DatabaseTableView> tables(
             long ownerId,
+            String workspaceId,
             long id,
             String databaseName) {
-        DatabaseConnection connection = require(ownerId, id);
+        DatabaseConnection connection = require(ownerId, workspaceId, id);
         String database = selectedDatabase(connection, databaseName);
         String sql = connection.getType() == DatabaseType.MYSQL
                 ? mysqlTablesSql(database)
@@ -178,17 +186,19 @@ public class DatabaseConnectionService {
 
     public List<DatabaseColumnView> columns(
             long ownerId,
+            String workspaceId,
             long id,
             String tableName) {
-        return columns(ownerId, id, null, tableName);
+        return columns(ownerId, workspaceId, id, null, tableName);
     }
 
     public List<DatabaseColumnView> columns(
             long ownerId,
+            String workspaceId,
             long id,
             String databaseName,
             String tableName) {
-        DatabaseConnection connection = require(ownerId, id);
+        DatabaseConnection connection = require(ownerId, workspaceId, id);
         String table = validateIdentifier(tableName, "表名");
         String database = selectedDatabase(connection, databaseName);
         String sql = connection.getType() == DatabaseType.MYSQL
@@ -207,17 +217,19 @@ public class DatabaseConnectionService {
 
     public DatabaseQueryGateway.QueryResult tableData(
             long ownerId,
+            String workspaceId,
             long id,
             String tableName) {
-        return tableData(ownerId, id, null, tableName);
+        return tableData(ownerId, workspaceId, id, null, tableName);
     }
 
     public DatabaseQueryGateway.QueryResult tableData(
             long ownerId,
+            String workspaceId,
             long id,
             String databaseName,
             String tableName) {
-        DatabaseConnection connection = require(ownerId, id);
+        DatabaseConnection connection = require(ownerId, workspaceId, id);
         String table = validateIdentifier(tableName, "表名");
         String database = selectedDatabase(connection, databaseName);
         String qualified = qualifiedTable(database, table);
@@ -227,8 +239,11 @@ public class DatabaseConnectionService {
                 100);
     }
 
-    public List<DatabaseSchemaView> databases(long ownerId, long id) {
-        DatabaseConnection connection = require(ownerId, id);
+    public List<DatabaseSchemaView> databases(
+            long ownerId,
+            String workspaceId,
+            long id) {
+        DatabaseConnection connection = require(ownerId, workspaceId, id);
         String sql = connection.getType() == DatabaseType.MYSQL
                 ? """
                   SELECT SCHEMA_NAME
@@ -249,8 +264,14 @@ public class DatabaseConnectionService {
                 .toList();
     }
 
-    private DatabaseConnection require(long ownerId, long id) {
-        return repository.findByIdAndOwner(id, ownerId)
+    private DatabaseConnection require(
+            long ownerId,
+            String workspaceId,
+            long id) {
+        return repository.findByIdAndOwnerAndWorkspace(
+                        id,
+                        ownerId,
+                        workspaceId)
                 .orElseThrow(() -> new DomainException(
                         "数据库连接不存在或无权访问"));
     }

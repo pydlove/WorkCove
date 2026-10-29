@@ -54,9 +54,12 @@ export const updateDatabaseConnection = (
     ACTION_HEADER,
   )
 
-export const deleteDatabaseConnection = (id: number) =>
+export const deleteDatabaseConnection = (
+  id: number,
+  workspaceId: string,
+) =>
   deleteNoContentWithHeaders(
-    `/development/databases/connections/${id}`,
+    `/development/databases/connections/${id}?workspaceId=${encodeURIComponent(workspaceId)}`,
     ACTION_HEADER,
   )
 
@@ -69,38 +72,51 @@ export const testDatabaseConnection = (
     ACTION_HEADER,
   )
 
-export const executeDatabaseQuery = (id: number, sql: string) =>
+export const executeDatabaseQuery = (
+  id: number,
+  workspaceId: string,
+  sql: string,
+) =>
   postJsonWithHeaders<DatabaseQueryResult>(
     `/development/databases/connections/${id}/query`,
-    { sql },
+    { workspaceId, sql },
     ACTION_HEADER,
     45_000,
   )
 
-export const listDatabaseSchemas = (id: number) =>
+export const listDatabaseSchemas = (
+  id: number,
+  workspaceId: string,
+) =>
   get<DatabaseSchema[]>(
-    `/development/databases/connections/${id}/databases`,
+    `/development/databases/connections/${id}/databases?workspaceId=${encodeURIComponent(workspaceId)}`,
   )
 
-export const listDatabaseTables = (id: number, database: string) =>
+export const listDatabaseTables = (
+  id: number,
+  workspaceId: string,
+  database: string,
+) =>
   get<DatabaseTable[]>(
-    `/development/databases/connections/${id}/tables?database=${encodeURIComponent(database)}`,
+    `/development/databases/connections/${id}/tables?workspaceId=${encodeURIComponent(workspaceId)}&database=${encodeURIComponent(database)}`,
   )
 
 export const listDatabaseColumns = (
   id: number,
+  workspaceId: string,
   database: string,
   table: string,
 ) =>
   get<DatabaseColumn[]>(
-    `/development/databases/connections/${id}/columns?database=${encodeURIComponent(database)}&table=${encodeURIComponent(table)}`,
+    `/development/databases/connections/${id}/columns?workspaceId=${encodeURIComponent(workspaceId)}&database=${encodeURIComponent(database)}&table=${encodeURIComponent(table)}`,
   )
 
 export const loadDatabaseTableData = (
   id: number,
+  workspaceId: string,
   database: string,
   table: string,
 ) =>
   get<DatabaseQueryResult>(
-    `/development/databases/connections/${id}/table-data?database=${encodeURIComponent(database)}&table=${encodeURIComponent(table)}`,
+    `/development/databases/connections/${id}/table-data?workspaceId=${encodeURIComponent(workspaceId)}&database=${encodeURIComponent(database)}&table=${encodeURIComponent(table)}`,
   )

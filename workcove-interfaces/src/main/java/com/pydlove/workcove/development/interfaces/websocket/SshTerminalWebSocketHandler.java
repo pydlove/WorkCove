@@ -33,6 +33,7 @@ public class SshTerminalWebSocketHandler extends TextWebSocketHandler {
             throws Exception {
         Map<String, Object> attributes = session.getAttributes();
         long userId = ((Number) attributes.get("userId")).longValue();
+        String workspaceId = String.valueOf(attributes.get("workspaceId"));
         long serverId = ((Number) attributes.get("serverId")).longValue();
         int columns = ((Number) attributes.get("columns")).intValue();
         int rows = ((Number) attributes.get("rows")).intValue();
@@ -40,6 +41,7 @@ public class SshTerminalWebSocketHandler extends TextWebSocketHandler {
         try {
             SshTerminalService.TerminalConnection connection = terminalService.open(
                     userId,
+                    workspaceId,
                     serverId,
                     columns,
                     rows,

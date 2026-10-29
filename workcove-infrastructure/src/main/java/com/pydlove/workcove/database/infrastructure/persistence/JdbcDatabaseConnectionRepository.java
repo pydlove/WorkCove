@@ -50,20 +50,22 @@ public class JdbcDatabaseConnectionRepository
     }
 
     @Override
-    public Optional<DatabaseConnection> findByIdAndOwner(
+    public Optional<DatabaseConnection> findByIdAndOwnerAndWorkspace(
             long id,
-            long ownerId) {
+            long ownerId,
+            String workspaceId) {
         return jdbc.query(
                 """
                 SELECT id, owner_id, workspace_id, name, database_type,
                        host, port, database_name, username,
                        password_ciphertext, ssl_enabled, created_at, updated_at
                 FROM database_connection
-                WHERE id = ? AND owner_id = ?
+                WHERE id = ? AND owner_id = ? AND workspace_id = ?
                 """,
                 MAPPER,
                 id,
-                ownerId).stream().findFirst();
+                ownerId,
+                workspaceId).stream().findFirst();
     }
 
     @Override
@@ -100,7 +102,10 @@ public class JdbcDatabaseConnectionRepository
             if (key == null) {
                 throw new IllegalStateException("数据库连接保存失败");
             }
-            return findByIdAndOwner(key.longValue(), connection.getOwnerId())
+            return findByIdAndOwnerAndWorkspace(
+                    key.longValue(),
+                    connection.getOwnerId(),
+                    connection.getWorkspaceId())
                     .orElseThrow();
         }
 
@@ -110,7 +115,7 @@ public class JdbcDatabaseConnectionRepository
                 SET name = ?, database_type = ?, host = ?, port = ?,
                     database_name = ?, username = ?,
                     password_ciphertext = ?, ssl_enabled = ?, updated_at = ?
-                WHERE id = ? AND owner_id = ?
+                WHERE id = ? AND owner_id = ? AND workspace_id = ?
                 """,
                 connection.getName(),
                 connection.getType().name(),
@@ -122,20 +127,31 @@ public class JdbcDatabaseConnectionRepository
                 connection.isSslEnabled(),
                 timestamp(connection.getUpdatedAt()),
                 connection.getId(),
-                connection.getOwnerId());
+                connection.getOwnerId(),
+                connection.getWorkspaceId());
         if (updated != 1) {
             throw new IllegalStateException("数据库连接更新失败");
         }
-        return findByIdAndOwner(connection.getId(), connection.getOwnerId())
+        return findByIdAndOwnerAndWorkspace(
+                connection.getId(),
+                connection.getOwnerId(),
+                connection.getWorkspaceId())
                 .orElseThrow();
     }
 
     @Override
-    public void deleteByIdAndOwner(long id, long ownerId) {
+    public void deleteByIdAndOwnerAndWorkspace(
+            long id,
+            long ownerId,
+            String workspaceId) {
         jdbc.update(
-                "DELETE FROM database_connection WHERE id = ? AND owner_id = ?",
+                """
+                DELETE FROM database_connection
+                WHERE id = ? AND owner_id = ? AND workspace_id = ?
+                """,
                 id,
-                ownerId);
+                ownerId,
+                workspaceId);
     }
 
     private static DatabaseConnection map(

@@ -41,7 +41,7 @@ public class VaultConfiguration {
             CredentialCipher credentialCipher,
             VaultWebAuthnGateway webAuthnGateway,
             @Qualifier("clock") Clock clock,
-            @Value("${workcove.vault.unlock-ttl:PT5M}") Duration unlockTtl) {
+            @Value("${workcove.vault.unlock-ttl:PT1H}") Duration unlockTtl) {
         return new VaultService(
                 entryRepository,
                 categoryRepository,

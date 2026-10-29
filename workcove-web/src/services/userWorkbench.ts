@@ -2,6 +2,10 @@ import {
   readUserScopedValue,
   writeUserScopedValue,
 } from '@/services/userScopedStorage'
+import {
+  DEFAULT_VAULT_UNLOCK_MINUTES,
+  normalizeVaultUnlockMinutes,
+} from '@/services/vaultPreferences'
 import type {
   WorkNote,
   WorkProject,
@@ -22,6 +26,8 @@ export interface UserWorkbenchData {
 export interface UserWorkbenchSettings {
   launchOnLogin: boolean
   compactSidebar: boolean
+  navigationMode: 'normal' | 'accordion'
+  vaultUnlockMinutes: number
   codexName: string
   codexIconDataUrl: string | null
 }
@@ -63,6 +69,11 @@ export function loadUserWorkbenchSettings(email: string) {
       typeof value.compactSidebar === 'boolean'
         ? value.compactSidebar
         : false,
+    navigationMode:
+      value.navigationMode === 'accordion' ? 'accordion' : 'normal',
+    vaultUnlockMinutes: normalizeVaultUnlockMinutes(
+      value.vaultUnlockMinutes ?? DEFAULT_VAULT_UNLOCK_MINUTES,
+    ),
     codexName:
       typeof value.codexName === 'string' && value.codexName.trim()
         ? value.codexName.trim()

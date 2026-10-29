@@ -116,5 +116,36 @@ export const useWorkspaceStore = defineStore('workspaces', {
       this.persist()
       return true
     },
+    updateWorkspace(
+      id: string,
+      rawName: string,
+      iconImage: string,
+    ) {
+      const workspace = this.workspaces.find((item) => item.id === id)
+      if (!workspace) return false
+      const name = rawName.trim()
+      if (
+        !name ||
+        [...name].length > 40 ||
+        this.workspaces.some(
+          (item) => item.id !== id && item.name === name,
+        )
+      ) {
+        return false
+      }
+      const now = new Date().toISOString()
+      this.workspaces = this.workspaces.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              name,
+              iconImage: normalizeWorkspaceIconImage(iconImage),
+              updatedAt: now,
+            }
+          : item,
+      )
+      this.persist()
+      return true
+    },
   },
 })

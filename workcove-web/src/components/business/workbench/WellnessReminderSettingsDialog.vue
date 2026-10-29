@@ -225,6 +225,9 @@ function save() {
       </section>
 
       <p class="wellness-reminder-section-title">健康提醒</p>
+      <p class="wellness-reminder-section-hint">
+        喝水和工位活动提醒仅在对应工作日的上下班时间内触发。
+      </p>
 
       <label class="wellness-reminder-rule">
         <span class="wellness-reminder-rule__icon">
@@ -452,6 +455,13 @@ function save() {
   color: var(--text-subtle);
   font-size: var(--font-caption);
   font-weight: var(--weight-emphasis);
+}
+
+.wellness-reminder-section-hint {
+  margin: calc(-1 * var(--space-1)) 0 0;
+  color: var(--text-subtle);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
 }
 
 .wellness-reminder-rule {

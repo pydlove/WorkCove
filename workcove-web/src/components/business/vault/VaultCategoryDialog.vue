@@ -19,6 +19,7 @@ import type {
 } from '@/types/vault'
 
 const props = defineProps<{
+  workspaceId: string
   categories: VaultCategory[]
   entries: VaultEntry[]
 }>()
@@ -93,7 +94,7 @@ async function addCategory() {
 
   busy.value = true
   try {
-    await createVaultCategory(name)
+    await createVaultCategory(props.workspaceId, name)
     newCategoryName.value = ''
     emit('changed')
     emit('notify', `分类「${name}」已添加`)
@@ -138,7 +139,11 @@ async function saveEditing() {
 
   busy.value = true
   try {
-    await updateVaultCategory(current.id, nextName)
+    await updateVaultCategory(
+      current.id,
+      props.workspaceId,
+      nextName,
+    )
     emit('changed')
     emit(
       'notify',
@@ -175,7 +180,11 @@ async function confirmDeleting() {
 
   busy.value = true
   try {
-    await deleteVaultCategory(category.id, fallbackCategoryId.value)
+    await deleteVaultCategory(
+      category.id,
+      props.workspaceId,
+      fallbackCategoryId.value,
+    )
     emit('changed')
     emit(
       'notify',
@@ -199,7 +208,7 @@ function errorText(error: unknown) {
 <template>
   <UiDialog
     title="管理密码分类"
-    description="新增、重命名或删除密码分类，分类由当前账号独立保存。"
+    description="新增、重命名或删除当前工作空间的密码分类。"
     initial-focus="#new-vault-category-name"
     :suspended="Boolean(deletingCategory)"
     @close="emit('close')"
@@ -218,7 +227,7 @@ function errorText(error: unknown) {
           variant="primary"
           size="lg"
           type="submit"
-          :disabled="busy"
+          :loading="busy"
         >
           <Plus :size="14" />
           新增

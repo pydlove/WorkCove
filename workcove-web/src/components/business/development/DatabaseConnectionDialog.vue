@@ -2,7 +2,6 @@
 import {
   Eye,
   EyeOff,
-  LoaderCircle,
   PlugZap,
   Save,
 } from '@lucide/vue'
@@ -296,15 +295,11 @@ async function save() {
     <template #footer>
       <UiButton
         size="lg"
+        :loading="testing"
         :disabled="saving || testing"
         @click="testConnection"
       >
-        <LoaderCircle
-          v-if="testing"
-          class="database-spin"
-          :size="14"
-        />
-        <PlugZap v-else :size="14" />
+        <PlugZap v-if="!testing" :size="14" />
         {{ testing ? '测试中…' : '测试连接' }}
       </UiButton>
       <span class="database-connection-form__spacer" />
@@ -320,14 +315,10 @@ async function save() {
         size="lg"
         type="submit"
         form="database-connection-form"
+        :loading="saving"
         :disabled="saving || testing"
       >
-        <LoaderCircle
-          v-if="saving"
-          class="database-spin"
-          :size="14"
-        />
-        <Save v-else :size="14" />
+        <Save v-if="!saving" :size="14" />
         {{ saving ? '保存中…' : '保存连接' }}
       </UiButton>
     </template>

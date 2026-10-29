@@ -26,6 +26,7 @@ class CodexAttachmentServiceTest {
 
         CodexAttachment attachment = service.upload(
                 7L,
+                "workspace-a",
                 "../unsafe\nname.png",
                 "IMAGE/PNG",
                 3,
@@ -33,9 +34,22 @@ class CodexAttachmentServiceTest {
 
         assertEquals("unsafe name.png", attachment.name());
         assertEquals("image/png", attachment.contentType());
-        assertEquals(List.of(attachment), service.resolve(7L, List.of(attachment.id())));
+        assertEquals(
+                List.of(attachment),
+                service.resolve(
+                        7L,
+                        "workspace-a",
+                        List.of(attachment.id())));
         assertThrows(DomainException.class, () ->
-                service.resolve(8L, List.of(attachment.id())));
+                service.resolve(
+                        8L,
+                        "workspace-a",
+                        List.of(attachment.id())));
+        assertThrows(DomainException.class, () ->
+                service.resolve(
+                        7L,
+                        "workspace-b",
+                        List.of(attachment.id())));
     }
 
     @Test
@@ -46,6 +60,7 @@ class CodexAttachmentServiceTest {
         assertThrows(DomainException.class, () ->
                 service.upload(
                         7L,
+                        "workspace-a",
                         "large.bin",
                         "application/octet-stream",
                         CodexAttachmentService.MAX_ATTACHMENT_BYTES + 1,
@@ -59,6 +74,7 @@ class CodexAttachmentServiceTest {
         @Override
         public CodexAttachment store(
                 long ownerId,
+                String workspaceId,
                 String name,
                 String contentType,
                 long size,
@@ -67,18 +83,25 @@ class CodexAttachmentServiceTest {
             String id = "attachment-" + attachments.size();
             CodexAttachment attachment = new CodexAttachment(
                     id,
+                    workspaceId,
                     name,
                     contentType,
                     size,
                     Path.of("/tmp", id));
-            attachments.put(ownerId + ":" + id, attachment);
+            attachments.put(
+                    ownerId + ":" + workspaceId + ":" + id,
+                    attachment);
             return attachment;
         }
 
         @Override
-        public Optional<CodexAttachment> find(long ownerId, String attachmentId) {
+        public Optional<CodexAttachment> find(
+                long ownerId,
+                String workspaceId,
+                String attachmentId) {
             return Optional.ofNullable(
-                    attachments.get(ownerId + ":" + attachmentId));
+                    attachments.get(
+                            ownerId + ":" + workspaceId + ":" + attachmentId));
         }
     }
 }

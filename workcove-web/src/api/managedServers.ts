@@ -43,15 +43,22 @@ export const updateManagedServer = (input: ManagedServerInput) =>
     ACTION_HEADER,
   )
 
-export const deleteManagedServer = (id: number) =>
+export const deleteManagedServer = (
+  id: number,
+  workspaceId: string,
+) =>
   deleteNoContentWithHeaders(
-    `/development/servers/${id}`,
+    `/development/servers/${id}?workspaceId=${encodeURIComponent(workspaceId)}`,
     ACTION_HEADER,
   )
 
-export const openManagedServer = (id: number, tool: ServerTool) =>
+export const openManagedServer = (
+  id: number,
+  workspaceId: string,
+  tool: ServerTool,
+) =>
   postJsonWithHeaders<OpenManagedServerResult>(
-    `/development/servers/${id}/open`,
+    `/development/servers/${id}/open?workspaceId=${encodeURIComponent(workspaceId)}`,
     { tool },
     ACTION_HEADER,
   )

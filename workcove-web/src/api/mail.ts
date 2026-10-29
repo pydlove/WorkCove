@@ -67,6 +67,22 @@ export function listMailInbox(input: {
   )
 }
 
+export function checkMailInbox(input: {
+  workspaceId: string
+  accountId: number
+  limit?: number
+}) {
+  return postJsonWithHeaders<MailMessagePage>(
+    '/mail/check-inbox',
+    {
+      ...input,
+      limit: input.limit ?? 20,
+    },
+    ACTION_HEADER,
+    45_000,
+  )
+}
+
 export function getMailMessage(input: {
   workspaceId: string
   accountId: number

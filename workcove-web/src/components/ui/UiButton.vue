@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import UiFidgetSpinner from '@/components/ui/UiFidgetSpinner.vue'
+
 type ButtonVariant =
   | 'default'
   | 'primary'
@@ -16,6 +18,7 @@ const props = withDefaults(
     size?: ButtonSize
     type?: 'button' | 'submit' | 'reset'
     disabled?: boolean
+    loading?: boolean
     block?: boolean
   }>(),
   {
@@ -23,6 +26,7 @@ const props = withDefaults(
     size: 'regular',
     type: 'button',
     disabled: false,
+    loading: false,
     block: false,
   },
 )
@@ -30,8 +34,17 @@ const props = withDefaults(
 const classes = computed(() => [
   `ui-button--${props.variant}`,
   `ui-button--${props.size}`,
-  { 'ui-button--block': props.block },
+  {
+    'ui-button--block': props.block,
+    'ui-button--loading': props.loading,
+  },
 ])
+
+const spinnerSize = computed(() => {
+  if (props.size === 'sm') return 12
+  if (props.size === 'lg') return 15
+  return 14
+})
 </script>
 
 <template>
@@ -39,8 +52,10 @@ const classes = computed(() => [
     class="ui-button"
     :class="classes"
     :type="type"
-    :disabled="disabled"
+    :disabled="disabled || loading"
+    :aria-busy="loading || undefined"
   >
+    <UiFidgetSpinner v-if="loading" :size="spinnerSize" />
     <slot />
   </button>
 </template>
@@ -79,6 +94,10 @@ const classes = computed(() => [
 .ui-button:disabled {
   pointer-events: none;
   opacity: 0.4;
+}
+
+.ui-button:disabled.ui-button--loading {
+  opacity: var(--loading-control-opacity);
 }
 
 .ui-button--sm {

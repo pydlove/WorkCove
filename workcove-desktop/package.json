@@ -1,6 +1,6 @@
 {
   "name": "workcove-desktop",
-  "version": "0.2.5",
+  "version": "0.2.8",
   "private": true,
   "description": "8小时工作台 macOS desktop shell",
   "main": "main.js",

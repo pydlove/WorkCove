@@ -77,11 +77,14 @@ export async function listCodexModels() {
   return get<CodexModelListResponse>('/codex/models')
 }
 
-export async function uploadCodexAttachment(file: File) {
+export async function uploadCodexAttachment(
+  file: File,
+  workspaceId: string,
+) {
   const form = new FormData()
   form.append('file', file)
   return postFormJsonWithHeaders<CodexAttachmentInfo>(
-    '/codex/attachments',
+    `/codex/attachments?workspaceId=${encodeURIComponent(workspaceId)}`,
     form,
     { 'X-WorkCove-Action': 'upload-codex-attachment' },
     120_000,
@@ -134,6 +137,7 @@ export async function resumeCodexThread(
 }
 
 export async function startCodexTurn(input: {
+  workspaceId: string
   threadId: string
   text?: string
   cwd?: string
@@ -162,6 +166,21 @@ export async function interruptCodexTurn(
     { threadId, turnId },
     {},
     30_000,
+  )
+}
+
+export async function steerCodexTurn(input: {
+  workspaceId: string
+  threadId: string
+  expectedTurnId: string
+  text: string
+  attachmentIds?: string[]
+}) {
+  return postJsonWithHeaders<{ turnId: string }>(
+    '/codex/turns/steer',
+    input,
+    {},
+    60_000,
   )
 }
 

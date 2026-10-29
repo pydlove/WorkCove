@@ -29,6 +29,7 @@ public class SshTerminalService {
 
     public TerminalConnection open(
             long ownerId,
+            String workspaceId,
             long serverId,
             int columns,
             int rows,
@@ -36,7 +37,11 @@ public class SshTerminalService {
         if (columns < 20 || columns > 500 || rows < 5 || rows > 200) {
             throw new DomainException("终端尺寸无效");
         }
-        ManagedServer server = repository.findByIdAndOwnerId(serverId, ownerId)
+        ManagedServer server = repository
+                .findByIdAndOwnerIdAndWorkspaceId(
+                        serverId,
+                        ownerId,
+                        workspaceId)
                 .orElseThrow(() -> new DomainException("服务器不存在或无权访问"));
         SshTerminalGateway.HostKey expected = server.getHostKeyPublicKey() == null
                 ? null

@@ -87,9 +87,13 @@ public class ManagedServerController {
     public void delete(
             @RequestHeader(value = "X-WorkCove-Action", required = false) String action,
             @PathVariable long id,
+            @RequestParam String workspaceId,
             HttpServletRequest servletRequest) {
         validateAction(action);
-        serverService.delete(currentUserId(servletRequest), id);
+        serverService.delete(
+                currentUserId(servletRequest),
+                workspaceId,
+                id);
     }
 
     @PostMapping("/{id}/open")
@@ -97,6 +101,7 @@ public class ManagedServerController {
             @RequestHeader(value = "X-WorkCove-Action", required = false) String action,
             @PathVariable long id,
             @RequestBody OpenManagedServerRequest request,
+            @RequestParam String workspaceId,
             HttpServletRequest servletRequest) {
         validateAction(action);
         if (request.tool() == null) {
@@ -105,6 +110,7 @@ public class ManagedServerController {
         ServerTool tool = request.tool();
         ServerLauncher.LaunchResult result = serverService.open(
                 currentUserId(servletRequest),
+                workspaceId,
                 id,
                 tool);
         return new OpenManagedServerResponse(tool, result.passwordCopied());

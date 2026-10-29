@@ -60,7 +60,19 @@ class SftpServiceTest {
     void rejectsServersOwnedByAnotherUser() {
         assertThrows(
                 DomainException.class,
-                () -> service.list(20L, SERVER_ID, "/"));
+                () -> service.list(20L, "default", SERVER_ID, "/"));
+        assertEquals(0, gateway.openCalls);
+    }
+
+    @Test
+    void rejectsServersFromAnotherWorkspace() {
+        assertThrows(
+                DomainException.class,
+                () -> service.list(
+                        OWNER_ID,
+                        "workspace-b",
+                        SERVER_ID,
+                        "/"));
         assertEquals(0, gateway.openCalls);
     }
 
@@ -68,11 +80,12 @@ class SftpServiceTest {
     void recordsTheHostKeyOnFirstSuccessfulConnection() {
         gateway.remoteSize = 4;
 
-        service.list(OWNER_ID, SERVER_ID, "/");
+        service.list(OWNER_ID, "default", SERVER_ID, "/");
 
-        ManagedServer saved = repository.findByIdAndOwnerId(
+        ManagedServer saved = repository.findByIdAndOwnerIdAndWorkspaceId(
                 SERVER_ID,
-                OWNER_ID).orElseThrow();
+                OWNER_ID,
+                "default").orElseThrow();
         assertEquals(HOST_KEY.algorithm(), saved.getHostKeyAlgorithm());
         assertEquals(HOST_KEY.fingerprint(), saved.getHostKeyFingerprint());
         assertEquals(HOST_KEY.publicKey(), saved.getHostKeyPublicKey());
@@ -85,7 +98,11 @@ class SftpServiceTest {
 
         assertThrows(
                 DomainException.class,
-                () -> service.download(OWNER_ID, SERVER_ID, "/large.zip"));
+                () -> service.download(
+                        OWNER_ID,
+                        "default",
+                        SERVER_ID,
+                        "/large.zip"));
         assertEquals(0, gateway.lastSession.downloadCalls);
         assertTrue(gateway.lastSession.closed);
     }
@@ -96,6 +113,7 @@ class SftpServiceTest {
 
         service.upload(
                 OWNER_ID,
+                "default",
                 SERVER_ID,
                 "/",
                 "notes.txt",
@@ -112,7 +130,7 @@ class SftpServiceTest {
 
         assertThrows(
                 IllegalStateException.class,
-                () -> service.list(OWNER_ID, SERVER_ID, "/"));
+                () -> service.list(OWNER_ID, "default", SERVER_ID, "/"));
         assertTrue(gateway.lastSession.closed);
     }
 
@@ -120,11 +138,16 @@ class SftpServiceTest {
     void validatesRemotePathsAndUploadNames() {
         assertThrows(
                 DomainException.class,
-                () -> service.list(OWNER_ID, SERVER_ID, "relative"));
+                () -> service.list(
+                        OWNER_ID,
+                        "default",
+                        SERVER_ID,
+                        "relative"));
         assertThrows(
                 DomainException.class,
                 () -> service.upload(
                         OWNER_ID,
+                        "default",
                         SERVER_ID,
                         "/",
                         "..",
@@ -132,7 +155,12 @@ class SftpServiceTest {
                         0));
         assertThrows(
                 DomainException.class,
-                () -> service.delete(OWNER_ID, SERVER_ID, "/", true));
+                () -> service.delete(
+                        OWNER_ID,
+                        "default",
+                        SERVER_ID,
+                        "/",
+                        true));
         assertEquals(0, gateway.openCalls);
     }
 
@@ -232,19 +260,25 @@ class SftpServiceTest {
         }
 
         @Override
-        public List<ManagedServer> findByOwnerId(long ownerId) {
+        public List<ManagedServer> findByOwnerIdAndWorkspaceId(
+                long ownerId,
+                String workspaceId) {
             return servers.stream()
                     .filter((server) -> server.getOwnerId() == ownerId)
+                    .filter((server) ->
+                            server.getWorkspaceId().equals(workspaceId))
                     .toList();
         }
 
         @Override
-        public Optional<ManagedServer> findByIdAndOwnerId(
+        public Optional<ManagedServer> findByIdAndOwnerIdAndWorkspaceId(
                 long id,
-                long ownerId) {
+                long ownerId,
+                String workspaceId) {
             return servers.stream()
                     .filter((server) -> server.getId() == id
-                            && server.getOwnerId() == ownerId)
+                            && server.getOwnerId() == ownerId
+                            && server.getWorkspaceId().equals(workspaceId))
                     .findFirst();
         }
 
@@ -260,9 +294,13 @@ class SftpServiceTest {
         }
 
         @Override
-        public void deleteByIdAndOwnerId(long id, long ownerId) {
+        public void deleteByIdAndOwnerIdAndWorkspaceId(
+                long id,
+                long ownerId,
+                String workspaceId) {
             servers.removeIf((server) -> server.getId() == id
-                    && server.getOwnerId() == ownerId);
+                    && server.getOwnerId() == ownerId
+                    && server.getWorkspaceId().equals(workspaceId));
         }
     }
 }

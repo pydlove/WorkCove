@@ -36,12 +36,13 @@ public class SftpService {
 
     public List<SftpGateway.RemoteFile> list(
             long ownerId,
+            String workspaceId,
             long serverId,
             String path) {
         String remotePath = normalizeRemotePath(path);
         SftpGateway.OpenedSftp opened = null;
         try {
-            opened = open(ownerId, serverId);
+            opened = open(ownerId, serverId, workspaceId);
             return opened.session().list(remotePath);
         } catch (IOException exception) {
             throw new DomainException("无法读取远程目录");
@@ -52,12 +53,13 @@ public class SftpService {
 
     public RemoteDownload download(
             long ownerId,
+            String workspaceId,
             long serverId,
             String path) {
         String remotePath = normalizeRemotePath(path);
         SftpGateway.OpenedSftp opened = null;
         try {
-            opened = open(ownerId, serverId);
+            opened = open(ownerId, serverId, workspaceId);
             long remoteSize = opened.session().size(remotePath);
             if (remoteSize > MAX_TRANSFER_BYTES) {
                 throw new DomainException("文件超过 200MB，暂不支持下载");
@@ -87,6 +89,7 @@ public class SftpService {
 
     public void upload(
             long ownerId,
+            String workspaceId,
             long serverId,
             String directory,
             String filename,
@@ -99,7 +102,7 @@ public class SftpService {
         }
         SftpGateway.OpenedSftp opened = null;
         try {
-            opened = open(ownerId, serverId);
+            opened = open(ownerId, serverId, workspaceId);
             opened.session().upload(remoteDirectory, safeFilename, input, size);
         } catch (IOException exception) {
             throw new DomainException("无法上传文件");
@@ -108,11 +111,15 @@ public class SftpService {
         }
     }
 
-    public void createDirectory(long ownerId, long serverId, String path) {
+    public void createDirectory(
+            long ownerId,
+            String workspaceId,
+            long serverId,
+            String path) {
         String remotePath = normalizeRemotePath(path);
         SftpGateway.OpenedSftp opened = null;
         try {
-            opened = open(ownerId, serverId);
+            opened = open(ownerId, serverId, workspaceId);
             opened.session().createDirectory(remotePath);
         } catch (IOException exception) {
             throw new DomainException("无法创建远程目录");
@@ -123,6 +130,7 @@ public class SftpService {
 
     public void delete(
             long ownerId,
+            String workspaceId,
             long serverId,
             String path,
             boolean directory) {
@@ -132,7 +140,7 @@ public class SftpService {
         }
         SftpGateway.OpenedSftp opened = null;
         try {
-            opened = open(ownerId, serverId);
+            opened = open(ownerId, serverId, workspaceId);
             opened.session().delete(remotePath, directory);
         } catch (IOException exception) {
             throw new DomainException("无法删除远程文件");
@@ -141,8 +149,15 @@ public class SftpService {
         }
     }
 
-    private SftpGateway.OpenedSftp open(long ownerId, long serverId) {
-        ManagedServer server = repository.findByIdAndOwnerId(serverId, ownerId)
+    private SftpGateway.OpenedSftp open(
+            long ownerId,
+            long serverId,
+            String workspaceId) {
+        ManagedServer server = repository
+                .findByIdAndOwnerIdAndWorkspaceId(
+                        serverId,
+                        ownerId,
+                        workspaceId)
                 .orElseThrow(() -> new DomainException("服务器不存在或无权访问"));
         SshTerminalGateway.HostKey expected = server.getHostKeyPublicKey() == null
                 ? null

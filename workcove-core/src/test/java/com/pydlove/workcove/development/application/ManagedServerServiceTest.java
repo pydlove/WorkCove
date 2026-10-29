@@ -56,7 +56,28 @@ class ManagedServerServiceTest {
     void rejectsOpeningAnotherUsersServer() {
         assertThrows(
                 DomainException.class,
-                () -> service.open(20L, 1L, ServerTool.TERMIUS));
+                () -> service.open(
+                        20L,
+                        "default",
+                        1L,
+                        ServerTool.TERMIUS));
+    }
+
+    @Test
+    void rejectsOpeningServerFromAnotherWorkspace() {
+        assertThrows(
+                DomainException.class,
+                () -> service.open(
+                        OWNER_ID,
+                        "another-workspace",
+                        1L,
+                        ServerTool.TERMIUS));
+        assertThrows(
+                DomainException.class,
+                () -> service.delete(
+                        OWNER_ID,
+                        "another-workspace",
+                        1L));
     }
 
     @Test
@@ -111,17 +132,25 @@ class ManagedServerServiceTest {
         }
 
         @Override
-        public List<ManagedServer> findByOwnerId(long ownerId) {
+        public List<ManagedServer> findByOwnerIdAndWorkspaceId(
+                long ownerId,
+                String workspaceId) {
             return servers.stream()
                     .filter((server) -> server.getOwnerId() == ownerId)
+                    .filter((server) ->
+                            server.getWorkspaceId().equals(workspaceId))
                     .toList();
         }
 
         @Override
-        public Optional<ManagedServer> findByIdAndOwnerId(long id, long ownerId) {
+        public Optional<ManagedServer> findByIdAndOwnerIdAndWorkspaceId(
+                long id,
+                long ownerId,
+                String workspaceId) {
             return servers.stream()
                     .filter((server) -> server.getId() == id
-                            && server.getOwnerId() == ownerId)
+                            && server.getOwnerId() == ownerId
+                            && server.getWorkspaceId().equals(workspaceId))
                     .findFirst();
         }
 
@@ -149,9 +178,13 @@ class ManagedServerServiceTest {
         }
 
         @Override
-        public void deleteByIdAndOwnerId(long id, long ownerId) {
+        public void deleteByIdAndOwnerIdAndWorkspaceId(
+                long id,
+                long ownerId,
+                String workspaceId) {
             servers.removeIf((server) -> server.getId() == id
-                    && server.getOwnerId() == ownerId);
+                    && server.getOwnerId() == ownerId
+                    && server.getWorkspaceId().equals(workspaceId));
         }
     }
 }

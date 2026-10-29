@@ -47,6 +47,7 @@ class VaultServiceTest {
 
     private static final long OWNER_ID = 10L;
     private static final long OTHER_OWNER_ID = 20L;
+    private static final String WORKSPACE_ID = "default";
     private static final Instant NOW = Instant.parse("2026-10-27T00:00:00Z");
 
     private final MutableClock clock = new MutableClock(NOW);
@@ -75,23 +76,45 @@ class VaultServiceTest {
             cipher,
             webAuthn,
             clock,
-            Duration.ofMinutes(5));
+            Duration.ofHours(1));
 
     @Test
-    void unlocksWithTheLoginPasswordAndExpiresAfterFiveMinutes() {
+    void unlocksWithTheLoginPasswordAndExpiresAfterOneHour() {
         VaultService.UnlockGrant grant =
                 service.unlockWithPassword(OWNER_ID, "correct-password");
 
         VaultService.VaultStatus status =
                 service.status(OWNER_ID, grant.rawToken());
         assertTrue(status.unlocked());
-        assertEquals(NOW.plus(Duration.ofMinutes(5)), status.expiresAt());
+        assertEquals(NOW.plus(Duration.ofHours(1)), status.expiresAt());
 
-        clock.advance(Duration.ofMinutes(5).plusSeconds(1));
+        clock.advance(Duration.ofHours(1).plusSeconds(1));
         assertFalse(service.status(OWNER_ID, grant.rawToken()).unlocked());
         assertThrows(
                 AuthenticationException.class,
-                () -> service.entries(OWNER_ID, grant.rawToken()));
+                () -> service.entries(
+                        OWNER_ID,
+                        WORKSPACE_ID,
+                        grant.rawToken()));
+    }
+
+    @Test
+    void acceptsOnlySupportedUnlockDurations() {
+        VaultService.UnlockGrant grant =
+                service.unlockWithPassword(
+                        OWNER_ID,
+                        "correct-password",
+                        120);
+
+        assertEquals(
+                NOW.plus(Duration.ofHours(2)),
+                grant.expiresAt());
+        assertThrows(
+                DomainException.class,
+                () -> service.unlockWithPassword(
+                        OWNER_ID,
+                        "correct-password",
+                        10));
     }
 
     @Test
@@ -108,6 +131,7 @@ class VaultServiceTest {
                 .rawToken();
         VaultService.VaultEntryView saved = service.saveEntry(
                 OWNER_ID,
+                WORKSPACE_ID,
                 token,
                 null,
                 new VaultService.VaultEntryInput(
@@ -121,10 +145,18 @@ class VaultServiceTest {
         assertEquals("enc:secret-password", cipher.encrypted);
         assertEquals(
                 "secret-password",
-                service.revealPassword(OWNER_ID, saved.id(), token));
+                service.revealPassword(
+                        OWNER_ID,
+                        WORKSPACE_ID,
+                        saved.id(),
+                        token));
         assertThrows(
                 DomainException.class,
-                () -> service.revealPassword(20L, saved.id(), token));
+                () -> service.revealPassword(
+                        20L,
+                        WORKSPACE_ID,
+                        saved.id(),
+                        token));
     }
 
     @Test
@@ -133,9 +165,13 @@ class VaultServiceTest {
                 .unlockWithPassword(OWNER_ID, "correct-password")
                 .rawToken();
         VaultService.VaultCategoryView defaultCategory =
-                service.categories(OWNER_ID, token).get(0);
+                service.categories(
+                        OWNER_ID,
+                        WORKSPACE_ID,
+                        token).get(0);
         VaultService.VaultEntryView entry = service.saveEntry(
                 OWNER_ID,
+                WORKSPACE_ID,
                 token,
                 null,
                 new VaultService.VaultEntryInput(
@@ -146,7 +182,10 @@ class VaultServiceTest {
                         "数据库",
                         "仅内网访问"));
         VaultService.VaultCategoryView databaseCategory =
-                service.categories(OWNER_ID, token).stream()
+                service.categories(
+                        OWNER_ID,
+                        WORKSPACE_ID,
+                        token).stream()
                         .filter((category) ->
                                 category.name().equals("数据库"))
                         .findFirst()
@@ -154,27 +193,42 @@ class VaultServiceTest {
 
         service.renameCategory(
                 OWNER_ID,
+                WORKSPACE_ID,
                 token,
                 databaseCategory.id(),
                 "数据服务");
         assertEquals(
                 "数据服务",
-                service.entries(OWNER_ID, token).get(0).category());
+                service.entries(
+                        OWNER_ID,
+                        WORKSPACE_ID,
+                        token).get(0).category());
 
         service.deleteCategory(
                 OWNER_ID,
+                WORKSPACE_ID,
                 token,
                 databaseCategory.id(),
                 defaultCategory.id());
         assertEquals(
                 defaultCategory.name(),
-                service.entries(OWNER_ID, token).get(0).category());
+                service.entries(
+                        OWNER_ID,
+                        WORKSPACE_ID,
+                        token).get(0).category());
         assertEquals(
                 "secret-password",
-                service.revealPassword(OWNER_ID, entry.id(), token));
+                service.revealPassword(
+                        OWNER_ID,
+                        WORKSPACE_ID,
+                        entry.id(),
+                        token));
         assertThrows(
                 AuthenticationException.class,
-                () -> service.categories(OWNER_ID, "expired-token"));
+                () -> service.categories(
+                        OWNER_ID,
+                        WORKSPACE_ID,
+                        "expired-token"));
     }
 
     @Test
@@ -186,18 +240,89 @@ class VaultServiceTest {
                 .unlockWithPassword(OTHER_OWNER_ID, "correct-password")
                 .rawToken();
         VaultService.VaultCategoryView ownerCategory =
-                service.addCategory(OWNER_ID, ownerToken, "生产账号");
+                service.addCategory(
+                        OWNER_ID,
+                        WORKSPACE_ID,
+                        ownerToken,
+                        "生产账号");
 
-        assertTrue(service.categories(OTHER_OWNER_ID, otherToken).stream()
+        assertTrue(service.categories(
+                        OTHER_OWNER_ID,
+                        WORKSPACE_ID,
+                        otherToken).stream()
                 .noneMatch((category) ->
                         category.name().equals(ownerCategory.name())));
         assertThrows(
                 DomainException.class,
                 () -> service.renameCategory(
                         OTHER_OWNER_ID,
+                        WORKSPACE_ID,
                         otherToken,
                         ownerCategory.id(),
                         "越权修改"));
+    }
+
+    @Test
+    void isolatesEntriesByWorkspaceAndSupportsCopyAndMove() {
+        String token = service
+                .unlockWithPassword(OWNER_ID, "correct-password")
+                .rawToken();
+        VaultService.VaultEntryView source = service.saveEntry(
+                OWNER_ID,
+                WORKSPACE_ID,
+                token,
+                null,
+                new VaultService.VaultEntryInput(
+                        "生产数据库",
+                        "root",
+                        "secret-password",
+                        "https://db.example.com",
+                        "数据库",
+                        "仅内网访问"));
+
+        assertTrue(service.entries(
+                OWNER_ID,
+                "second",
+                token).isEmpty());
+
+        VaultService.VaultEntryView copied = service.copyEntry(
+                OWNER_ID,
+                WORKSPACE_ID,
+                token,
+                source.id(),
+                "second");
+        assertEquals("second", copied.workspaceId());
+        assertEquals(1, service.entries(
+                OWNER_ID,
+                WORKSPACE_ID,
+                token).size());
+        assertEquals(1, service.entries(
+                OWNER_ID,
+                "second",
+                token).size());
+        assertEquals(
+                "secret-password",
+                service.revealPassword(
+                        OWNER_ID,
+                        "second",
+                        copied.id(),
+                        token));
+
+        VaultService.VaultEntryView moved = service.moveEntry(
+                OWNER_ID,
+                WORKSPACE_ID,
+                token,
+                source.id(),
+                "third");
+        assertEquals("third", moved.workspaceId());
+        assertTrue(service.entries(
+                OWNER_ID,
+                WORKSPACE_ID,
+                token).isEmpty());
+        assertEquals(1, service.entries(
+                OWNER_ID,
+                "third",
+                token).size());
     }
 
     @Test
@@ -380,19 +505,24 @@ class VaultServiceTest {
         private final List<VaultEntry> values = new ArrayList<>();
 
         @Override
-        public List<VaultEntry> findEntriesByOwnerId(long ownerId) {
+        public List<VaultEntry> findEntriesByOwnerIdAndWorkspaceId(
+                long ownerId,
+                String workspaceId) {
             return values.stream()
-                    .filter((entry) -> entry.ownerId() == ownerId)
+                    .filter((entry) -> entry.ownerId() == ownerId
+                            && entry.workspaceId().equals(workspaceId))
                     .toList();
         }
 
         @Override
-        public Optional<VaultEntry> findByIdAndOwnerId(
+        public Optional<VaultEntry> findByIdAndOwnerIdAndWorkspaceId(
                 long id,
-                long ownerId) {
+                long ownerId,
+                String workspaceId) {
             return values.stream()
                     .filter((entry) -> entry.id() == id
-                            && entry.ownerId() == ownerId)
+                            && entry.ownerId() == ownerId
+                            && entry.workspaceId().equals(workspaceId))
                     .findFirst();
         }
 
@@ -402,6 +532,7 @@ class VaultServiceTest {
                     ? new VaultEntry(
                             ids.incrementAndGet(),
                             entry.ownerId(),
+                            entry.workspaceId(),
                             entry.name(),
                             entry.username(),
                             entry.passwordCiphertext(),
@@ -418,19 +549,55 @@ class VaultServiceTest {
         }
 
         @Override
-        public void deleteByIdAndOwnerId(long id, long ownerId) {
+        public void deleteByIdAndOwnerIdAndWorkspaceId(
+                long id,
+                long ownerId,
+                String workspaceId) {
             values.removeIf((entry) -> entry.id() == id
-                    && entry.ownerId() == ownerId);
+                    && entry.ownerId() == ownerId
+                    && entry.workspaceId().equals(workspaceId));
+        }
+
+        @Override
+        public void moveToWorkspace(
+                long id,
+                long ownerId,
+                String sourceWorkspaceId,
+                String targetWorkspaceId,
+                String category,
+                Instant updatedAt) {
+            for (int index = 0; index < values.size(); index += 1) {
+                VaultEntry entry = values.get(index);
+                if (entry.id() == id
+                        && entry.ownerId() == ownerId
+                        && entry.workspaceId().equals(sourceWorkspaceId)) {
+                    values.set(index, new VaultEntry(
+                            entry.id(),
+                            entry.ownerId(),
+                            targetWorkspaceId,
+                            entry.name(),
+                            entry.username(),
+                            entry.passwordCiphertext(),
+                            entry.url(),
+                            category,
+                            entry.notes(),
+                            entry.createdAt(),
+                            updatedAt));
+                    return;
+                }
+            }
         }
 
         private void renameCategory(
                 long ownerId,
+                String workspaceId,
                 String currentName,
                 String nextName,
                 Instant updatedAt) {
             for (int index = 0; index < values.size(); index += 1) {
                 VaultEntry entry = values.get(index);
                 if (entry.ownerId() == ownerId
+                        && entry.workspaceId().equals(workspaceId)
                         && entry.category().equals(currentName)) {
                     values.set(index, copyWithCategory(entry, nextName, updatedAt));
                 }
@@ -439,12 +606,14 @@ class VaultServiceTest {
 
         private void reassignCategory(
                 long ownerId,
+                String workspaceId,
                 String currentName,
                 String fallbackName,
                 Instant updatedAt) {
             for (int index = 0; index < values.size(); index += 1) {
                 VaultEntry entry = values.get(index);
                 if (entry.ownerId() == ownerId
+                        && entry.workspaceId().equals(workspaceId)
                         && entry.category().equals(currentName)) {
                     values.set(
                             index,
@@ -460,6 +629,7 @@ class VaultServiceTest {
             return new VaultEntry(
                     entry.id(),
                     entry.ownerId(),
+                    entry.workspaceId(),
                     entry.name(),
                     entry.username(),
                     entry.passwordCiphertext(),
@@ -483,30 +653,37 @@ class VaultServiceTest {
         }
 
         @Override
-        public List<VaultCategory> findCategoriesByOwnerId(long ownerId) {
+        public List<VaultCategory> findCategoriesByOwnerIdAndWorkspaceId(
+                long ownerId,
+                String workspaceId) {
             return values.stream()
-                    .filter((category) -> category.ownerId() == ownerId)
+                    .filter((category) -> category.ownerId() == ownerId
+                            && category.workspaceId().equals(workspaceId))
                     .toList();
         }
 
         @Override
-        public Optional<VaultCategory> findCategoryByIdAndOwnerId(
+        public Optional<VaultCategory> findCategoryByIdAndOwnerIdAndWorkspaceId(
                 long id,
-                long ownerId) {
+                long ownerId,
+                String workspaceId) {
             return values.stream()
                     .filter((category) ->
                             category.id() == id
-                                    && category.ownerId() == ownerId)
+                                    && category.ownerId() == ownerId
+                                    && category.workspaceId().equals(workspaceId))
                     .findFirst();
         }
 
         @Override
-        public Optional<VaultCategory> findCategoryByNameAndOwnerId(
+        public Optional<VaultCategory> findCategoryByNameAndOwnerIdAndWorkspaceId(
                 String name,
-                long ownerId) {
+                long ownerId,
+                String workspaceId) {
             return values.stream()
                     .filter((category) ->
                             category.ownerId() == ownerId
+                                    && category.workspaceId().equals(workspaceId)
                                     && category.name().equals(name))
                     .findFirst();
         }
@@ -516,6 +693,7 @@ class VaultServiceTest {
             VaultCategory saved = new VaultCategory(
                     ids.incrementAndGet(),
                     category.ownerId(),
+                    category.workspaceId(),
                     category.name(),
                     category.sortOrder(),
                     category.createdAt(),
@@ -527,16 +705,20 @@ class VaultServiceTest {
         @Override
         public void renameCategory(
                 long ownerId,
+                String workspaceId,
                 long id,
                 String currentName,
                 String nextName,
                 Instant updatedAt) {
             for (int index = 0; index < values.size(); index += 1) {
                 VaultCategory category = values.get(index);
-                if (category.ownerId() == ownerId && category.id() == id) {
+                if (category.ownerId() == ownerId
+                        && category.workspaceId().equals(workspaceId)
+                        && category.id() == id) {
                     values.set(index, new VaultCategory(
                             category.id(),
                             category.ownerId(),
+                            category.workspaceId(),
                             nextName,
                             category.sortOrder(),
                             category.createdAt(),
@@ -545,6 +727,7 @@ class VaultServiceTest {
             }
             entries.renameCategory(
                     ownerId,
+                    workspaceId,
                     currentName,
                     nextName,
                     updatedAt);
@@ -553,14 +736,18 @@ class VaultServiceTest {
         @Override
         public void deleteCategoryAndReassignEntries(
                 long ownerId,
+                String workspaceId,
                 long id,
                 String categoryName,
                 String fallbackName,
                 Instant updatedAt) {
             values.removeIf((category) ->
-                    category.ownerId() == ownerId && category.id() == id);
+                    category.ownerId() == ownerId
+                            && category.workspaceId().equals(workspaceId)
+                            && category.id() == id);
             entries.reassignCategory(
                     ownerId,
+                    workspaceId,
                     categoryName,
                     fallbackName,
                     updatedAt);

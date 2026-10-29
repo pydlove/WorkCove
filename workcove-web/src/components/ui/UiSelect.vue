@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, ChevronDown } from '@lucide/vue'
+import { Check, ChevronDown, Search } from '@lucide/vue'
 import {
   computed,
   nextTick,
@@ -27,6 +27,7 @@ const props = withDefaults(
     variant?: 'field' | 'chip'
     placement?: 'top' | 'bottom'
     menuHeight?: number
+    searchable?: boolean
     disabled?: boolean
     title?: string
   }>(),
@@ -38,6 +39,7 @@ const props = withDefaults(
     variant: 'field',
     placement: 'bottom',
     menuHeight: 0,
+    searchable: false,
     disabled: false,
     title: '',
   },
@@ -51,8 +53,10 @@ const emit = defineEmits<{
 const root = ref<HTMLElement | null>(null)
 const trigger = ref<HTMLButtonElement | null>(null)
 const menu = ref<HTMLElement | null>(null)
+const searchInput = ref<HTMLInputElement | null>(null)
 const open = ref(false)
 const activeIndex = ref(-1)
+const searchQuery = ref('')
 const actualPlacement = ref<'top' | 'bottom'>(props.placement)
 const menuStyle = ref<CSSProperties>({})
 const listId = useId()
@@ -60,8 +64,17 @@ const listId = useId()
 const selectedOption = computed(
   () => props.options.find((option) => option.value === model.value) ?? null,
 )
+const filteredOptions = computed(() => {
+  const query = searchQuery.value.trim().toLocaleLowerCase('zh-CN')
+  if (!props.searchable || !query) return props.options
+  return props.options.filter((option) =>
+    `${option.label} ${option.description ?? ''}`
+      .toLocaleLowerCase('zh-CN')
+      .includes(query),
+  )
+})
 const activeOption = computed(
-  () => props.options[activeIndex.value] ?? null,
+  () => filteredOptions.value[activeIndex.value] ?? null,
 )
 
 function optionId(index: number) {
@@ -69,34 +82,40 @@ function optionId(index: number) {
 }
 
 function firstEnabledIndex() {
-  return props.options.findIndex((option) => !option.disabled)
+  return filteredOptions.value.findIndex((option) => !option.disabled)
 }
 
 function showOptions() {
   if (props.disabled || props.options.length === 0) return
   open.value = true
-  const selectedIndex = props.options.findIndex(
+  searchQuery.value = ''
+  const selectedIndex = filteredOptions.value.findIndex(
     (option) => option.value === model.value && !option.disabled,
   )
   activeIndex.value =
     selectedIndex >= 0 ? selectedIndex : firstEnabledIndex()
   updateMenuPosition()
-  void nextTick(updateMenuPosition)
+  void nextTick(() => {
+    updateMenuPosition()
+    if (props.searchable) searchInput.value?.focus()
+  })
 }
 
 function closeOptions(restoreFocus = false) {
   open.value = false
   activeIndex.value = -1
+  searchQuery.value = ''
   if (restoreFocus) trigger.value?.focus()
 }
 
 function moveActive(direction: 1 | -1) {
-  if (props.options.length === 0) return
+  if (filteredOptions.value.length === 0) return
   let index = activeIndex.value
-  for (let step = 0; step < props.options.length; step += 1) {
+  for (let step = 0; step < filteredOptions.value.length; step += 1) {
     index =
-      (index + direction + props.options.length) % props.options.length
-    if (!props.options[index]?.disabled) {
+      (index + direction + filteredOptions.value.length) %
+      filteredOptions.value.length
+    if (!filteredOptions.value[index]?.disabled) {
       activeIndex.value = index
       return
     }
@@ -135,8 +154,8 @@ function handleTriggerKeydown(event: KeyboardEvent) {
 
   if (event.key === 'End' && open.value) {
     event.preventDefault()
-    for (let index = props.options.length - 1; index >= 0; index -= 1) {
-      if (!props.options[index].disabled) {
+    for (let index = filteredOptions.value.length - 1; index >= 0; index -= 1) {
+      if (!filteredOptions.value[index].disabled) {
         activeIndex.value = index
         break
       }
@@ -158,6 +177,47 @@ function handleTriggerKeydown(event: KeyboardEvent) {
     event.preventDefault()
     showOptions()
   }
+}
+
+function handleSearchInput(event: Event) {
+  searchQuery.value = (event.target as HTMLInputElement).value
+  activeIndex.value = firstEnabledIndex()
+  void nextTick(updateMenuPosition)
+}
+
+function handleSearchKeydown(event: KeyboardEvent) {
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault()
+    moveActive(event.key === 'ArrowDown' ? 1 : -1)
+    return
+  }
+  if (event.key === 'Home') {
+    event.preventDefault()
+    activeIndex.value = firstEnabledIndex()
+    return
+  }
+  if (event.key === 'End') {
+    event.preventDefault()
+    for (let index = filteredOptions.value.length - 1; index >= 0; index -= 1) {
+      if (!filteredOptions.value[index].disabled) {
+        activeIndex.value = index
+        break
+      }
+    }
+    return
+  }
+  if (event.key === 'Enter' && activeOption.value) {
+    event.preventDefault()
+    selectOption(activeOption.value)
+    return
+  }
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    closeOptions(true)
+    return
+  }
+  if (event.key === 'Tab') closeOptions()
 }
 
 function handlePointerDown(event: PointerEvent) {
@@ -193,7 +253,7 @@ function updateMenuPosition() {
     menu.value?.offsetHeight ||
     Math.min(
       220,
-      Math.max(48, props.options.length * 48 + 8),
+      Math.max(48, filteredOptions.value.length * 48 + 8),
     )
   const preferredHeight =
     props.menuHeight > 0 ? props.menuHeight : measuredHeight
@@ -290,8 +350,26 @@ onBeforeUnmount(() => {
         role="listbox"
         :aria-label="ariaLabel"
       >
+        <label
+          v-if="searchable"
+          class="ui-select__search"
+          @click.stop
+        >
+          <Search :size="13" aria-hidden="true" />
+          <input
+            ref="searchInput"
+            type="search"
+            :value="searchQuery"
+            :aria-label="`搜索${ariaLabel}`"
+            placeholder="搜索选项"
+            autocomplete="off"
+            spellcheck="false"
+            @input="handleSearchInput"
+            @keydown="handleSearchKeydown"
+          />
+        </label>
         <button
-          v-for="(option, index) in options"
+          v-for="(option, index) in filteredOptions"
           :id="optionId(index)"
           :key="option.value"
           class="ui-select__option"
@@ -317,6 +395,12 @@ onBeforeUnmount(() => {
             </small>
           </span>
         </button>
+        <p
+          v-if="searchable && filteredOptions.length === 0"
+          class="ui-select__empty"
+        >
+          没有匹配的选项
+        </p>
       </div>
     </Teleport>
   </div>
@@ -457,6 +541,46 @@ onBeforeUnmount(() => {
   transform-origin: bottom left;
 }
 
+.ui-select__search {
+  position: sticky;
+  z-index: 1;
+  top: calc(var(--space-1) * -1);
+  display: flex;
+  height: var(--control-md);
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  margin: 0 0 var(--space-1);
+  color: var(--text-subtle);
+  background: var(--dropdown-bg);
+  border: 1px solid var(--field-border);
+  border-radius: var(--radius-control);
+}
+
+.ui-select__search:focus-within {
+  border-color: var(--system-blue);
+  box-shadow: var(--focus-ring);
+}
+
+.ui-select__search input {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  color: var(--text);
+  font-size: var(--font-body);
+  background: transparent;
+  border: 0;
+}
+
+.ui-select__search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.ui-select__search input:focus-visible {
+  outline: none;
+}
+
 .ui-select__option {
   display: grid;
   width: 100%;
@@ -471,6 +595,13 @@ onBeforeUnmount(() => {
   text-align: left;
   background: transparent;
   border-radius: var(--dropdown-item-radius);
+}
+
+.ui-select__empty {
+  padding: 6px 7px;
+  margin: 0;
+  color: var(--text-subtle);
+  font-size: var(--font-caption);
 }
 
 .ui-select__option:hover,

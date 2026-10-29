@@ -6,9 +6,7 @@ import {
   ListChecks,
   Pencil,
   Plus,
-  Search,
   Server,
-  SquareTerminal,
 } from '@lucide/vue'
 import {
   computed,
@@ -24,9 +22,12 @@ import WorkspaceBatchBar from '@/components/business/workspaces/WorkspaceBatchBa
 import WorkspaceTransferDialog, {
   type WorkspaceTransferMode,
 } from '@/components/business/workspaces/WorkspaceTransferDialog.vue'
+import CodexTerminalMark from '@/components/ui/CodexTerminalMark.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
+import UiFidgetSpinner from '@/components/ui/UiFidgetSpinner.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
+import UiSearchInput from '@/components/ui/UiSearchInput.vue'
 import { usePagination } from '@/composables/usePagination'
 import { useManagedServerStore } from '@/stores/useManagedServerStore'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
@@ -242,6 +243,13 @@ onMounted(() => {
 watch(
   () => workspaces.activeWorkspaceId,
   () => {
+    dialogOpen.value = false
+    editingServer.value = null
+    duplicateDialog.value = false
+    transferServer.value = null
+    terminalServer.value = null
+    fileServer.value = null
+    batchTransferMode.value = null
     selectionMode.value = false
     selectedServerIds.value = []
     void loadServers(true)
@@ -274,15 +282,11 @@ watch(
       <span class="server-toolbar__count">
         {{ filteredServers.length }} 台服务器
       </span>
-      <label class="server-search">
-        <Search :size="15" aria-hidden="true" />
-        <input
-          v-model="searchQuery"
-          type="search"
-          aria-label="搜索服务器"
-          placeholder="搜索名称、IP 或用户名"
-        />
-      </label>
+      <UiSearchInput
+        v-model="searchQuery"
+        label="搜索服务器"
+        placeholder="搜索名称、IP 或用户名"
+      />
       <UiButton @click="toggleSelectionMode">
         <ListChecks :size="14" />
         {{ selectionMode ? '退出批量' : '批量' }}
@@ -305,7 +309,13 @@ watch(
 
     <div v-if="loadError" class="server-error" role="alert">
       <span>{{ loadError }}</span>
-      <UiButton size="sm" @click="loadServers">重试</UiButton>
+      <UiButton
+        size="sm"
+        :loading="servers.loading"
+        @click="loadServers()"
+      >
+        重试
+      </UiButton>
     </div>
 
     <div v-if="filteredServers.length > 0" class="server-list">
@@ -345,7 +355,7 @@ watch(
             title="SSH 连接"
             @click="connectTerminal(serverItem)"
           >
-            <SquareTerminal :size="14" />
+            <CodexTerminalMark :size="14" />
             连接
           </button>
           <button
@@ -418,7 +428,10 @@ watch(
       </UiButton>
     </div>
 
-    <div v-else class="server-loading">正在读取服务器...</div>
+    <div v-else class="server-loading">
+      <UiFidgetSpinner :size="22" />
+      <span>正在读取服务器...</span>
+    </div>
 
     <UiPagination
       :page="currentPage"
@@ -486,39 +499,6 @@ watch(
   flex: 1;
   color: var(--text-muted);
   font-size: var(--font-caption);
-}
-
-.server-search {
-  display: flex;
-  width: min(100%, 260px);
-  height: var(--control-md);
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px;
-  color: var(--text-subtle);
-  background: var(--control-bg);
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-control);
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / 4%);
-}
-
-.server-search:focus-within {
-  border-color: var(--system-blue);
-  box-shadow: var(--focus-ring);
-}
-
-.server-search input {
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-  color: var(--text);
-  font-size: var(--font-body);
-  background: transparent;
-  border: 0;
-}
-
-.server-search input:focus-visible {
-  outline: none;
 }
 
 .server-error {
@@ -691,11 +671,13 @@ watch(
 }
 
 .server-loading {
-  display: grid;
+  display: flex;
   min-height: 360px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   color: var(--text-subtle);
   font-size: var(--font-caption);
-  place-items: center;
 }
 
 @media (max-width: 680px) {
@@ -708,11 +690,6 @@ watch(
     display: flex;
     flex-basis: 100%;
     align-items: center;
-  }
-
-  .server-search {
-    width: auto;
-    flex: 1;
   }
 
   .server-row {

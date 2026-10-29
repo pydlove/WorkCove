@@ -49,6 +49,7 @@ export interface ZentaoBug {
   severity: string
   priority: string
   status: string
+  confirmed: boolean
   steps: string
   openedBy: string
   openedDate: string
@@ -64,9 +65,102 @@ export interface ZentaoBug {
   lastSyncedAt: string
 }
 
+export interface ZentaoBuild {
+  id: number
+  remoteId: string
+  projectId: string
+  projectName: string
+  productId: string
+  productName: string
+  executionId: string
+  name: string
+  status: string
+  builder: string
+  buildDate: string
+  description: string
+  scmRevision: string
+  lastSyncedAt: string
+}
+
+export interface ZentaoExecution {
+  id: string
+  projectId: string
+  projectName: string
+  productId: string
+  name: string
+  status: string
+}
+
+export interface ZentaoProduct {
+  id: string
+  name: string
+}
+
+export interface ZentaoUser {
+  account: string
+  name: string
+}
+
+export interface ZentaoSystem {
+  id: string
+  productId: string
+  name: string
+}
+
+export interface ZentaoTestReport {
+  id: string
+  title: string
+}
+
+export interface ZentaoBuildOptions {
+  executions: ZentaoExecution[]
+  products: ZentaoProduct[]
+  users: ZentaoUser[]
+}
+
+export interface ZentaoTestTaskOptions {
+  users: ZentaoUser[]
+  reports: ZentaoTestReport[]
+}
+
+export interface ZentaoBuildCreateInput {
+  workspaceId: string
+  projectId: string
+  executionId: string
+  productId: string
+  systemId: string
+  name: string
+  builder: string
+  date: string
+  downloadUrl: string
+}
+
+export interface ZentaoTestTaskCreateInput {
+  workspaceId: string
+  types: string[]
+  owner: string
+  members: string[]
+  status: string
+  begin: string
+  end: string
+  testReport: string
+  name: string
+}
+
+export interface ZentaoCreatedBuild {
+  remoteId: string
+  name: string
+}
+
+export interface ZentaoCreatedTestTask {
+  remoteId: string
+  name: string
+}
+
 export interface ZentaoSyncResult {
   projects: number
   bugs: number
+  builds: number
   syncedAt: string
 }
 

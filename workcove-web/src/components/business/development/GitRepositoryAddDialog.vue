@@ -280,10 +280,10 @@ async function submit() {
           />
           <UiButton
             size="lg"
-            :disabled="choosingDirectory"
+            :loading="choosingDirectory"
             @click="chooseFolder"
           >
-            <FolderOpen :size="14" />
+            <FolderOpen v-if="!choosingDirectory" :size="14" />
             {{ choosingDirectory ? '选择中…' : '浏览本地文件夹' }}
           </UiButton>
         </div>
@@ -316,7 +316,7 @@ async function submit() {
         size="lg"
         type="submit"
         form="git-repository-add-form"
-        :disabled="saving"
+        :loading="saving"
       >
         {{ saving ? '添加中…' : '添加仓库' }}
       </UiButton>

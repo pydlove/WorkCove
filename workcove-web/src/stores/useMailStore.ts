@@ -61,6 +61,10 @@ export const useMailStore = defineStore('mail', {
     sending: false,
     error: '',
     messageError: '',
+    accountsSequence: 0,
+    foldersSequence: 0,
+    inboxSequence: 0,
+    messageSequence: 0,
   }),
   getters: {
     activeAccount(state) {
@@ -103,10 +107,11 @@ export const useMailStore = defineStore('mail', {
         return
       }
 
+      const ownerChanged = this.ownerEmail !== normalizedEmail
       const workspaceChanged = this.workspaceId !== workspaceId
       this.ownerEmail = normalizedEmail
       this.workspaceId = workspaceId
-      if (workspaceChanged) {
+      if (ownerChanged || workspaceChanged) {
         this.accounts = []
         this.activeAccountId = 0
         this.folders = []
@@ -115,6 +120,18 @@ export const useMailStore = defineStore('mail', {
         this.messagePage = 1
         this.messageTotal = 0
         this.activeMessage = null
+        this.accountsSequence += 1
+        this.foldersSequence += 1
+        this.inboxSequence += 1
+        this.messageSequence += 1
+        this.loadingAccounts = false
+        this.loadingFolders = false
+        this.loadingInbox = false
+        this.loadingMessage = false
+        this.syncing = false
+        this.sending = false
+        this.error = ''
+        this.messageError = ''
       }
       await this.refreshAccounts()
     },
@@ -137,13 +154,26 @@ export const useMailStore = defineStore('mail', {
       this.sending = false
       this.error = ''
       this.messageError = ''
+      this.accountsSequence += 1
+      this.foldersSequence += 1
+      this.inboxSequence += 1
+      this.messageSequence += 1
     },
     async refreshAccounts() {
-      if (!this.workspaceId) return
+      const workspaceId = this.workspaceId
+      if (!workspaceId) return
+      const sequence = ++this.accountsSequence
       this.loadingAccounts = true
       this.error = ''
       try {
-        this.accounts = await listMailAccounts(this.workspaceId)
+        const accounts = await listMailAccounts(workspaceId)
+        if (
+          sequence !== this.accountsSequence ||
+          this.workspaceId !== workspaceId
+        ) {
+          return
+        }
+        this.accounts = accounts
         if (
           !this.accounts.some(
             (account) => account.id === this.activeAccountId,
@@ -159,10 +189,21 @@ export const useMailStore = defineStore('mail', {
           await this.refreshFolders()
         }
       } catch (error) {
+        if (
+          sequence !== this.accountsSequence ||
+          this.workspaceId !== workspaceId
+        ) {
+          return
+        }
         this.error =
           error instanceof Error ? error.message : '无法读取邮箱账号'
       } finally {
-        this.loadingAccounts = false
+        if (
+          sequence === this.accountsSequence &&
+          this.workspaceId === workspaceId
+        ) {
+          this.loadingAccounts = false
+        }
       }
     },
     async selectAccount(accountId: number) {
@@ -175,19 +216,31 @@ export const useMailStore = defineStore('mail', {
       this.messageTotal = 0
       this.activeMessage = null
       this.messageError = ''
+      this.loadingInbox = false
+      this.loadingMessage = false
+      this.syncing = false
+      this.sending = false
       await this.refreshFolders()
     },
     async refreshFolders() {
+      const workspaceId = this.workspaceId
       const accountId = this.activeAccountId
-      if (!accountId || !this.workspaceId) return
+      if (!accountId || !workspaceId) return
+      const sequence = ++this.foldersSequence
       this.loadingFolders = true
       this.error = ''
       try {
         const folders = await listMailFolders({
-          workspaceId: this.workspaceId,
+          workspaceId,
           accountId,
         })
-        if (this.activeAccountId !== accountId) return
+        if (
+          sequence !== this.foldersSequence ||
+          this.workspaceId !== workspaceId ||
+          this.activeAccountId !== accountId
+        ) {
+          return
+        }
         this.folders = folders
         if (
           !folders.some(
@@ -203,12 +256,20 @@ export const useMailStore = defineStore('mail', {
         }
         await this.refreshInbox()
       } catch (error) {
-        if (this.activeAccountId === accountId) {
+        if (
+          sequence === this.foldersSequence &&
+          this.workspaceId === workspaceId &&
+          this.activeAccountId === accountId
+        ) {
           this.error =
             error instanceof Error ? error.message : '无法读取邮件目录'
         }
       } finally {
-        if (this.activeAccountId === accountId) {
+        if (
+          sequence === this.foldersSequence &&
+          this.workspaceId === workspaceId &&
+          this.activeAccountId === accountId
+        ) {
           this.loadingFolders = false
         }
       }
@@ -232,8 +293,12 @@ export const useMailStore = defineStore('mail', {
       }
     },
     async refreshInbox(page?: number) {
+      const workspaceId = this.workspaceId
       const accountId = this.activeAccountId
-      if (!accountId || !this.workspaceId) return
+      if (!accountId || !workspaceId) return
+      const folderPath = this.activeFolderPath
+      const flagged = this.activeFolder?.role === 'FLAGGED'
+      const sequence = ++this.inboxSequence
       const targetPage = Math.max(
         1,
         Math.floor(page ?? this.messagePage),
@@ -243,14 +308,21 @@ export const useMailStore = defineStore('mail', {
       this.error = ''
       try {
         const response = await listMailInbox({
-          workspaceId: this.workspaceId,
+          workspaceId,
           accountId,
-          folder: this.activeFolderPath,
-          flagged: this.activeFolder?.role === 'FLAGGED',
+          folder: folderPath,
+          flagged,
           limit: this.messagePageSize,
           offset,
         })
-        if (this.activeAccountId !== accountId) return
+        if (
+          sequence !== this.inboxSequence ||
+          this.workspaceId !== workspaceId ||
+          this.activeAccountId !== accountId ||
+          this.activeFolderPath !== folderPath
+        ) {
+          return
+        }
         this.messagePage = targetPage
         this.messageTotal = response.total
         this.messages = response.messages
@@ -265,44 +337,79 @@ export const useMailStore = defineStore('mail', {
           this.activeMessage = null
         }
       } catch (error) {
-        if (this.activeAccountId === accountId) {
+        if (
+          sequence === this.inboxSequence &&
+          this.workspaceId === workspaceId &&
+          this.activeAccountId === accountId &&
+          this.activeFolderPath === folderPath
+        ) {
           this.error =
             error instanceof Error ? error.message : '无法读取收件箱'
         }
       } finally {
-        if (this.activeAccountId === accountId) {
+        if (
+          sequence === this.inboxSequence &&
+          this.workspaceId === workspaceId &&
+          this.activeAccountId === accountId &&
+          this.activeFolderPath === folderPath
+        ) {
           this.loadingInbox = false
         }
       }
     },
     async syncCurrentFolder() {
+      const workspaceId = this.workspaceId
       const accountId = this.activeAccountId
-      if (!accountId || !this.workspaceId || this.syncing) {
+      const folderPath = this.activeFolderPath || 'INBOX'
+      const flagged = this.activeFolder?.role === 'FLAGGED'
+      if (!accountId || !workspaceId || this.syncing) {
         return null
       }
       this.syncing = true
       this.error = ''
       try {
         const result = await syncMail({
-          workspaceId: this.workspaceId,
+          workspaceId,
           accountId,
-          folder: this.activeFolderPath || 'INBOX',
-          flagged: this.activeFolder?.role === 'FLAGGED',
+          folder: folderPath,
+          flagged,
         })
+        if (
+          this.workspaceId !== workspaceId ||
+          this.activeAccountId !== accountId
+        ) {
+          return result
+        }
         await this.refreshFolders()
         return result
       } catch (error) {
         const message =
           error instanceof Error ? error.message : '无法同步邮箱'
+        if (
+          this.workspaceId !== workspaceId ||
+          this.activeAccountId !== accountId
+        ) {
+          return null
+        }
         try {
           await this.refreshFolders()
         } catch {
           // Keep the synchronization error visible if cache refresh also fails.
         }
-        this.error = message
+        if (
+          this.workspaceId === workspaceId &&
+          this.activeAccountId === accountId
+        ) {
+          this.error = message
+        }
         return null
       } finally {
-        this.syncing = false
+        if (
+          this.workspaceId === workspaceId &&
+          this.activeAccountId === accountId
+        ) {
+          this.syncing = false
+        }
       }
     },
     async goToMessagePage(page: number) {
@@ -318,18 +425,26 @@ export const useMailStore = defineStore('mail', {
       await this.refreshInbox(target)
     },
     async openMessage(uid: string, folderPath: string) {
+      const workspaceId = this.workspaceId
       const accountId = this.activeAccountId
-      if (!accountId || !this.workspaceId) return null
+      if (!accountId || !workspaceId) return null
+      const sequence = ++this.messageSequence
       this.loadingMessage = true
       this.messageError = ''
       try {
         const message = await getMailMessage({
-          workspaceId: this.workspaceId,
+          workspaceId,
           accountId,
           folder: folderPath,
           uid,
         })
-        if (this.activeAccountId !== accountId) return null
+        if (
+          sequence !== this.messageSequence ||
+          this.workspaceId !== workspaceId ||
+          this.activeAccountId !== accountId
+        ) {
+          return null
+        }
         this.activeMessage = message
         this.messages = this.messages.map((item) =>
           item.uid === uid && item.folderPath === folderPath
@@ -348,58 +463,105 @@ export const useMailStore = defineStore('mail', {
         )
         return message
       } catch (error) {
-        if (this.activeAccountId === accountId) {
+        if (
+          sequence === this.messageSequence &&
+          this.workspaceId === workspaceId &&
+          this.activeAccountId === accountId
+        ) {
           this.messageError =
             error instanceof Error ? error.message : '无法读取邮件'
         }
         return null
       } finally {
-        this.loadingMessage = false
+        if (
+          sequence === this.messageSequence &&
+          this.workspaceId === workspaceId &&
+          this.activeAccountId === accountId
+        ) {
+          this.loadingMessage = false
+        }
       }
     },
     async sendReply(body: string) {
+      const workspaceId = this.workspaceId
       const accountId = this.activeAccountId
       const message = this.activeMessage
-      if (!accountId || !message || !this.workspaceId) {
+      if (!accountId || !message || !workspaceId) {
         throw new Error('请选择需要回复的邮件')
       }
       this.sending = true
       this.messageError = ''
       try {
         await replyMail({
-          workspaceId: this.workspaceId,
+          workspaceId,
           accountId,
           folder: message.folderPath,
           uid: message.uid,
           body,
         })
       } catch (error) {
-        this.messageError =
-          error instanceof Error ? error.message : '邮件回复失败'
+        if (this.workspaceId === workspaceId) {
+          this.messageError =
+            error instanceof Error ? error.message : '邮件回复失败'
+        }
         throw error
       } finally {
-        this.sending = false
+        if (this.workspaceId === workspaceId) {
+          this.sending = false
+        }
       }
     },
     async saveAccount(input: MailAccountInput) {
-      const account = await saveMailAccount(input)
+      const workspaceId = this.workspaceId
+      if (!workspaceId) throw new Error('工作空间尚未初始化')
+      const isNewAccount = !input.id
+      const account = await saveMailAccount({
+        ...input,
+        workspaceId,
+      })
+      if (this.workspaceId !== workspaceId) return account
       this.accounts = [
         account,
         ...this.accounts.filter((item) => item.id !== account.id),
       ]
       this.activeAccountId = account.id
-      this.folders = []
-      this.activeFolderPath = 'INBOX'
-      this.messages = []
-      this.messagePage = 1
-      this.messageTotal = 0
-      this.activeMessage = null
-      await this.syncCurrentFolder()
+      if (isNewAccount) {
+        this.folders = []
+        this.activeFolderPath = 'INBOX'
+        this.messages = []
+        this.messagePage = 1
+        this.messageTotal = 0
+        this.activeMessage = null
+      }
+      await this.refreshFolders()
+      if (this.workspaceId !== workspaceId) return account
+      const result = await this.syncCurrentFolder()
+      if (this.workspaceId !== workspaceId) return account
+      if (!result && this.error) {
+        const syncError = this.error
+        if (isNewAccount) {
+          await deleteMailAccount(account.id, workspaceId)
+          if (this.workspaceId !== workspaceId) {
+            throw new Error(syncError)
+          }
+          this.accounts = this.accounts.filter(
+            (item) => item.id !== account.id,
+          )
+          this.activeAccountId = this.accounts[0]?.id ?? 0
+          this.folders = []
+          this.messages = []
+          this.messageTotal = 0
+          if (this.activeAccountId) await this.refreshFolders()
+        }
+        throw new Error(syncError)
+      }
       return account
     },
     async removeAccount(accountId: number) {
-      if (!this.workspaceId) return
-      await deleteMailAccount(accountId, this.workspaceId)
+      const workspaceId = this.workspaceId
+      if (!workspaceId) return
+      await deleteMailAccount(accountId, workspaceId)
+      if (this.workspaceId !== workspaceId) return
       this.accounts = this.accounts.filter(
         (account) => account.id !== accountId,
       )
@@ -421,15 +583,22 @@ export const useMailStore = defineStore('mail', {
       message: Pick<MailMessageSummary, 'uid' | 'folderPath' | 'starred'>,
       starred: boolean,
     ) {
+      const workspaceId = this.workspaceId
       const accountId = this.activeAccountId
-      if (!accountId || !this.workspaceId) return
+      if (!accountId || !workspaceId) return
       await setMailStarred({
-        workspaceId: this.workspaceId,
+        workspaceId,
         accountId,
         folder: message.folderPath,
         uid: message.uid,
         starred,
       })
+      if (
+        this.workspaceId !== workspaceId ||
+        this.activeAccountId !== accountId
+      ) {
+        return
+      }
       if (
         this.activeMessage?.uid === message.uid &&
         this.activeMessage.folderPath === message.folderPath
@@ -489,13 +658,21 @@ export const useMailStore = defineStore('mail', {
       seen: boolean,
     ) {
       if (!this.workspaceId || !this.activeAccountId) return
+      const workspaceId = this.workspaceId
+      const accountId = this.activeAccountId
       await setMailReadState({
-        workspaceId: this.workspaceId,
-        accountId: this.activeAccountId,
+        workspaceId,
+        accountId,
         folder: folderPath,
         uid,
         seen,
       })
+      if (
+        this.workspaceId !== workspaceId ||
+        this.activeAccountId !== accountId
+      ) {
+        return
+      }
       this.messages = this.messages.map((message) =>
         message.uid === uid && message.folderPath === folderPath
           ? { ...message, unread: !seen }
@@ -510,25 +687,43 @@ export const useMailStore = defineStore('mail', {
       ) {
         return
       }
+      const workspaceId = this.workspaceId
+      const accountId = this.activeAccountId
+      const folderPath = this.activeFolderPath
       await markAllMailRead({
-        workspaceId: this.workspaceId,
-        accountId: this.activeAccountId,
-        folder: this.activeFolderPath,
+        workspaceId,
+        accountId,
+        folder: folderPath,
       })
+      if (
+        this.workspaceId !== workspaceId ||
+        this.activeAccountId !== accountId ||
+        this.activeFolderPath !== folderPath
+      ) {
+        return
+      }
       this.messages = this.messages.map((message) => ({
         ...message,
         unread: false,
       }))
     },
     async moveMessage(message: MailMessageSummary, targetFolder: string) {
-      if (!this.workspaceId || !this.activeAccountId) return
+      const workspaceId = this.workspaceId
+      const accountId = this.activeAccountId
+      if (!workspaceId || !accountId) return
       await moveMail({
-        workspaceId: this.workspaceId,
-        accountId: this.activeAccountId,
+        workspaceId,
+        accountId,
         folder: message.folderPath,
         uid: message.uid,
         targetFolder,
       })
+      if (
+        this.workspaceId !== workspaceId ||
+        this.activeAccountId !== accountId
+      ) {
+        return
+      }
       this.messages = this.messages.filter(
         (item) =>
           item.uid !== message.uid ||
@@ -542,14 +737,22 @@ export const useMailStore = defineStore('mail', {
       }
     },
     async createFolder(name: string) {
-      if (!this.workspaceId || !this.activeAccountId) {
+      const workspaceId = this.workspaceId
+      const accountId = this.activeAccountId
+      if (!workspaceId || !accountId) {
         throw new Error('请先选择邮箱账号')
       }
       const folder = await createMailFolder({
-        workspaceId: this.workspaceId,
-        accountId: this.activeAccountId,
+        workspaceId,
+        accountId,
         name: name.trim(),
       })
+      if (
+        this.workspaceId !== workspaceId ||
+        this.activeAccountId !== accountId
+      ) {
+        return folder
+      }
       await this.syncCurrentFolder()
       if (this.folders.some((item) => item.path === folder.path)) {
         await this.selectFolder(folder.path)

@@ -1,21 +1,26 @@
 <script setup lang="ts">
 import {
+  BadgeCheck,
+  Bot,
   Bug,
   Check,
   CircleCheck,
   CloudUpload,
   Eye,
   EyeOff,
-  ExternalLink,
   FileText,
   FlaskConical,
   FolderKanban,
   Images,
   ListChecks,
+  MessageSquareText,
+  PackageCheck,
+  Plus,
   RefreshCw,
   Search,
   Settings2,
   Trash2,
+  Wrench,
   X,
 } from '@lucide/vue'
 import {
@@ -25,34 +30,89 @@ import {
   onMounted,
   reactive,
   ref,
+  type Component,
   watch,
 } from 'vue'
 import DOMPurify from 'dompurify'
 
 import ZentaoBugPlanDialog from '@/components/business/development/ZentaoBugPlanDialog.vue'
+import ZentaoBuildCreateDialog from '@/components/business/development/ZentaoBuildCreateDialog.vue'
+import ZentaoTestTaskCreateDialog from '@/components/business/development/ZentaoTestTaskCreateDialog.vue'
 import ZentaoTestResultDialog from '@/components/business/development/ZentaoTestResultDialog.vue'
+import EmbeddedBrowserDialog from '@/components/business/websites/EmbeddedBrowserDialog.vue'
+import UiActionMenu from '@/components/ui/UiActionMenu.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiConfirmDialog from '@/components/ui/UiConfirmDialog.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
+import UiFidgetSpinner from '@/components/ui/UiFidgetSpinner.vue'
+import UiFormField from '@/components/ui/UiFormField.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
+import UiSearchInput from '@/components/ui/UiSearchInput.vue'
+import ZentaoMark from '@/components/ui/ZentaoMark.vue'
 import { usePagination } from '@/composables/usePagination'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import { useZentaoStore } from '@/stores/useZentaoStore'
 import { useZentaoTestStore } from '@/stores/useZentaoTestStore'
-import type { ZentaoBug, ZentaoProject } from '@/types/zentao'
+import type {
+  ZentaoBug,
+  ZentaoBuild,
+  ZentaoCreatedBuild,
+  ZentaoCreatedTestTask,
+  ZentaoProject,
+} from '@/types/zentao'
 import type { ZentaoTestResult } from '@/types/zentaoTest'
+import {
+  failedZentaoTestComment,
+  publishZentaoTestResultComment,
+} from '@/services/zentaoTestComment'
+import { openWebsiteUrl } from '@/utils/openWebsite'
+import { activeZentaoTestSessionId } from '@/utils/zentaoTestNavigation'
 
 type BugFilter = 'active' | 'resolved' | 'all'
+type ZentaoTab = 'bugs' | 'builds' | 'projects'
+type BugQuickAction =
+  | 'codex'
+  | 'test'
+  | 'test-result'
+  | 'detail'
+  | 'resolve'
+  | 'update'
+  | 'zentao'
+
+interface BugMenuItem {
+  id: string
+  label: string
+  icon: Component
+  disabled?: boolean
+  danger?: boolean
+  dividerBefore?: boolean
+}
+
+const props = defineProps<{
+  openBugRequest?: {
+    bugId: number
+    remoteId: string
+    nonce: number
+  } | null
+}>()
 
 const emit = defineEmits<{
   notify: [message: string]
   solveBug: [bug: ZentaoBug]
   solveBugs: [bugs: ZentaoBug[], plan: string]
   testBug: [bug: ZentaoBug]
+  repairFailedTest: [
+    payload: {
+      bug: ZentaoBug
+      result: ZentaoTestResult
+    },
+  ]
+  openBugHandled: [nonce: number]
+  openCodex: [sessionId: string]
 }>()
 
 const auth = useAuthStore()
@@ -61,7 +121,9 @@ const workspaces = useWorkspaceStore()
 const zentao = useZentaoStore()
 const zentaoTests = useZentaoTestStore()
 const searchQuery = ref('')
+const buildSearchQuery = ref('')
 const bugFilter = ref<BugFilter>('active')
+const activeTab = ref<ZentaoTab>('bugs')
 const configurationOpen = ref(false)
 const savingConnection = ref(false)
 const connectionError = ref('')
@@ -75,9 +137,13 @@ const bugPendingDelete = ref<ZentaoBug | null>(null)
 const deletingBug = ref(false)
 const deleteError = ref('')
 const detailBug = ref<ZentaoBug | null>(null)
+const bugPendingPush = ref<ZentaoBug | null>(null)
+const bugPendingConfirm = ref<ZentaoBug | null>(null)
 const bugStepsContent = ref<HTMLElement | null>(null)
 const resolvingLocally = ref(false)
 const pushingToZentao = ref(false)
+const confirmingBugId = ref<number | null>(null)
+const confirmError = ref('')
 const detailError = ref('')
 const localSolution = ref('')
 const localReason = ref('')
@@ -86,7 +152,15 @@ const selectedBugIds = ref<number[]>([])
 const batchPlanOpen = ref(false)
 const testResultBug = ref<ZentaoBug | null>(null)
 const testResultTarget = ref<ZentaoTestResult | null>(null)
+const publishingTestNoteBugId = ref<number | null>(null)
+const zentaoBrowser = ref<{
+  url: string
+  title: string
+} | null>(null)
+const buildCreateOpen = ref(false)
+const testTaskBuild = ref<ZentaoBuild | null>(null)
 const autoSyncedScopes = new Set<string>()
+const handledExternalBugRequest = ref(0)
 let autoSyncTimer: number | null = null
 const connectionForm = reactive({
   baseUrl: '',
@@ -105,6 +179,22 @@ const selectedProjectNames = computed(() => {
   return selectedProjectIds.value.map(
     (projectId) => names.get(projectId) ?? `项目 ${projectId}`,
   )
+})
+const syncedProjects = computed(() => {
+  const projects = new Map(
+    availableProjects.value.map((project) => [
+      project.id,
+      project,
+    ]),
+  )
+  return zentao.connection.projectIds.map((projectId) => {
+    const project = projects.get(projectId)
+    return {
+      id: projectId,
+      name: project?.name ?? `项目 ${projectId}`,
+      status: project?.status ?? '',
+    }
+  })
 })
 const filteredAvailableProjects = computed(() => {
   const query = projectQuery.value.trim().toLocaleLowerCase('zh-CN')
@@ -132,10 +222,28 @@ const filteredBugs = computed(() => {
       return false
     }
     if (!query) return true
-    return `${bug.remoteId} ${bug.title} ${bug.projectName} ${bug.productName} ${bug.openedBy} ${bug.assignedTo}`
+    return `${bug.remoteId} ${bug.title} ${bug.projectName} ${bug.productName} ${bug.openedBy} ${bug.assignedTo} ${bug.confirmed ? '已确认' : '未确认'}`
       .toLocaleLowerCase('zh-CN')
       .includes(query)
   })
+})
+const filteredBuilds = computed(() => {
+  const query = buildSearchQuery.value.trim().toLocaleLowerCase('zh-CN')
+  if (!query) return zentao.builds
+  return zentao.builds.filter((build) =>
+    [
+      build.name,
+      build.projectName,
+      build.productName,
+      build.builder,
+      build.status,
+      build.scmRevision,
+      build.description,
+    ]
+      .join(' ')
+      .toLocaleLowerCase('zh-CN')
+      .includes(query),
+  )
 })
 const codexSelectableBugs = computed(() =>
   zentao.bugs.filter(canSendBugToCodex),
@@ -166,6 +274,14 @@ const {
   filteredBugs,
   () => `${searchQuery.value}\n${bugFilter.value}\n${scopeKey.value}`,
 )
+const {
+  currentPage: buildPage,
+  pageItems: pagedBuilds,
+  setPage: setBuildPage,
+} = usePagination(
+  filteredBuilds,
+  () => `${buildSearchQuery.value}\n${scopeKey.value}`,
+)
 
 watch(
   scopeKey,
@@ -177,6 +293,28 @@ watch(
     testResultBug.value = null
     testResultTarget.value = null
     await loadBugs()
+  },
+  { immediate: true },
+)
+
+watch(
+  [() => props.openBugRequest?.nonce, () => zentao.bugs],
+  () => {
+    const request = props.openBugRequest
+    if (
+      !request ||
+      handledExternalBugRequest.value === request.nonce
+    ) {
+      return
+    }
+    const bug =
+      zentao.bugs.find((item) => item.id === request.bugId) ??
+      zentao.bugs.find((item) => item.remoteId === request.remoteId)
+    if (!bug) return
+    handledExternalBugRequest.value = request.nonce
+    activeTab.value = 'bugs'
+    openBugDetails(bug)
+    emit('openBugHandled', request.nonce)
   },
   { immediate: true },
 )
@@ -207,11 +345,7 @@ onBeforeUnmount(() => {
 watch(
   () => zentao.connection,
   (connection) => {
-    connectionForm.baseUrl = connection.baseUrl
-    connectionForm.username = connection.username
-    connectionForm.password = connection.password
-    connectionForm.projectIds = [...connection.projectIds]
-    selectedProjectIds.value = [...connection.projectIds]
+    restoreConnectionForm()
     availableProjects.value = []
     projectError.value = ''
     projectQuery.value = ''
@@ -241,11 +375,43 @@ async function loadBugs() {
   }
 }
 
-function toggleConfiguration() {
-  configurationOpen.value = !configurationOpen.value
+function openConfiguration() {
+  restoreConnectionForm()
+  configurationOpen.value = true
   if (
-    configurationOpen.value &&
+    zentao.connection.configured &&
     availableProjects.value.length === 0
+  ) {
+    void loadProjects()
+  }
+}
+
+function closeConfiguration() {
+  if (savingConnection.value) return
+  configurationOpen.value = false
+  restoreConnectionForm()
+  connectionError.value = ''
+  passwordVisible.value = false
+}
+
+function restoreConnectionForm() {
+  const connection = zentao.connection
+  connectionForm.baseUrl = connection.baseUrl
+  connectionForm.username = connection.username
+  connectionForm.password = connection.password
+  connectionForm.projectIds = [...connection.projectIds]
+  selectedProjectIds.value = [...connection.projectIds]
+  projectQuery.value = ''
+}
+
+function selectTab(tab: ZentaoTab) {
+  activeTab.value = tab
+  if (
+    tab === 'projects' &&
+    zentao.connection.configured &&
+    zentao.connection.projectIds.length > 0 &&
+    availableProjects.value.length === 0 &&
+    !loadingProjects.value
   ) {
     void loadProjects()
   }
@@ -349,12 +515,12 @@ async function syncBugs(showNotification: boolean) {
     if (showNotification) {
       emit(
         'notify',
-        `已同步 ${result.projects} 个项目、${result.bugs} 个指派给你的 Bug`,
+        `已同步 ${result.projects} 个项目、${result.bugs} 个 Bug、${result.builds} 个构建`,
       )
     }
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : '同步禅道 Bug 失败'
+      error instanceof Error ? error.message : '同步禅道数据失败'
     if (showNotification) emit('notify', message)
   }
 }
@@ -369,11 +535,74 @@ function formatSyncTime(value: string | null) {
   }).format(new Date(value))
 }
 
+function buildStatusLabel(status: string) {
+  const value = status.trim().toLocaleLowerCase('zh-CN')
+  const labels: Record<string, string> = {
+    success: '成功',
+    successful: '成功',
+    passed: '成功',
+    failed: '失败',
+    failure: '失败',
+    building: '构建中',
+    running: '构建中',
+    created: '已创建',
+  }
+  return labels[value] ?? (status.trim() || '已创建')
+}
+
+function buildDescription(value: string) {
+  if (!value.trim()) return ''
+  const container = document.createElement('div')
+  container.innerHTML = DOMPurify.sanitize(value, {
+    ALLOWED_ATTR: [],
+    ALLOWED_TAGS: [],
+  })
+  return (container.textContent || '').replace(/\s+/g, ' ').trim()
+}
+
+function openBuildCreateDialog() {
+  if (!zentao.connection.configured) return
+  buildCreateOpen.value = true
+}
+
+function closeBuildCreateDialog() {
+  buildCreateOpen.value = false
+}
+
+async function handleBuildCreated(created: ZentaoCreatedBuild) {
+  buildCreateOpen.value = false
+  emit(
+    'notify',
+    `构建「${created.name || created.remoteId}」已创建到禅道`,
+  )
+  await syncBugs(false)
+}
+
+function openTestTaskDialog(build: ZentaoBuild) {
+  if (!zentao.connection.configured) return
+  testTaskBuild.value = build
+}
+
+function closeTestTaskDialog() {
+  testTaskBuild.value = null
+}
+
+function handleTestTaskCreated(created: ZentaoCreatedTestTask) {
+  const name = created.name || `测试单 #${created.remoteId}`
+  testTaskBuild.value = null
+  emit('notify', `测试单「${name}」已提交到禅道`)
+}
+
 function bugStatusLabel(bug: ZentaoBug) {
   if (bug.pushedAt) return '已回写禅道'
   if (bug.localResolved) return '平台已解决'
   if (bug.localStatus === 'resolved') return '禅道已解决'
-  return bug.status || '待处理'
+  const labels: Record<string, string> = {
+    active: '激活',
+    resolved: '已解决',
+    closed: '已关闭',
+  }
+  return labels[bug.status.toLowerCase()] ?? (bug.status || '待处理')
 }
 
 function canSendBugToCodex(bug: ZentaoBug) {
@@ -383,6 +612,56 @@ function canSendBugToCodex(bug: ZentaoBug) {
     bug.localStatus !== 'resolved' &&
     !bug.pushedAt
   )
+}
+
+function canConfirmBug(bug: ZentaoBug) {
+  return (
+    !bug.localDeleted &&
+    bug.status.toLowerCase() === 'active' &&
+    !bug.confirmed
+  )
+}
+
+function confirmBugHint(bug: ZentaoBug) {
+  if (bug.confirmed) return 'Bug 已确认'
+  if (bug.status.toLowerCase() !== 'active') {
+    return '仅激活且未确认的 Bug 可以确认'
+  }
+  return '确认 Bug 并同步到禅道'
+}
+
+function requestConfirmBug(bug: ZentaoBug) {
+  if (!canConfirmBug(bug) || confirmingBugId.value !== null) return
+  confirmError.value = ''
+  bugPendingConfirm.value = bug
+}
+
+function closeConfirmBugDialog() {
+  if (confirmingBugId.value !== null) return
+  bugPendingConfirm.value = null
+  confirmError.value = ''
+}
+
+async function confirmBugOnZentao() {
+  const bug = bugPendingConfirm.value
+  if (!bug || confirmingBugId.value !== null) return
+  confirmingBugId.value = bug.id
+  confirmError.value = ''
+  try {
+    const updated = await zentao.confirmBug(bug.id)
+    if (detailBug.value?.id === updated.id) {
+      detailBug.value = updated
+    }
+    bugPendingConfirm.value = null
+    emit('notify', `Bug #${updated.remoteId} 已确认并同步到禅道`)
+  } catch (error) {
+    confirmError.value =
+      error instanceof Error
+        ? error.message
+        : '确认 Bug 失败'
+  } finally {
+    confirmingBugId.value = null
+  }
 }
 
 function canTestBug(bug: ZentaoBug) {
@@ -396,15 +675,210 @@ function canTestBug(bug: ZentaoBug) {
   )
 }
 
+function canResolveBug(bug: ZentaoBug) {
+  return (
+    !bug.localResolved &&
+    bug.localStatus !== 'resolved' &&
+    !bug.pushedAt
+  )
+}
+
+function canUpdateBug(bug: ZentaoBug) {
+  return bug.localResolved && !bug.pushedAt
+}
+
+function primaryBugAction(bug: ZentaoBug): BugQuickAction {
+  if (canSendBugToCodex(bug)) return 'codex'
+  if (latestTestResult(bug.id)?.status === 'passed') {
+    return 'test-result'
+  }
+  if (canTestBug(bug)) return 'test'
+  return 'detail'
+}
+
+function secondaryBugAction(bug: ZentaoBug): BugQuickAction {
+  if (canResolveBug(bug)) return 'resolve'
+  if (canUpdateBug(bug)) return 'update'
+  if (zentao.connection.configured) return 'zentao'
+  return 'detail'
+}
+
+function showSecondaryBugAction(bug: ZentaoBug) {
+  return secondaryBugAction(bug) !== primaryBugAction(bug)
+}
+
+function bugMenuItems(bug: ZentaoBug): BugMenuItem[] {
+  const primary = primaryBugAction(bug)
+  const secondary = secondaryBugAction(bug)
+  const isQuick = (action: BugQuickAction) =>
+    action === primary || action === secondary
+  const items: BugMenuItem[] = []
+  if (
+    zentao.connection.configured &&
+    !isQuick('zentao')
+  ) {
+    items.push({
+      id: 'zentao',
+      label: '在禅道中打开',
+      icon: ZentaoMark,
+    })
+  }
+  if (canConfirmBug(bug)) {
+    items.push({
+      id: 'confirm',
+      label:
+        confirmingBugId.value === bug.id
+          ? '确认中…'
+          : '确认 Bug',
+      icon: BadgeCheck,
+      disabled: confirmingBugId.value !== null,
+    })
+  }
+  if (canResolveBug(bug) && !isQuick('resolve')) {
+    items.push({
+      id: 'resolve',
+      label: '填写解决方案',
+      icon: CircleCheck,
+      disabled: resolvingLocally.value,
+    })
+  }
+  if (canUpdateBug(bug) && !isQuick('update')) {
+    items.push({
+      id: 'update',
+      label: '更新禅道',
+      icon: CloudUpload,
+    })
+  }
+  if (canTestBug(bug) && !isQuick('test')) {
+    items.push({
+      id: 'test',
+      label: testInProgress(bug.id)
+        ? '打开 Codex 测试'
+        : latestTestResult(bug.id)?.status === 'passed'
+          ? '重新执行 Codex 测试'
+          : 'Codex 测试',
+      icon: FlaskConical,
+    })
+  }
+  if (offerTestRepair(bug)) {
+    items.push({
+      id: 'repair',
+      label: 'Codex 兜底修复',
+      icon: Wrench,
+    })
+  }
+  if (latestTestResult(bug.id) && !isQuick('test-result')) {
+    items.push({
+      id: 'test-result',
+      label: '查看测试结果',
+      icon: Images,
+    })
+  }
+  if (latestTestResult(bug.id)?.status === 'passed') {
+    items.push({
+      id: 'test-comment',
+      label: latestTestResult(bug.id)?.zentaoNoteError
+        ? '重试同步测试说明'
+        : latestTestResult(bug.id)?.zentaoNoteAt
+          ? '重新同步测试说明'
+          : '同步测试说明到禅道',
+      icon: MessageSquareText,
+      disabled: publishingTestNoteBugId.value !== null,
+    })
+  }
+  if (!isQuick('detail')) {
+    items.push({
+      id: 'detail',
+      label: '查看详情',
+      icon: FileText,
+    })
+  }
+  items.push({
+    id: 'delete',
+    label: '从工作台移除',
+    icon: Trash2,
+    danger: true,
+    dividerBefore: true,
+  })
+  return items
+}
+
+function handlePrimaryBugAction(bug: ZentaoBug) {
+  const action = primaryBugAction(bug)
+  if (action === 'codex') {
+    emit('solveBug', bug)
+    return
+  }
+  if (action === 'test') {
+    requestCodexTest(bug)
+    return
+  }
+  if (action === 'test-result') {
+    openTestResult(bug)
+    return
+  }
+  openBugDetails(bug)
+}
+
+function handleSecondaryBugAction(bug: ZentaoBug) {
+  const action = secondaryBugAction(bug)
+  if (action === 'resolve') {
+    prepareBugResolution(bug)
+    return
+  }
+  if (action === 'update') {
+    openBugDetails(bug)
+    return
+  }
+  if (action === 'zentao') {
+    void openZentaoBug(bug)
+    return
+  }
+  openBugDetails(bug)
+}
+
+function handleBugMenuAction(bug: ZentaoBug, id: string) {
+  switch (id) {
+    case 'zentao':
+      void openZentaoBug(bug)
+      break
+    case 'confirm':
+      requestConfirmBug(bug)
+      break
+    case 'resolve':
+      prepareBugResolution(bug)
+      break
+    case 'update':
+      openBugDetails(bug)
+      break
+    case 'test':
+      requestCodexTest(bug)
+      break
+    case 'repair':
+      requestFailedTestRepair(bug)
+      break
+    case 'test-result':
+      openTestResult(bug)
+      break
+    case 'test-comment':
+      void publishTestResultComment(bug)
+      break
+    case 'detail':
+      openBugDetails(bug)
+      break
+    case 'delete':
+      requestDeleteBug(bug)
+      break
+  }
+}
+
 function testInProgress(bugId: number) {
-  return codex.sessions.some(
-    (session) =>
-      session.workspaceId === workspaces.activeWorkspaceId &&
-      session.tasks.some(
-        (task) =>
-          task.zentaoTestBugId === bugId &&
-          (task.status === 'queued' || task.status === 'running'),
-      ),
+  return Boolean(
+    activeZentaoTestSessionId(
+      codex.sessions,
+      workspaces.activeWorkspaceId,
+      bugId,
+    ),
   )
 }
 
@@ -421,7 +895,15 @@ function testResultLabel(bugId: number) {
 }
 
 function requestCodexTest(bug: ZentaoBug) {
-  if (testInProgress(bug.id)) return
+  const sessionId = activeZentaoTestSessionId(
+    codex.sessions,
+    workspaces.activeWorkspaceId,
+    bug.id,
+  )
+  if (sessionId) {
+    emit('openCodex', sessionId)
+    return
+  }
   emit('testBug', bug)
 }
 
@@ -430,6 +912,65 @@ function openTestResult(bug: ZentaoBug) {
   if (!result) return
   testResultBug.value = bug
   testResultTarget.value = result
+}
+
+async function publishTestResultComment(bug: ZentaoBug) {
+  const result = latestTestResult(bug.id)
+  if (!result) {
+    emit('notify', '这个 Bug 还没有 Codex 测试结果')
+    return
+  }
+  if (result.status !== 'passed') {
+    emit('notify', '只有测试通过的 Codex 结果才能同步测试说明')
+    return
+  }
+  if (publishingTestNoteBugId.value !== null) return
+  publishingTestNoteBugId.value = bug.id
+  try {
+    const published = await publishZentaoTestResultComment(result, {
+      force: true,
+    })
+    zentaoTests.saveResult(published.result)
+    if (testResultBug.value?.id === bug.id) {
+      testResultTarget.value = published.result
+    }
+    emit(
+      'notify',
+      published.alreadyExists
+        ? `Bug #${bug.remoteId} 的测试说明已存在于禅道`
+        : `Bug #${bug.remoteId} 的测试说明已同步到禅道`,
+    )
+  } catch (error) {
+    const failed = failedZentaoTestComment(result, error)
+    zentaoTests.saveResult(failed)
+    if (testResultBug.value?.id === bug.id) {
+      testResultTarget.value = failed
+    }
+    emit(
+      'notify',
+      `Bug #${bug.remoteId} 测试说明同步失败：${
+        error instanceof Error ? error.message : '请稍后重试'
+      }`,
+    )
+  } finally {
+    publishingTestNoteBugId.value = null
+  }
+}
+
+function publishOpenTestResultComment() {
+  if (!testResultBug.value) return
+  void publishTestResultComment(testResultBug.value)
+}
+
+function offerTestRepair(bug: ZentaoBug) {
+  const result = latestTestResult(bug.id)
+  return Boolean(result && result.status !== 'passed')
+}
+
+function requestFailedTestRepair(bug: ZentaoBug) {
+  const result = latestTestResult(bug.id)
+  if (!result || result.status === 'passed') return
+  emit('repairFailedTest', { bug, result })
 }
 
 function closeTestResult() {
@@ -585,6 +1126,47 @@ function openBugDetails(bug: ZentaoBug) {
   localReason.value = bug.reasonText ?? ''
   detailError.value = ''
   void nextTick(enhanceBugStepMedia)
+}
+
+function zentaoBugDetailUrl(bug: ZentaoBug) {
+  const baseUrl = zentao.connection.baseUrl.trim()
+  if (!baseUrl) {
+    throw new Error('请先在禅道配置中填写访问地址')
+  }
+  const base = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
+  return new URL(
+    `bug-view-${encodeURIComponent(bug.remoteId)}.html`,
+    base,
+  ).toString()
+}
+
+async function openZentaoBug(bug: ZentaoBug) {
+  try {
+    const url = zentaoBugDetailUrl(bug)
+    await openZentaoBrowserUrl({
+      url,
+      title: `禅道 Bug #${bug.remoteId}`,
+    })
+  } catch (error) {
+    emit(
+      'notify',
+      error instanceof Error ? error.message : '无法打开禅道 Bug',
+    )
+  }
+}
+
+async function openZentaoBrowserUrl(payload: {
+  url: string
+  title: string
+}) {
+  if (window.workCoveDesktop?.openEmbeddedBrowser) {
+    zentaoBrowser.value = payload
+    return
+  }
+  const error = await openWebsiteUrl(payload.url)
+  if (error) {
+    emit('notify', `无法打开网址：${error}`)
+  }
 }
 
 function prepareBugResolution(bug: ZentaoBug) {
@@ -752,6 +1334,26 @@ async function pushResolutionToZentao(bug: ZentaoBug) {
   }
 }
 
+function requestPushResolutionToZentao(bug: ZentaoBug) {
+  if (pushingToZentao.value) return
+  if (!localSolution.value.trim()) {
+    detailError.value = '请填写解决方案'
+    return
+  }
+  if (!localReason.value.trim()) {
+    detailError.value = '请填写定位原因'
+    return
+  }
+  bugPendingPush.value = bug
+}
+
+async function confirmPushResolutionToZentao() {
+  const bug = bugPendingPush.value
+  if (!bug) return
+  await pushResolutionToZentao(bug)
+  bugPendingPush.value = null
+}
+
 function closeDeleteDialog() {
   if (deletingBug.value) return
   bugPendingDelete.value = null
@@ -781,6 +1383,9 @@ async function confirmDeleteBug() {
   <section class="zentao-library">
     <header class="zentao-toolbar">
       <div class="zentao-connection-summary">
+        <span class="zentao-page-mark">
+          <ZentaoMark :size="22" />
+        </span>
         <span
           class="zentao-connection-dot"
           :class="{ 'zentao-connection-dot--ready': zentao.connection.configured }"
@@ -799,95 +1404,161 @@ async function confirmDeleteBug() {
                 ? zentao.connection.projectIds.length > 0
                   ? `${zentao.connection.username} · ${zentao.connection.projectIds.length} 个项目 · ${formatSyncTime(zentao.connection.lastSyncedAt)}`
                   : '请选择需要同步的禅道项目'
-                : '配置地址和账号后即可同步 Bug'
+                : '配置地址和账号后即可同步 Bug 与构建'
             }}
           </small>
         </div>
       </div>
       <div class="zentao-toolbar__actions">
         <UiButton
-          v-if="zentao.connection.configured"
           size="sm"
           :disabled="
-            zentao.syncing ||
+            !zentao.connection.configured ||
             zentao.connection.projectIds.length === 0
           "
+          :loading="zentao.syncing"
           :title="
             zentao.connection.projectIds.length === 0
               ? '请先选择同步项目'
-              : '同步所选项目的 Bug'
+              : '同步所选项目的 Bug 与构建'
           "
           @click="syncBugs(true)"
         >
           <RefreshCw
+            v-if="!zentao.syncing"
             :size="13"
-            :class="{ 'zentao-spin': zentao.syncing }"
           />
           {{ zentao.syncing ? '同步中…' : '同步' }}
         </UiButton>
-        <UiButton size="sm" @click="toggleConfiguration">
+        <UiButton size="sm" @click="openConfiguration">
           <Settings2 :size="13" />
-          {{ configurationOpen ? '收起配置' : '连接配置' }}
+          配置
         </UiButton>
       </div>
     </header>
 
-    <form
-      v-if="configurationOpen"
-      class="zentao-connection-form"
-      @submit.prevent="saveConnection"
-    >
-      <UiInput
-        v-model="connectionForm.baseUrl"
-        size="lg"
-        aria-label="禅道地址"
-        placeholder="例如：https://zentao.example.com"
-        spellcheck="false"
-      />
-      <UiInput
-        v-model="connectionForm.username"
-        size="lg"
-        aria-label="禅道用户名"
-        placeholder="用户名"
-        autocomplete="username"
-        spellcheck="false"
-      />
-      <span class="zentao-password">
-        <UiInput
-          v-model="connectionForm.password"
-          size="lg"
-          :type="passwordVisible ? 'text' : 'password'"
-          aria-label="禅道密码"
-          :placeholder="
-            zentao.connection.configured
-              ? '已保存密码'
-              : '密码'
-          "
-          autocomplete="new-password"
-          autocapitalize="off"
-          :spellcheck="false"
-          data-lpignore="true"
-          data-1p-ignore="true"
-        />
-        <button
-          type="button"
-          :aria-label="passwordVisible ? '隐藏密码' : '显示密码'"
-          :title="passwordVisible ? '隐藏密码' : '显示密码'"
-          @click="passwordVisible = !passwordVisible"
-        >
-          <EyeOff v-if="passwordVisible" :size="15" />
-          <Eye v-else :size="15" />
-        </button>
-      </span>
-      <UiButton
-        variant="primary"
-        size="lg"
-        type="submit"
-        :disabled="savingConnection"
+    <div class="zentao-tabs" role="tablist" aria-label="禅道页面">
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'bugs'"
+        :class="{ 'zentao-tab--active': activeTab === 'bugs' }"
+        @click="selectTab('bugs')"
       >
-        {{ savingConnection ? '连接中…' : '保存并同步' }}
-      </UiButton>
-      <div class="zentao-project-field">
+        <Bug :size="14" />
+        Bug 清单
+        <span>{{ zentao.bugs.length }}</span>
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'builds'"
+        :class="{ 'zentao-tab--active': activeTab === 'builds' }"
+        @click="selectTab('builds')"
+      >
+        <PackageCheck :size="14" />
+        构建清单
+        <span>{{ zentao.builds.length }}</span>
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'projects'"
+        :class="{ 'zentao-tab--active': activeTab === 'projects' }"
+        @click="selectTab('projects')"
+      >
+        <FolderKanban :size="14" />
+        同步项目
+        <span>{{ zentao.connection.projectIds.length }}</span>
+      </button>
+    </div>
+
+    <UiDialog
+      v-if="configurationOpen"
+      title="禅道连接配置"
+      description="配置连接账号和需要同步的项目，保存后会立即同步一次。"
+      size="wide"
+      height="standard"
+      scroll-mode="body"
+      initial-focus="#zentao-base-url"
+      :suspended="savingConnection"
+      @close="closeConfiguration"
+    >
+      <form
+        id="zentao-connection-form"
+        class="zentao-connection-form"
+        @submit.prevent="saveConnection"
+      >
+        <UiFormField
+          label="禅道地址"
+          control-id="zentao-base-url"
+          required
+        >
+          <UiInput
+            id="zentao-base-url"
+            v-model="connectionForm.baseUrl"
+            size="lg"
+            placeholder="例如：https://zentao.example.com"
+            spellcheck="false"
+          />
+        </UiFormField>
+        <div class="zentao-connection-form__account">
+          <UiFormField
+            label="用户名"
+            control-id="zentao-username"
+            required
+          >
+            <UiInput
+              id="zentao-username"
+              v-model="connectionForm.username"
+              size="lg"
+              placeholder="禅道登录用户名"
+              autocomplete="username"
+              spellcheck="false"
+            />
+          </UiFormField>
+          <UiFormField
+            label="密码"
+            :hint="
+              zentao.connection.configured
+                ? '留空继续使用已保存密码'
+                : '密码会加密保存'
+            "
+            :required="!zentao.connection.configured"
+          >
+            <span class="zentao-password">
+              <UiInput
+                v-model="connectionForm.password"
+                size="lg"
+                :type="passwordVisible ? 'text' : 'password'"
+                :placeholder="
+                  zentao.connection.configured
+                    ? '已保存密码'
+                    : '禅道登录密码'
+                "
+                autocomplete="new-password"
+                autocapitalize="off"
+                :spellcheck="false"
+                data-lpignore="true"
+                data-1p-ignore="true"
+              />
+              <button
+                type="button"
+                :aria-label="
+                  passwordVisible ? '隐藏密码' : '显示密码'
+                "
+                :title="
+                  passwordVisible ? '隐藏密码' : '显示密码'
+                "
+                @click="passwordVisible = !passwordVisible"
+              >
+                <EyeOff v-if="passwordVisible" :size="15" />
+                <Eye v-else :size="15" />
+              </button>
+            </span>
+          </UiFormField>
+        </div>
+        <div class="zentao-project-field">
         <div class="zentao-project-field__header">
           <div>
             <strong>
@@ -899,12 +1570,12 @@ async function confirmDeleteBug() {
           <UiButton
             size="sm"
             type="button"
-            :disabled="loadingProjects"
+            :loading="loadingProjects"
             @click="loadProjects"
           >
             <RefreshCw
+              v-if="!loadingProjects"
               :size="13"
-              :class="{ 'zentao-spin': loadingProjects }"
             />
             {{ loadingProjects ? '读取中…' : '获取项目' }}
           </UiButton>
@@ -994,10 +1665,36 @@ async function confirmDeleteBug() {
             {{ name }}
           </span>
         </div>
-      </div>
-      <p v-if="connectionError" role="alert">{{ connectionError }}</p>
-    </form>
+        </div>
+        <p v-if="connectionError" class="zentao-connection-error" role="alert">
+          {{ connectionError }}
+        </p>
+      </form>
 
+      <template #footer>
+        <UiButton
+          size="lg"
+          :disabled="savingConnection"
+          @click="closeConfiguration"
+        >
+          取消
+        </UiButton>
+        <UiButton
+          variant="primary"
+          size="lg"
+          type="submit"
+          form="zentao-connection-form"
+          :loading="savingConnection"
+        >
+          {{ savingConnection ? '连接中…' : '保存并同步' }}
+        </UiButton>
+      </template>
+    </UiDialog>
+
+    <div
+      v-show="activeTab === 'bugs'"
+      class="zentao-bug-view"
+    >
     <div class="zentao-list-toolbar">
       <div class="zentao-filters" role="group" aria-label="Bug 状态筛选">
         <button
@@ -1014,15 +1711,12 @@ async function confirmDeleteBug() {
           {{ item.label }}
         </button>
       </div>
-      <label class="zentao-search">
-        <Search :size="14" />
-        <input
-          v-model="searchQuery"
-          type="search"
-          aria-label="搜索 Bug"
-          placeholder="搜索 Bug 编号、标题或产品"
-        />
-      </label>
+      <UiSearchInput
+        v-model="searchQuery"
+        class="zentao-list-search"
+        label="搜索 Bug"
+        placeholder="搜索 Bug 编号、标题或产品"
+      />
       <span class="zentao-count">{{ filteredBugs.length }} 个 Bug</span>
       <UiButton size="sm" @click="toggleSelectionMode">
         <ListChecks :size="13" />
@@ -1127,6 +1821,14 @@ async function confirmDeleteBug() {
               {{ bugStatusLabel(bug) }}
             </span>
             <span
+              class="zentao-bug-confirmed"
+              :class="{
+                'zentao-bug-confirmed--yes': bug.confirmed,
+              }"
+            >
+              {{ bug.confirmed ? '已确认' : '未确认' }}
+            </span>
+            <span
               v-if="latestTestResult(bug.id)"
               class="zentao-test-status"
               :class="`zentao-test-status--${latestTestResult(bug.id)?.status}`"
@@ -1138,95 +1840,97 @@ async function confirmDeleteBug() {
           <div class="zentao-bug-meta">
             <span v-if="bug.projectName">{{ bug.projectName }}</span>
             <span>{{ bug.productName }}</span>
-            <span>{{ bug.openedBy || '未知创建人' }}</span>
-            <span>{{ bug.openedDate || '未知日期' }}</span>
+            <span>创建者 {{ bug.openedBy || '未知' }}</span>
+            <span>创建于 {{ bug.openedDate || '未知日期' }}</span>
             <span v-if="bug.assignedTo">指派给 {{ bug.assignedTo }}</span>
           </div>
         </div>
         <div class="zentao-bug-row__actions">
           <UiButton
-            v-if="canSendBugToCodex(bug)"
-            variant="primary"
-            size="sm"
-            @click.stop="emit('solveBug', bug)"
-          >
-            <Bug :size="13" />
-            交给 Codex
-          </UiButton>
-          <UiButton
-            v-if="
-              !bug.localResolved &&
-              bug.localStatus !== 'resolved' &&
-              !bug.pushedAt
+            class="zentao-bug-quick-action"
+            :variant="
+              primaryBugAction(bug) === 'detail'
+                ? 'default'
+                : 'primary'
             "
             size="sm"
-            :disabled="resolvingLocally"
-            title="填写解决方案和定位原因后保存到 8小时工作台"
-            @click.stop="prepareBugResolution(bug)"
+            @click.stop="handlePrimaryBugAction(bug)"
           >
-            <CircleCheck :size="13" />
-            解决
+            <Bot
+              v-if="primaryBugAction(bug) === 'codex'"
+              :size="13"
+            />
+            <FlaskConical
+              v-else-if="primaryBugAction(bug) === 'test'"
+              :size="13"
+            />
+            <Images
+              v-else-if="primaryBugAction(bug) === 'test-result'"
+              :size="13"
+            />
+            <FileText v-else :size="13" />
+            {{
+              primaryBugAction(bug) === 'codex'
+                ? '交给 Codex'
+                : primaryBugAction(bug) === 'test'
+                  ? testInProgress(bug.id)
+                    ? '测试中 · Codex'
+                    : 'Codex 测试'
+                  : primaryBugAction(bug) === 'test-result'
+                    ? '查看测试结果'
+                  : '查看详情'
+            }}
           </UiButton>
           <UiButton
-            v-else-if="bug.localResolved && !bug.pushedAt"
-            variant="primary"
+            v-if="showSecondaryBugAction(bug)"
+            class="zentao-bug-quick-action"
             size="sm"
-            @click.stop="openBugDetails(bug)"
+            @click.stop="handleSecondaryBugAction(bug)"
           >
-            <CloudUpload :size="13" />
-            更新禅道
+            <CircleCheck
+              v-if="secondaryBugAction(bug) === 'resolve'"
+              :size="13"
+            />
+            <CloudUpload
+              v-else-if="secondaryBugAction(bug) === 'update'"
+              :size="13"
+            />
+            <ZentaoMark
+              v-else-if="secondaryBugAction(bug) === 'zentao'"
+              :size="13"
+            />
+            <FileText v-else :size="13" />
+            {{
+              secondaryBugAction(bug) === 'resolve'
+                ? '解决 Bug'
+                : secondaryBugAction(bug) === 'update'
+                  ? '更新禅道'
+                  : secondaryBugAction(bug) === 'zentao'
+                    ? '打开禅道'
+                    : '查看详情'
+            }}
           </UiButton>
-          <span v-else class="zentao-pushed-label">
-            <ExternalLink v-if="bug.pushedAt" :size="13" />
-            <CircleCheck v-else :size="13" />
-            {{ bug.pushedAt ? '已回写禅道' : '已标记解决' }}
+          <span
+            class="zentao-bug-more"
+            @click.stop
+            @keydown.stop
+          >
+            <UiActionMenu
+              :items="bugMenuItems(bug)"
+              :label="`Bug #${bug.remoteId} 更多操作`"
+              :title="`Bug #${bug.remoteId} 更多操作`"
+              @select="handleBugMenuAction(bug, $event)"
+            />
           </span>
-          <UiButton
-            v-if="canTestBug(bug)"
-            size="sm"
-            :disabled="testInProgress(bug.id)"
-            :title="
-              testInProgress(bug.id)
-                ? 'Codex 正在测试这个 Bug'
-                : '在研发环境验证修复结果并生成测试截图'
-            "
-            @click.stop="requestCodexTest(bug)"
-          >
-            <FlaskConical :size="13" />
-            {{ testInProgress(bug.id) ? '测试中…' : 'Codex 测试' }}
-          </UiButton>
-          <UiButton
-            v-if="latestTestResult(bug.id)"
-            size="sm"
-            @click.stop="openTestResult(bug)"
-          >
-            <Images :size="13" />
-            查看测试结果
-          </UiButton>
-          <button
-            class="zentao-bug-detail"
-            type="button"
-            :aria-label="`查看 Bug #${bug.remoteId} 详情`"
-            title="查看详情"
-            @click.stop="openBugDetails(bug)"
-          >
-            <FileText :size="14" />
-          </button>
-          <button
-            class="zentao-bug-delete"
-            type="button"
-            :aria-label="`从 8小时工作台移除 Bug #${bug.remoteId}`"
-            title="仅从 8小时工作台移除"
-            @click.stop="requestDeleteBug(bug)"
-          >
-            <Trash2 :size="14" />
-          </button>
         </div>
       </article>
     </div>
 
     <div v-else class="zentao-empty">
-      <span><Bug :size="28" /></span>
+      <span>
+        <UiFidgetSpinner v-if="zentao.syncing" :size="28" />
+        <Bug v-else :size="28" />
+      </span>
       <strong>
         {{
           !zentao.connection.configured
@@ -1255,6 +1959,222 @@ async function confirmDeleteBug() {
       label="Bug 分页"
       @update:page="setPage"
     />
+    </div>
+
+    <section
+      v-if="activeTab === 'builds'"
+      class="zentao-builds-view"
+    >
+      <header class="zentao-projects-header">
+        <div>
+          <h2>构建清单</h2>
+          <p>
+            {{
+              zentao.connection.configured
+                ? `从 ${zentao.connection.projectIds.length} 个同步项目拉取构建记录`
+                : '配置禅道连接后，在这里查看项目构建清单。'
+            }}
+          </p>
+        </div>
+        <div class="zentao-builds-header__actions">
+          <UiButton
+            v-if="!zentao.connection.configured"
+            size="sm"
+            @click="openConfiguration"
+          >
+            <Settings2 :size="13" />
+            配置连接
+          </UiButton>
+          <UiButton
+            v-else
+            variant="primary"
+            size="sm"
+            @click="openBuildCreateDialog"
+          >
+            <Plus :size="13" />
+            新建构建
+          </UiButton>
+        </div>
+      </header>
+
+      <div class="zentao-builds-toolbar">
+        <UiSearchInput
+          v-model="buildSearchQuery"
+          label="搜索构建清单"
+          placeholder="搜索构建、项目、产品、构建人或版本号"
+        />
+        <span>{{ filteredBuilds.length }} 个构建</span>
+      </div>
+
+      <div
+        v-if="zentao.syncing && zentao.builds.length === 0"
+        class="zentao-projects-state"
+      >
+        <UiFidgetSpinner :size="22" />
+        <span>正在拉取构建清单</span>
+      </div>
+
+      <div
+        v-else-if="pagedBuilds.length > 0"
+        class="zentao-build-list"
+      >
+        <article
+          v-for="build in pagedBuilds"
+          :key="build.id"
+          class="zentao-build-row"
+        >
+          <span class="zentao-project-row__icon">
+            <PackageCheck :size="17" />
+          </span>
+          <div class="zentao-build-row__copy">
+            <header>
+              <strong>{{ build.name }}</strong>
+              <span
+                class="zentao-build-status"
+                :class="`zentao-build-status--${build.status.toLowerCase()}`"
+              >
+                {{ buildStatusLabel(build.status) }}
+              </span>
+              <UiButton
+                class="zentao-build-test-button"
+                size="sm"
+                @click.stop="openTestTaskDialog(build)"
+              >
+                <FlaskConical :size="13" />
+                提交测试
+              </UiButton>
+            </header>
+            <div class="zentao-build-row__meta">
+              <span>{{ build.projectName || '未知项目' }}</span>
+              <span v-if="build.productName">
+                {{ build.productName }}
+              </span>
+              <span v-if="build.builder">{{ build.builder }}</span>
+              <span v-if="build.buildDate">{{ build.buildDate }}</span>
+            </div>
+            <p
+              v-if="buildDescription(build.description)"
+              :title="buildDescription(build.description)"
+            >
+              {{ buildDescription(build.description) }}
+            </p>
+            <code v-if="build.scmRevision" :title="build.scmRevision">
+              {{ build.scmRevision }}
+            </code>
+          </div>
+        </article>
+      </div>
+
+      <div v-else class="zentao-empty">
+        <span><PackageCheck :size="28" /></span>
+        <strong>
+          {{
+            buildSearchQuery.trim()
+              ? '没有匹配的构建'
+              : '还没有构建记录'
+          }}
+        </strong>
+        <p>
+          {{
+            buildSearchQuery.trim()
+              ? '换一个关键词再试。'
+              : zentao.connection.configured
+                ? '点击右上角同步，从禅道拉取所选项目的构建清单。'
+                : '先配置禅道连接和项目。'
+          }}
+        </p>
+      </div>
+
+      <UiPagination
+        :page="buildPage"
+        :total="filteredBuilds.length"
+        label="构建清单分页"
+        @update:page="setBuildPage"
+      />
+    </section>
+
+    <section
+      v-if="activeTab === 'projects'"
+      class="zentao-projects-view"
+    >
+      <header class="zentao-projects-header">
+        <div>
+          <h2>同步项目</h2>
+          <p>
+            {{
+              zentao.connection.configured
+                ? `当前账号 ${zentao.connection.username} · 最近同步 ${formatSyncTime(zentao.connection.lastSyncedAt)}`
+                : '配置禅道连接后，在这里查看正在同步的项目。'
+            }}
+          </p>
+        </div>
+        <UiButton
+          v-if="!zentao.connection.configured"
+          size="sm"
+          @click="openConfiguration"
+        >
+          <Settings2 :size="13" />
+          配置连接
+        </UiButton>
+      </header>
+
+      <p
+        v-if="projectError"
+        class="zentao-projects-error"
+        role="alert"
+      >
+        {{ projectError }}
+      </p>
+
+      <div
+        v-if="
+          loadingProjects &&
+          syncedProjects.length === 0
+        "
+        class="zentao-projects-state"
+      >
+        <UiFidgetSpinner :size="22" />
+        <span>正在读取同步项目</span>
+      </div>
+
+      <div
+        v-else-if="syncedProjects.length > 0"
+        class="zentao-project-list"
+      >
+        <article
+          v-for="project in syncedProjects"
+          :key="project.id"
+          class="zentao-project-row"
+        >
+          <span class="zentao-project-row__icon">
+            <FolderKanban :size="17" />
+          </span>
+          <div class="zentao-project-row__copy">
+            <strong>{{ project.name }}</strong>
+            <small>
+              #{{ project.id }}
+              <template v-if="project.status">
+                · {{ projectStatusLabel(project.status) }}
+              </template>
+            </small>
+          </div>
+          <span class="zentao-project-row__mode">
+            <RefreshCw :size="12" />
+            自动同步
+          </span>
+        </article>
+      </div>
+
+      <div v-else class="zentao-projects-state">
+        <FolderKanban :size="22" />
+        <strong>还没有同步项目</strong>
+        <span>打开配置选择需要同步的禅道项目。</span>
+        <UiButton size="sm" @click="openConfiguration">
+          <Settings2 :size="13" />
+          配置项目
+        </UiButton>
+      </div>
+    </section>
   </section>
 
   <ZentaoBugPlanDialog
@@ -1268,17 +2188,31 @@ async function confirmDeleteBug() {
     v-if="testResultBug && testResultTarget"
     :bug="testResultBug"
     :result="testResultTarget"
+    :publishing-note="publishingTestNoteBugId === testResultBug.id"
     @close="closeTestResult"
+    @open-url="openZentaoBrowserUrl"
+    @sync-note="publishOpenTestResultComment"
+  />
+
+  <EmbeddedBrowserDialog
+    v-if="zentaoBrowser"
+    :url="zentaoBrowser.url"
+    :title="zentaoBrowser.title"
+    :workspace-id="workspaces.activeWorkspaceId"
+    @close="zentaoBrowser = null"
+    @notify="emit('notify', $event)"
   />
 
   <UiDialog
     v-if="detailBug"
-    :title="`Bug #${detailBug.remoteId}`"
-    :description="detailBug.title"
+    :title="detailBug.title"
+    :description="`Bug #${detailBug.remoteId} · 禅道 Bug 详情`"
     size="extra-wide"
     height="tall"
+    title-emphasis="prominent"
     scroll-mode="body"
     max-height="min(860px, calc(100dvh - 32px))"
+    :suspended="Boolean(bugPendingPush)"
     @close="closeBugDetails"
   >
     <div class="zentao-bug-detail-dialog">
@@ -1352,6 +2286,10 @@ async function confirmDeleteBug() {
               <dd>{{ detailBug.severity || '未设置' }}</dd>
             </div>
             <div>
+              <dt>是否确认</dt>
+              <dd>{{ detailBug.confirmed ? '已确认' : '未确认' }}</dd>
+            </div>
+            <div>
               <dt>所属项目</dt>
               <dd>{{ detailBug.projectName || '未关联项目' }}</dd>
             </div>
@@ -1379,6 +2317,56 @@ async function confirmDeleteBug() {
       <footer class="zentao-bug-detail-actions">
         <div>
           <UiButton
+            size="lg"
+            :loading="confirmingBugId === detailBug.id"
+            :disabled="
+              !canConfirmBug(detailBug) ||
+              (confirmingBugId !== null &&
+                confirmingBugId !== detailBug.id)
+            "
+            :title="confirmBugHint(detailBug)"
+            @click="requestConfirmBug(detailBug)"
+          >
+            <BadgeCheck
+              v-if="confirmingBugId !== detailBug.id"
+              :size="14"
+            />
+            确认 Bug
+          </UiButton>
+          <UiButton
+            v-if="canTestBug(detailBug)"
+            size="lg"
+            :title="
+              testInProgress(detailBug.id)
+                ? '打开正在测试这个 Bug 的 Codex 会话'
+                : '在研发环境验证修复结果并生成测试截图'
+            "
+            @click="requestCodexTest(detailBug)"
+          >
+            <UiFidgetSpinner
+              v-if="testInProgress(detailBug.id)"
+              :size="14"
+            />
+            <FlaskConical
+              v-if="!testInProgress(detailBug.id)"
+              :size="14"
+            />
+            {{
+              testInProgress(detailBug.id)
+                ? '测试中 · 打开 Codex'
+                : 'Codex 测试'
+            }}
+          </UiButton>
+          <UiButton
+            v-if="offerTestRepair(detailBug)"
+            size="lg"
+            title="测试未通过时继续让 Codex 定位并修复"
+            @click="requestFailedTestRepair(detailBug)"
+          >
+            <Wrench :size="14" />
+            Codex 兜底修复
+          </UiButton>
+          <UiButton
             v-if="
               !detailBug.localResolved &&
               detailBug.localStatus !== 'resolved' &&
@@ -1386,7 +2374,7 @@ async function confirmDeleteBug() {
             "
             variant="primary"
             size="lg"
-            :disabled="resolvingLocally || pushingToZentao"
+            :disabled="pushingToZentao"
             @click="sendBugToCodex(detailBug)"
           >
             <Bug :size="14" />
@@ -1395,10 +2383,10 @@ async function confirmDeleteBug() {
           <UiButton
             v-if="!detailBug.pushedAt"
             size="lg"
-            :disabled="resolvingLocally"
+            :loading="resolvingLocally"
             @click="resolveBugLocally(detailBug)"
           >
-            <CircleCheck :size="14" />
+            <CircleCheck v-if="!resolvingLocally" :size="14" />
             {{
               resolvingLocally
                 ? '保存中…'
@@ -1411,16 +2399,66 @@ async function confirmDeleteBug() {
             v-if="detailBug.localResolved && !detailBug.pushedAt"
             variant="primary"
             size="lg"
-            :disabled="pushingToZentao"
-            @click="pushResolutionToZentao(detailBug)"
+            :loading="pushingToZentao"
+            @click="requestPushResolutionToZentao(detailBug)"
           >
-            <CloudUpload :size="14" />
+            <CloudUpload v-if="!pushingToZentao" :size="14" />
             {{ pushingToZentao ? '更新中…' : '更新备注到禅道' }}
           </UiButton>
         </div>
       </footer>
     </template>
   </UiDialog>
+
+  <ZentaoBuildCreateDialog
+    v-if="buildCreateOpen"
+    :workspace-id="workspaces.activeWorkspaceId"
+    @close="closeBuildCreateDialog"
+    @created="handleBuildCreated"
+  />
+
+  <ZentaoTestTaskCreateDialog
+    v-if="testTaskBuild"
+    :workspace-id="workspaces.activeWorkspaceId"
+    :build="testTaskBuild"
+    @close="closeTestTaskDialog"
+    @created="handleTestTaskCreated"
+  />
+
+  <UiConfirmDialog
+    v-if="bugPendingPush"
+    title="更新备注到禅道？"
+    :description="`Bug #${bugPendingPush.remoteId} 的解决方案和定位原因将写入禅道。`"
+    warning="这会直接修改禅道中的 Bug 记录，请确认内容无误后继续。"
+    confirm-label="确认更新"
+    busy-label="正在更新…"
+    :busy="pushingToZentao"
+    @close="bugPendingPush = null"
+    @confirm="confirmPushResolutionToZentao"
+  >
+    <div class="zentao-delete-target">
+      <strong>#{{ bugPendingPush.remoteId }}</strong>
+      <span>{{ bugPendingPush.title }}</span>
+    </div>
+  </UiConfirmDialog>
+
+  <UiConfirmDialog
+    v-if="bugPendingConfirm"
+    title="确认 Bug 并同步到禅道？"
+    :description="`Bug #${bugPendingConfirm.remoteId} 将被标记为已确认。`"
+    warning="这会直接修改禅道中的 Bug 状态，请确认当前 Bug 内容无误后继续。"
+    confirm-label="确认并同步"
+    busy-label="正在确认…"
+    :busy="confirmingBugId !== null"
+    @close="closeConfirmBugDialog"
+    @confirm="confirmBugOnZentao"
+  >
+    <div class="zentao-delete-target">
+      <strong>#{{ bugPendingConfirm.remoteId }}</strong>
+      <span>{{ bugPendingConfirm.title }}</span>
+      <p v-if="confirmError" role="alert">{{ confirmError }}</p>
+    </div>
+  </UiConfirmDialog>
 
   <UiConfirmDialog
     v-if="bugPendingDelete"
@@ -1467,6 +2505,17 @@ async function confirmDeleteBug() {
   gap: var(--space-2);
 }
 
+.zentao-page-mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  background: var(--surface-inset);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-control);
+  place-items: center;
+}
+
 .zentao-connection-summary > div {
   display: flex;
   min-width: 0;
@@ -1510,18 +2559,77 @@ async function confirmDeleteBug() {
   gap: var(--space-2);
 }
 
-.zentao-connection-form {
-  display: grid;
-  grid-template-columns: minmax(180px, 1.6fr) minmax(120px, 0.8fr) minmax(120px, 0.8fr) auto;
-  align-items: start;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  background: var(--canvas);
+.zentao-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-4);
   border-bottom: 1px solid var(--line-soft);
 }
 
-.zentao-connection-form > p {
-  grid-column: 1 / -1;
+.zentao-tabs button {
+  position: relative;
+  display: inline-flex;
+  height: 42px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--font-body);
+  font-weight: var(--weight-regular);
+  background: transparent;
+}
+
+.zentao-tabs button::after {
+  position: absolute;
+  right: var(--space-2);
+  bottom: -1px;
+  left: var(--space-2);
+  height: 2px;
+  background: transparent;
+  border-radius: 999px 999px 0 0;
+  content: "";
+}
+
+.zentao-tabs button:hover {
+  color: var(--text);
+}
+
+.zentao-tabs .zentao-tab--active {
+  color: var(--text);
+  font-weight: var(--weight-emphasis);
+}
+
+.zentao-tabs .zentao-tab--active::after {
+  background: var(--system-blue);
+}
+
+.zentao-tabs button > span {
+  min-width: 18px;
+  padding: 1px 5px;
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--font-caption);
+  font-weight: var(--weight-regular);
+  text-align: center;
+  background: var(--category-chip-bg);
+  border-radius: var(--radius-badge);
+}
+
+.zentao-connection-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: 0 var(--space-5) var(--space-5);
+}
+
+.zentao-connection-form__account {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.zentao-connection-error {
   margin: 0;
   color: var(--system-red);
   font-size: var(--font-caption);
@@ -1560,7 +2668,6 @@ async function confirmDeleteBug() {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  grid-column: 1 / -1;
   gap: var(--space-2);
   padding: var(--space-3);
   background: var(--canvas-raised);
@@ -1601,7 +2708,7 @@ async function confirmDeleteBug() {
 
 .zentao-project-options {
   display: grid;
-  max-height: 180px;
+  max-height: 240px;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: var(--space-2);
   overflow-y: auto;
@@ -1743,6 +2850,302 @@ async function confirmDeleteBug() {
   border-radius: var(--radius-badge);
 }
 
+.zentao-bug-view {
+  min-width: 0;
+}
+
+.zentao-builds-view {
+  display: flex;
+  min-height: 360px;
+  flex-direction: column;
+  padding: var(--space-4);
+}
+
+.zentao-builds-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
+}
+
+.zentao-builds-toolbar > span {
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--font-caption);
+  white-space: nowrap;
+}
+
+.zentao-builds-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.zentao-build-list {
+  overflow: hidden;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-panel);
+}
+
+.zentao-build-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: var(--control-lg) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.zentao-build-row:last-child {
+  border-bottom: 0;
+}
+
+.zentao-build-row:hover {
+  background: var(--hover-bg);
+}
+
+.zentao-build-row__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.zentao-build-row__copy > header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.zentao-build-row__copy > header strong {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--font-body);
+  font-weight: var(--weight-emphasis);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zentao-build-test-button {
+  margin-left: auto;
+}
+
+.zentao-build-row__meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  color: var(--text-subtle);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+
+.zentao-build-row__meta span {
+  overflow-wrap: anywhere;
+}
+
+.zentao-build-row__meta span + span::before {
+  margin-right: var(--space-2);
+  content: "·";
+}
+
+.zentao-build-row__copy > p,
+.zentao-build-row__copy > code {
+  overflow: hidden;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zentao-build-row__copy > code {
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+}
+
+.zentao-build-status {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  color: var(--text-subtle);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  background: var(--surface-inset);
+  border-radius: var(--radius-badge);
+}
+
+.zentao-build-status--success,
+.zentao-build-status--successful,
+.zentao-build-status--passed {
+  color: var(--system-green);
+  background: color-mix(
+    in srgb,
+    var(--system-green) 10%,
+    transparent
+  );
+}
+
+.zentao-build-status--failed,
+.zentao-build-status--failure {
+  color: var(--system-red);
+  background: color-mix(
+    in srgb,
+    var(--system-red) 9%,
+    transparent
+  );
+}
+
+.zentao-build-status--building,
+.zentao-build-status--running {
+  color: var(--system-orange);
+  background: color-mix(
+    in srgb,
+    var(--system-orange) 10%,
+    transparent
+  );
+}
+
+.zentao-projects-view {
+  display: flex;
+  min-height: 360px;
+  flex-direction: column;
+  padding: var(--space-4);
+}
+
+.zentao-projects-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding-bottom: var(--space-3);
+}
+
+.zentao-projects-header h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-title);
+  font-weight: var(--weight-emphasis);
+}
+
+.zentao-projects-header p {
+  margin: var(--space-1) 0 0;
+  color: var(--text-subtle);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+
+.zentao-projects-error {
+  padding: var(--space-2) var(--space-3);
+  margin: 0 0 var(--space-3);
+  color: var(--system-red);
+  font-size: var(--font-caption);
+  background: color-mix(
+    in srgb,
+    var(--system-red) 7%,
+    transparent
+  );
+  border-radius: var(--radius-control);
+}
+
+.zentao-project-list {
+  overflow: hidden;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-panel);
+}
+
+.zentao-project-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns:
+    var(--control-lg)
+    minmax(0, 1fr)
+    auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.zentao-project-row:last-child {
+  border-bottom: 0;
+}
+
+.zentao-project-row:hover {
+  background: var(--hover-bg);
+}
+
+.zentao-project-row__icon {
+  display: grid;
+  width: var(--control-lg);
+  height: var(--control-lg);
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius-control);
+  place-items: center;
+}
+
+.zentao-project-row__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.zentao-project-row__copy strong,
+.zentao-project-row__copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zentao-project-row__copy strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  font-weight: var(--weight-emphasis);
+}
+
+.zentao-project-row__copy small,
+.zentao-project-row__mode {
+  color: var(--text-subtle);
+  font-size: var(--font-caption);
+}
+
+.zentao-project-row__mode {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+.zentao-projects-state {
+  display: flex;
+  min-height: 240px;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: var(--space-2);
+  color: var(--text-subtle);
+  font-size: var(--font-caption);
+  text-align: center;
+  background: var(--canvas);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-panel);
+}
+
+.zentao-projects-state strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  font-weight: var(--weight-emphasis);
+}
+
 .zentao-list-toolbar {
   display: flex;
   align-items: center;
@@ -1779,38 +3182,8 @@ async function confirmDeleteBug() {
   box-shadow: var(--control-shadow);
 }
 
-.zentao-search {
-  display: flex;
-  width: min(100%, 260px);
-  height: var(--control-md);
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px;
+.zentao-list-search {
   margin-left: auto;
-  color: var(--text-subtle);
-  background: var(--control-bg);
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-control);
-}
-
-.zentao-search:focus-within {
-  border-color: var(--system-blue);
-  box-shadow: var(--focus-ring);
-}
-
-.zentao-search input {
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-  color: var(--text);
-  font-size: var(--font-body);
-  background: transparent;
-  border: 0;
-}
-
-.zentao-search input:focus,
-.zentao-search input:focus-visible {
-  outline: none;
 }
 
 .zentao-count {
@@ -1924,7 +3297,8 @@ async function confirmDeleteBug() {
 .zentao-bug-id,
 .zentao-bug-priority,
 .zentao-bug-severity,
-.zentao-bug-status {
+.zentao-bug-status,
+.zentao-bug-confirmed {
   padding: 2px 5px;
   color: var(--text-muted);
   font-family: var(--font-mono);
@@ -1946,6 +3320,19 @@ async function confirmDeleteBug() {
 .zentao-bug-status--resolved {
   color: var(--system-green);
   background: color-mix(in srgb, var(--system-green) 10%, transparent);
+}
+
+.zentao-bug-confirmed {
+  color: var(--text-subtle);
+}
+
+.zentao-bug-confirmed--yes {
+  color: var(--system-green);
+  background: color-mix(
+    in srgb,
+    var(--system-green) 10%,
+    transparent
+  );
 }
 
 .zentao-test-status {
@@ -2007,49 +3394,17 @@ async function confirmDeleteBug() {
   flex: 0 0 auto;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--space-2);
-  flex-wrap: wrap;
+  gap: var(--space-1);
 }
 
-.zentao-bug-delete {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  color: var(--text-subtle);
-  background: transparent;
-  border-radius: var(--radius-badge);
-  place-items: center;
+.zentao-bug-quick-action {
+  flex: 0 0 auto;
 }
 
-.zentao-bug-detail {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  color: var(--text-subtle);
-  background: transparent;
-  border-radius: var(--radius-badge);
-  place-items: center;
-}
-
-.zentao-bug-detail:hover {
-  color: var(--text);
-  background: var(--hover-bg);
-}
-
-.zentao-bug-delete:hover {
-  color: var(--system-red);
-  background: color-mix(in srgb, var(--system-red) 8%, transparent);
-}
-
-.zentao-pushed-label {
+.zentao-bug-more {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 5px;
-  color: var(--system-green);
-  font-size: var(--font-caption);
-  white-space: nowrap;
 }
 
 .zentao-delete-target {
@@ -2389,15 +3744,7 @@ async function confirmDeleteBug() {
   line-height: var(--line-caption);
 }
 
-.zentao-spin {
-  animation: zentao-spin 800ms linear infinite;
-}
-
 @media (max-width: 820px) {
-  .zentao-connection-form {
-    grid-template-columns: 1fr 1fr;
-  }
-
   .zentao-bug-detail-layout {
     grid-template-columns: 1fr;
     gap: var(--space-4);
@@ -2425,10 +3772,48 @@ async function confirmDeleteBug() {
 
   .zentao-toolbar__actions {
     width: 100%;
+    justify-content: flex-end;
+  }
+
+  .zentao-connection-form__account,
+  .zentao-project-options {
+    grid-template-columns: 1fr;
   }
 
   .zentao-connection-form {
-    grid-template-columns: 1fr;
+    padding: 0 var(--space-4) var(--space-4);
+  }
+
+  .zentao-tabs {
+    overflow-x: auto;
+    padding: 0 var(--space-3);
+  }
+
+  .zentao-builds-view,
+  .zentao-projects-view {
+    padding: var(--space-3);
+  }
+
+  .zentao-builds-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .zentao-builds-toolbar > span {
+    align-self: flex-end;
+  }
+
+  .zentao-build-row {
+    padding: var(--space-3);
+  }
+
+  .zentao-projects-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .zentao-project-row {
+    padding: var(--space-3);
   }
 
   .zentao-project-field__header {
@@ -2436,7 +3821,7 @@ async function confirmDeleteBug() {
     flex-direction: column;
   }
 
-  .zentao-search {
+  .zentao-list-search {
     width: 100%;
     margin-left: 0;
   }
@@ -2466,6 +3851,7 @@ async function confirmDeleteBug() {
 
   .zentao-bug-row__actions {
     justify-content: flex-end;
+    gap: var(--space-1);
   }
 
   .zentao-resolution-notes__grid {
@@ -2489,9 +3875,4 @@ async function confirmDeleteBug() {
   }
 }
 
-@keyframes zentao-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 </style>

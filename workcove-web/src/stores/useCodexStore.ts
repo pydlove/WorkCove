@@ -39,6 +39,7 @@ function newTask(
     cachedInputTokens: 0,
     totalTokens: 0,
     error: '',
+    gitBranchMode: 'current',
     attachments,
     activities: [],
     timeline: [],
@@ -56,6 +57,12 @@ export const useCodexStore = defineStore('codex', {
       cwd: string
       prompt: string
       nonce: number
+      userTaskId?: number
+      userTaskIds?: number[]
+      codeReviewId?: string
+      codeReviewMode?: 'initial' | 'repair'
+      codeReviewTitle?: string
+      autoSend?: boolean
     } | null,
   }),
   actions: {
@@ -96,6 +103,7 @@ export const useCodexStore = defineStore('codex', {
         model: '',
         reasoningEffort: '',
         status: 'idle',
+        unread: false,
         createdAt: now,
         updatedAt: now,
         activeTaskId: '',
@@ -108,6 +116,11 @@ export const useCodexStore = defineStore('codex', {
     },
     selectSession(id: string) {
       this.activeSessionId = id
+      const session = this.sessions.find((item) => item.id === id)
+      if (session?.unread) {
+        session.unread = false
+        this.persist()
+      }
     },
     togglePinned(id: string) {
       const session = this.sessions.find((item) => item.id === id)
@@ -122,12 +135,26 @@ export const useCodexStore = defineStore('codex', {
       workspaceId: string,
       cwd: string,
       prompt: string,
+      options: {
+        userTaskId?: number
+        userTaskIds?: number[]
+        codeReviewId?: string
+        codeReviewMode?: 'initial' | 'repair'
+        codeReviewTitle?: string
+        autoSend?: boolean
+      } = {},
     ) {
       this.prefillRequest = {
         workspaceId,
         cwd,
         prompt,
         nonce: Date.now() + Math.random(),
+        userTaskId: options.userTaskId,
+        userTaskIds: options.userTaskIds,
+        codeReviewId: options.codeReviewId,
+        codeReviewMode: options.codeReviewMode,
+        codeReviewTitle: options.codeReviewTitle,
+        autoSend: options.autoSend,
       }
     },
     clearPrefillRequest() {
@@ -160,6 +187,7 @@ export const useCodexStore = defineStore('codex', {
       session.tasks.push(task)
       session.activeTaskId = task.id
       session.status = 'running'
+      session.unread = false
       session.updatedAt = new Date().toISOString()
       if (session.title === '新会话') {
         session.title =
@@ -181,6 +209,7 @@ export const useCodexStore = defineStore('codex', {
       const task = newTask(prompt, attachments, 'queued')
       session.tasks.push(task)
       session.status = 'running'
+      session.unread = false
       session.updatedAt = new Date().toISOString()
       if (session.title === '新会话') {
         session.title =

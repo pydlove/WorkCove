@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import {
   KeyRound,
-  LoaderCircle,
   LockKeyhole,
   Plus,
   RefreshCw,
@@ -26,8 +25,12 @@ import {
 import VaultEntryDialog from '@/components/business/vault/VaultEntryDialog.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
+import UiFidgetSpinner from '@/components/ui/UiFidgetSpinner.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
+import { useAuthStore } from '@/stores/useAuthStore'
+import { loadUserWorkbenchSettings } from '@/services/userWorkbench'
+import { DEFAULT_VAULT_UNLOCK_MINUTES } from '@/services/vaultPreferences'
 import type {
   VaultEntry,
   VaultEntryInput,
@@ -35,27 +38,41 @@ import type {
 
 type VaultState = 'checking' | 'locked' | 'unlocked'
 
-interface MailVaultCredentialSelection {
+interface VaultCredentialSelection {
   entry: VaultEntry
   password: string
 }
 
 const props = withDefaults(
   defineProps<{
+    workspaceId: string
     selectedEntryId?: number | null
     hasExistingPassword?: boolean
+    label?: string
+    description?: string
+    required?: boolean
+    defaultCategory?: string
+    preferredUrl?: string
+    preferredName?: string
   }>(),
   {
     selectedEntryId: null,
     hasExistingPassword: false,
+    label: '密码',
+    description: '',
+    required: undefined,
+    defaultCategory: '邮箱',
+    preferredUrl: '',
+    preferredName: '',
   },
 )
 
 const emit = defineEmits<{
-  select: [selection: MailVaultCredentialSelection | null]
+  select: [selection: VaultCredentialSelection | null]
   busy: [busy: boolean]
 }>()
 
+const auth = useAuthStore()
 const state = ref<VaultState>('checking')
 const entries = ref<VaultEntry[]>([])
 const categories = ref<string[]>([])
@@ -68,6 +85,11 @@ const selecting = ref(false)
 const addEntryOpen = ref(false)
 const savingEntry = ref(false)
 const errorMessage = ref('')
+const vaultUnlockMinutes = computed(
+  () =>
+    loadUserWorkbenchSettings(auth.email)?.vaultUnlockMinutes ??
+    DEFAULT_VAULT_UNLOCK_MINUTES,
+)
 
 const selectedEntry = computed(
   () =>
@@ -80,19 +102,47 @@ const selectedValue = computed({
     void selectEntry(value)
   },
 })
+const preferredOrigin = computed(() => {
+  try {
+    return new URL(props.preferredUrl).origin
+  } catch {
+    return ''
+  }
+})
+const orderedEntries = computed(() =>
+  [...entries.value].sort((left, right) => {
+    const leftMatches =
+      preferredOrigin.value &&
+      entryOrigin(left.url) === preferredOrigin.value
+    const rightMatches =
+      preferredOrigin.value &&
+      entryOrigin(right.url) === preferredOrigin.value
+    return Number(rightMatches) - Number(leftMatches)
+  }),
+)
 const entryOptions = computed(() =>
-  entries.value.map((entry) => ({
+  orderedEntries.value.map((entry) => ({
     value: String(entry.id),
     label: entry.name,
     description: [entry.username, entry.category]
+      .concat(
+        preferredOrigin.value &&
+          entryOrigin(entry.url) === preferredOrigin.value
+          ? ['当前网站']
+          : [],
+      )
       .filter(Boolean)
       .join(' · '),
   })),
 )
-const description = computed(() =>
-  props.hasExistingPassword
+const resolvedDescription = computed(() =>
+  props.description ||
+  (props.hasExistingPassword
     ? '可选；不选择时继续使用当前已保存的密码。'
-    : '必须从密码库选择，不能手动输入邮箱密码。',
+    : '必须从密码库选择，不能手动输入密码。'),
+)
+const resolvedRequired = computed(
+  () => props.required ?? !props.hasExistingPassword,
 )
 
 onMounted(() => {
@@ -127,7 +177,10 @@ async function unlock() {
   unlocking.value = true
   unlockError.value = ''
   try {
-    await unlockVaultWithPassword(unlockPassword.value)
+    await unlockVaultWithPassword(
+      unlockPassword.value,
+      vaultUnlockMinutes.value,
+    )
     unlockPassword.value = ''
     state.value = 'unlocked'
     await loadEntries()
@@ -144,15 +197,32 @@ async function loadEntries() {
   errorMessage.value = ''
   try {
     const [nextEntries, nextCategories] = await Promise.all([
-      listVaultEntries(),
-      listVaultCategories(),
+      listVaultEntries(props.workspaceId),
+      listVaultCategories(props.workspaceId),
     ])
     entries.value = nextEntries
     categories.value = nextCategories.map((category) => category.name)
+    await autoSelectPreferredEntry(nextEntries)
   } catch (error) {
     handleVaultError(error)
   } finally {
     loadingEntries.value = false
+  }
+}
+
+async function autoSelectPreferredEntry(nextEntries: VaultEntry[]) {
+  const preferredName = props.preferredName.trim()
+  let entry = preferredName
+    ? nextEntries.find((item) => item.name === preferredName)
+    : undefined
+  if (!entry && preferredOrigin.value) {
+    const originMatches = nextEntries.filter(
+      (item) => entryOrigin(item.url) === preferredOrigin.value,
+    )
+    if (originMatches.length === 1) entry = originMatches[0]
+  }
+  if (entry && entry.id !== props.selectedEntryId) {
+    await selectEntry(String(entry.id))
   }
 }
 
@@ -179,7 +249,7 @@ async function saveEntry(input: VaultEntryInput) {
   savingEntry.value = true
   errorMessage.value = ''
   try {
-    const entry = await createVaultEntry(input)
+    const entry = await createVaultEntry(props.workspaceId, input)
     addEntryOpen.value = false
     await loadEntries()
     await selectEntry(String(entry.id))
@@ -201,7 +271,7 @@ async function selectEntry(value: string) {
   emit('busy', true)
   errorMessage.value = ''
   try {
-    const secret = await getVaultSecret(entry.id)
+    const secret = await getVaultSecret(entry.id, props.workspaceId)
     emit('select', {
       entry,
       password: secret.password,
@@ -216,6 +286,17 @@ async function selectEntry(value: string) {
 
 function clearSelection() {
   emit('select', null)
+}
+
+function entryOrigin(value: string) {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+      ? parsed.origin
+      : ''
+  } catch {
+    return ''
+  }
 }
 
 function handleVaultError(error: unknown) {
@@ -237,27 +318,27 @@ function errorText(error: unknown) {
 </script>
 
 <template>
-  <section class="mail-vault-picker">
+  <section class="vault-password-picker">
     <header>
       <span><ShieldCheck :size="16" /></span>
       <div>
         <strong>
-          邮箱密码
-          <i v-if="!hasExistingPassword">*</i>
+          {{ label }}
+          <i v-if="resolvedRequired">*</i>
         </strong>
-        <p>{{ description }}</p>
+        <p>{{ resolvedDescription }}</p>
       </div>
     </header>
 
-    <div v-if="state === 'checking'" class="mail-vault-picker__state">
-      <LoaderCircle class="mail-vault-picker__spin" :size="16" />
+    <div v-if="state === 'checking'" class="vault-password-picker__state">
+      <UiFidgetSpinner :size="16" />
       正在检查密码库…
     </div>
 
-    <div v-else-if="state === 'locked'" class="mail-vault-picker__locked">
+    <div v-else-if="state === 'locked'" class="vault-password-picker__locked">
       <p>
         <LockKeyhole :size="14" />
-        密码库已锁定，验证登录密码后即可选择邮箱密码。
+        密码库已锁定，验证登录密码后即可选择{{ label }}。
       </p>
       <UiButton size="lg" @click="openUnlockDialog">
         <LockKeyhole :size="14" />
@@ -265,28 +346,27 @@ function errorText(error: unknown) {
       </UiButton>
     </div>
 
-    <div v-else class="mail-vault-picker__entries">
-      <div class="mail-vault-picker__select">
+    <div v-else class="vault-password-picker__entries">
+      <div class="vault-password-picker__select">
         <UiSelect
           v-model="selectedValue"
           :options="entryOptions"
           size="lg"
           placeholder="请选择密码库条目"
-          aria-label="从密码库选择邮箱密码"
+          :aria-label="`从密码库选择${label}`"
           :disabled="loadingEntries || selecting"
+          searchable
         />
         <button
-          class="mail-vault-picker__refresh"
+          class="vault-password-picker__refresh"
           type="button"
           title="刷新密码库"
           aria-label="刷新密码库"
           :disabled="loadingEntries"
           @click="loadEntries"
         >
-          <RefreshCw
-            :size="14"
-            :class="{ 'mail-vault-picker__spin': loadingEntries }"
-          />
+          <UiFidgetSpinner v-if="loadingEntries" :size="14" />
+          <RefreshCw v-else :size="14" />
         </button>
         <UiButton size="lg" @click="openAddEntry">
           <Plus :size="13" />
@@ -294,7 +374,12 @@ function errorText(error: unknown) {
         </UiButton>
       </div>
 
-      <div v-if="selectedEntry" class="mail-vault-picker__selected">
+      <div v-if="selecting" class="vault-password-picker__state">
+        <UiFidgetSpinner :size="14" />
+        正在读取密码…
+      </div>
+
+      <div v-else-if="selectedEntry" class="vault-password-picker__selected">
         <span><KeyRound :size="14" /></span>
         <div>
           <strong>{{ selectedEntry.name }}</strong>
@@ -313,9 +398,9 @@ function errorText(error: unknown) {
 
       <div
         v-else-if="!loadingEntries && entries.length === 0"
-        class="mail-vault-picker__empty"
+        class="vault-password-picker__empty"
       >
-        <p>密码库中还没有条目，请先添加一个邮箱密码。</p>
+        <p>密码库中还没有条目，请先添加一个密码。</p>
         <UiButton size="lg" @click="openAddEntry">
           <Plus :size="13" />
           添加密码
@@ -323,24 +408,24 @@ function errorText(error: unknown) {
       </div>
     </div>
 
-    <p v-if="errorMessage" class="mail-vault-picker__error" role="alert">
+    <p v-if="errorMessage" class="vault-password-picker__error" role="alert">
       {{ errorMessage }}
     </p>
 
     <UiDialog
       v-if="unlockDialogOpen"
       title="解锁密码库"
-      description="输入登录密码后，才能读取并选择密码库中的邮箱密码。"
+      :description="`输入登录密码后，才能读取并选择密码库中的${label}。`"
       height="auto"
       @close="closeUnlockDialog"
     >
       <form
-        id="mail-vault-unlock-form"
-        class="mail-vault-picker__unlock-dialog"
+        id="vault-password-unlock-form"
+        class="vault-password-picker__unlock-dialog"
         @submit.prevent="unlock"
       >
         <UiInput
-          id="mail-vault-unlock-password"
+          id="vault-password-unlock-password"
           v-model="unlockPassword"
           type="password"
           size="lg"
@@ -351,7 +436,7 @@ function errorText(error: unknown) {
         />
         <p
           v-if="unlockError"
-          class="mail-vault-picker__error"
+          class="vault-password-picker__error"
           role="alert"
         >
           {{ unlockError }}
@@ -370,8 +455,9 @@ function errorText(error: unknown) {
           variant="primary"
           size="lg"
           type="submit"
-          form="mail-vault-unlock-form"
-          :disabled="!unlockPassword || unlocking"
+          form="vault-password-unlock-form"
+          :loading="unlocking"
+          :disabled="!unlockPassword"
         >
           {{ unlocking ? '验证中…' : '解锁' }}
         </UiButton>
@@ -381,7 +467,8 @@ function errorText(error: unknown) {
     <VaultEntryDialog
       v-if="addEntryOpen"
       :categories="categories"
-      default-category="邮箱"
+      :default-category="defaultCategory"
+      :saving="savingEntry"
       @close="addEntryOpen = false"
       @save="saveEntry"
     />
@@ -389,7 +476,7 @@ function errorText(error: unknown) {
 </template>
 
 <style scoped>
-.mail-vault-picker {
+.vault-password-picker {
   display: flex;
   min-width: 0;
   grid-column: 1 / -1;
@@ -401,13 +488,13 @@ function errorText(error: unknown) {
   border-radius: var(--radius-control);
 }
 
-.mail-vault-picker > header {
+.vault-password-picker > header {
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
 }
 
-.mail-vault-picker > header > span {
+.vault-password-picker > header > span {
   display: grid;
   width: 26px;
   height: 26px;
@@ -422,26 +509,26 @@ function errorText(error: unknown) {
   place-items: center;
 }
 
-.mail-vault-picker > header strong {
+.vault-password-picker > header strong {
   color: var(--text);
   font-size: var(--font-body);
   font-weight: var(--weight-emphasis);
 }
 
-.mail-vault-picker > header i {
+.vault-password-picker > header i {
   color: var(--system-red);
   font-style: normal;
 }
 
-.mail-vault-picker > header p {
+.vault-password-picker > header p {
   margin: 2px 0 0;
   color: var(--text-subtle);
   font-size: var(--font-caption);
   line-height: var(--line-caption);
 }
 
-.mail-vault-picker__state,
-.mail-vault-picker__locked > p {
+.vault-password-picker__state,
+.vault-password-picker__locked > p {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -450,31 +537,31 @@ function errorText(error: unknown) {
   font-size: var(--font-caption);
 }
 
-.mail-vault-picker__locked {
+.vault-password-picker__locked {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
 
-.mail-vault-picker__locked > p svg {
+.vault-password-picker__locked > p svg {
   flex: 0 0 auto;
   color: var(--system-orange);
 }
 
-.mail-vault-picker__entries {
+.vault-password-picker__entries {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
 
-.mail-vault-picker__select {
+.vault-password-picker__select {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 34px auto;
   align-items: center;
   gap: var(--space-2);
 }
 
-.mail-vault-picker__refresh {
+.vault-password-picker__refresh {
   display: grid;
   width: 34px;
   height: var(--control-lg);
@@ -486,12 +573,12 @@ function errorText(error: unknown) {
   place-items: center;
 }
 
-.mail-vault-picker__refresh:hover {
+.vault-password-picker__refresh:hover {
   color: var(--icon-hover);
   background: var(--hover-bg);
 }
 
-.mail-vault-picker__selected {
+.vault-password-picker__selected {
   display: grid;
   min-width: 0;
   grid-template-columns: 26px minmax(0, 1fr) auto;
@@ -502,7 +589,7 @@ function errorText(error: unknown) {
   border-radius: var(--radius-control);
 }
 
-.mail-vault-picker__selected > span {
+.vault-password-picker__selected > span {
   display: grid;
   width: 26px;
   height: 26px;
@@ -512,43 +599,43 @@ function errorText(error: unknown) {
   place-items: center;
 }
 
-.mail-vault-picker__selected > div {
+.vault-password-picker__selected > div {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 1px;
 }
 
-.mail-vault-picker__selected strong,
-.mail-vault-picker__selected small {
+.vault-password-picker__selected strong,
+.vault-password-picker__selected small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.mail-vault-picker__selected strong {
+.vault-password-picker__selected strong {
   color: var(--text);
   font-size: var(--font-caption);
   font-weight: var(--weight-emphasis);
 }
 
-.mail-vault-picker__selected small {
+.vault-password-picker__selected small {
   color: var(--text-subtle);
   font-size: var(--font-caption);
 }
 
-.mail-vault-picker__selected > button {
+.vault-password-picker__selected > button {
   padding: 0;
   color: var(--text-muted);
   font-size: var(--font-caption);
   background: transparent;
 }
 
-.mail-vault-picker__selected > button:hover {
+.vault-password-picker__selected > button:hover {
   color: var(--system-red);
 }
 
-.mail-vault-picker__empty {
+.vault-password-picker__empty {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -556,47 +643,37 @@ function errorText(error: unknown) {
   padding: 2px 0;
 }
 
-.mail-vault-picker__empty > p {
+.vault-password-picker__empty > p {
   margin: 0;
   color: var(--text-subtle);
   font-size: var(--font-caption);
   line-height: var(--line-caption);
 }
 
-.mail-vault-picker__unlock-dialog {
+.vault-password-picker__unlock-dialog {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   padding: 0 var(--space-5) var(--space-4);
 }
 
-.mail-vault-picker__error {
+.vault-password-picker__error {
   margin: 0;
   color: var(--system-red);
   font-size: var(--font-caption);
 }
 
-.mail-vault-picker__spin {
-  animation: mail-vault-spin 800ms linear infinite;
-}
-
-@keyframes mail-vault-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 @media (max-width: 520px) {
-  .mail-vault-picker__select {
+  .vault-password-picker__select {
     grid-template-columns: minmax(0, 1fr) 34px;
   }
 
-  .mail-vault-picker__select > :deep(.ui-button) {
+  .vault-password-picker__select > :deep(.ui-button) {
     grid-column: 1 / -1;
     justify-self: start;
   }
 
-  .mail-vault-picker__empty {
+  .vault-password-picker__empty {
     align-items: flex-start;
     flex-direction: column;
   }

@@ -17,15 +17,26 @@ public class MyBatisManagedServerRepository implements ManagedServerRepository {
     }
 
     @Override
-    public List<ManagedServer> findByOwnerId(long ownerId) {
-        return mapper.findByOwnerId(ownerId).stream()
+    public List<ManagedServer> findByOwnerIdAndWorkspaceId(
+            long ownerId,
+            String workspaceId) {
+        return mapper.findByOwnerIdAndWorkspaceId(
+                        ownerId,
+                        workspaceId)
+                .stream()
                 .map(ManagedServerDataMapper::toDomain)
                 .toList();
     }
 
     @Override
-    public Optional<ManagedServer> findByIdAndOwnerId(long id, long ownerId) {
-        return Optional.ofNullable(mapper.findByIdAndOwnerId(id, ownerId))
+    public Optional<ManagedServer> findByIdAndOwnerIdAndWorkspaceId(
+            long id,
+            long ownerId,
+            String workspaceId) {
+        return Optional.ofNullable(mapper.findByIdAndOwnerIdAndWorkspaceId(
+                        id,
+                        ownerId,
+                        workspaceId))
                 .map(ManagedServerDataMapper::toDomain);
     }
 
@@ -41,7 +52,13 @@ public class MyBatisManagedServerRepository implements ManagedServerRepository {
     }
 
     @Override
-    public void deleteByIdAndOwnerId(long id, long ownerId) {
-        mapper.deleteByIdAndOwnerId(id, ownerId);
+    public void deleteByIdAndOwnerIdAndWorkspaceId(
+            long id,
+            long ownerId,
+            String workspaceId) {
+        mapper.deleteByIdAndOwnerIdAndWorkspaceId(
+                id,
+                ownerId,
+                workspaceId);
     }
 }

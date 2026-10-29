@@ -90,9 +90,13 @@ public class DatabaseController {
             @RequestHeader(value = "X-WorkCove-Action", required = false)
             String action,
             @PathVariable long id,
+            @RequestParam String workspaceId,
             HttpServletRequest request) {
         validateAction(action);
-        databaseService.delete(currentUserId(request), id);
+        databaseService.delete(
+                currentUserId(request),
+                workspaceId,
+                id);
     }
 
     @PostMapping("/connections/test")
@@ -119,6 +123,7 @@ public class DatabaseController {
         validateAction(action);
         return databaseService.execute(
                 currentUserId(request),
+                body.workspaceId(),
                 id,
                 body.sql());
     }
@@ -126,10 +131,12 @@ public class DatabaseController {
     @GetMapping("/connections/{id}/tables")
     public List<DatabaseTableView> tables(
             @PathVariable long id,
+            @RequestParam String workspaceId,
             @RequestParam(required = false) String database,
             HttpServletRequest request) {
         return databaseService.tables(
                 currentUserId(request),
+                workspaceId,
                 id,
                 database);
     }
@@ -137,20 +144,24 @@ public class DatabaseController {
     @GetMapping("/connections/{id}/databases")
     public List<DatabaseSchemaView> databases(
             @PathVariable long id,
+            @RequestParam String workspaceId,
             HttpServletRequest request) {
         return databaseService.databases(
                 currentUserId(request),
+                workspaceId,
                 id);
     }
 
     @GetMapping("/connections/{id}/columns")
     public List<DatabaseColumnView> columns(
             @PathVariable long id,
+            @RequestParam String workspaceId,
             @RequestParam String table,
             @RequestParam(required = false) String database,
             HttpServletRequest request) {
         return databaseService.columns(
                 currentUserId(request),
+                workspaceId,
                 id,
                 database,
                 table);
@@ -159,11 +170,13 @@ public class DatabaseController {
     @GetMapping("/connections/{id}/table-data")
     public DatabaseQueryGateway.QueryResult tableData(
             @PathVariable long id,
+            @RequestParam String workspaceId,
             @RequestParam String table,
             @RequestParam(required = false) String database,
             HttpServletRequest request) {
         return databaseService.tableData(
                 currentUserId(request),
+                workspaceId,
                 id,
                 database,
                 table);
@@ -214,6 +227,6 @@ public class DatabaseController {
         }
     }
 
-    public record QueryRequest(String sql) {
+    public record QueryRequest(String workspaceId, String sql) {
     }
 }

@@ -7,11 +7,19 @@ import java.util.Optional;
 
 public interface ManagedServerRepository {
 
-    List<ManagedServer> findByOwnerId(long ownerId);
+    List<ManagedServer> findByOwnerIdAndWorkspaceId(
+            long ownerId,
+            String workspaceId);
 
-    Optional<ManagedServer> findByIdAndOwnerId(long id, long ownerId);
+    Optional<ManagedServer> findByIdAndOwnerIdAndWorkspaceId(
+            long id,
+            long ownerId,
+            String workspaceId);
 
     ManagedServer save(ManagedServer server);
 
-    void deleteByIdAndOwnerId(long id, long ownerId);
+    void deleteByIdAndOwnerIdAndWorkspaceId(
+            long id,
+            long ownerId,
+            String workspaceId);
 }

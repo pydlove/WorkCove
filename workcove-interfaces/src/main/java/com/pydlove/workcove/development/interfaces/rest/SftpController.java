@@ -51,9 +51,14 @@ public class SftpController {
     @GetMapping
     public List<RemoteFileResponse> list(
             @PathVariable long serverId,
+            @RequestParam String workspaceId,
             @RequestParam(defaultValue = "/") String path,
             HttpServletRequest request) {
-        return sftpService.list(currentUserId(request), serverId, path).stream()
+        return sftpService.list(
+                        currentUserId(request),
+                        workspaceId,
+                        serverId,
+                        path).stream()
                 .map(RemoteFileResponse::from)
                 .toList();
     }
@@ -61,10 +66,12 @@ public class SftpController {
     @GetMapping("/download")
     public ResponseEntity<StreamingResponseBody> download(
             @PathVariable long serverId,
+            @RequestParam String workspaceId,
             @RequestParam String path,
             HttpServletRequest request) {
         SftpService.RemoteDownload download = sftpService.download(
                 currentUserId(request),
+                workspaceId,
                 serverId,
                 path);
         StreamingResponseBody body = output -> {
@@ -91,6 +98,7 @@ public class SftpController {
     public void upload(
             @RequestHeader(value = "X-WorkCove-Action", required = false) String action,
             @PathVariable long serverId,
+            @RequestParam String workspaceId,
             @RequestParam(defaultValue = "/") String path,
             @RequestParam("file") MultipartFile file,
             HttpServletRequest request) throws Exception {
@@ -98,6 +106,7 @@ public class SftpController {
         try (InputStream input = file.getInputStream()) {
             sftpService.upload(
                     currentUserId(request),
+                    workspaceId,
                     serverId,
                     path,
                     file.getOriginalFilename(),
@@ -111,11 +120,13 @@ public class SftpController {
     public void createDirectory(
             @RequestHeader(value = "X-WorkCove-Action", required = false) String action,
             @PathVariable long serverId,
+            @RequestParam String workspaceId,
             @RequestBody CreateDirectoryRequest body,
             HttpServletRequest request) {
         validateAction(action);
         sftpService.createDirectory(
                 currentUserId(request),
+                workspaceId,
                 serverId,
                 body.path());
     }
@@ -125,12 +136,14 @@ public class SftpController {
     public void delete(
             @RequestHeader(value = "X-WorkCove-Action", required = false) String action,
             @PathVariable long serverId,
+            @RequestParam String workspaceId,
             @RequestParam String path,
             @RequestParam(defaultValue = "false") boolean directory,
             HttpServletRequest request) {
         validateAction(action);
         sftpService.delete(
                 currentUserId(request),
+                workspaceId,
                 serverId,
                 path,
                 directory);

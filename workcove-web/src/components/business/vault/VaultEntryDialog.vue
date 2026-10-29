@@ -7,6 +7,9 @@ import UiCombobox from '@/components/ui/UiCombobox.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
 import UiFormField from '@/components/ui/UiFormField.vue'
 import UiInput from '@/components/ui/UiInput.vue'
+import { useAuthStore } from '@/stores/useAuthStore'
+import { useShortcutStore } from '@/stores/useShortcutStore'
+import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import {
   DEFAULT_VAULT_CATEGORY,
   type VaultEntry,
@@ -18,11 +21,13 @@ const props = withDefaults(
     entry?: VaultEntry | null
     categories?: string[]
     defaultCategory?: string
+    saving?: boolean
   }>(),
   {
     entry: null,
     categories: () => [],
     defaultCategory: DEFAULT_VAULT_CATEGORY,
+    saving: false,
   },
 )
 
@@ -31,6 +36,9 @@ const emit = defineEmits<{
   save: [input: VaultEntryInput]
 }>()
 
+const auth = useAuthStore()
+const shortcuts = useShortcutStore()
+const workspaces = useWorkspaceStore()
 const errorMessage = ref('')
 const passwordVisible = ref(false)
 const form = reactive({
@@ -44,6 +52,25 @@ const form = reactive({
 
 const title = computed(() =>
   props.entry ? '编辑密码' : '添加密码',
+)
+const websiteUrlOptions = computed(() =>
+  [
+    ...new Set(
+      shortcuts.websites
+        .filter(
+          (website) =>
+            website.workspaceId === workspaces.activeWorkspaceId,
+        )
+        .map((website) => website.url.trim())
+        .filter(Boolean),
+    ),
+  ],
+)
+
+watch(
+  () => auth.email,
+  (email) => shortcuts.load(email),
+  { immediate: true },
 )
 
 watch(
@@ -82,18 +109,11 @@ function submit() {
     errorMessage.value = '分类不能超过 24 个字符'
     return
   }
-  if (
-    form.url.trim() &&
-    !/^https?:\/\//i.test(form.url.trim())
-  ) {
-    errorMessage.value = '网址需要以 http:// 或 https:// 开头'
-    return
-  }
   emit('save', {
     name: form.name,
     username: form.username,
     password: form.password,
-    url: form.url,
+    url: form.url.trim(),
     category: form.category,
     notes: form.notes,
   })
@@ -183,6 +203,7 @@ function submit() {
             v-model="form.category"
             :options="categories"
             aria-label="密码分类"
+            empty-text="可直接输入新分类"
             placeholder="例如：服务器、数据库、开发工具"
           />
         </UiFormField>
@@ -190,15 +211,17 @@ function submit() {
         <UiFormField
           label="网址"
           control-id="vault-entry-url"
+          hint="可选，可从网址库选择，也可直接输入"
           layout="dialog"
         >
-          <UiInput
+          <UiCombobox
             id="vault-entry-url"
             v-model="form.url"
-            size="lg"
-            maxlength="2048"
-            spellcheck="false"
-            placeholder="https://example.com"
+            :options="websiteUrlOptions"
+            :maxlength="2048"
+            aria-label="密码条目网址"
+            empty-text="可直接输入网址"
+            placeholder="选择已有网址或直接输入"
           />
         </UiFormField>
 
@@ -229,12 +252,15 @@ function submit() {
           仅在你解锁后可用
         </span>
         <div>
-          <UiButton size="lg" @click="emit('close')">取消</UiButton>
+          <UiButton size="lg" :disabled="saving" @click="emit('close')">
+            取消
+          </UiButton>
           <UiButton
             variant="primary"
             size="lg"
             type="submit"
             form="vault-entry-form"
+            :loading="saving"
           >
             保存
           </UiButton>

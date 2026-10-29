@@ -8,6 +8,7 @@ export interface VaultStatus {
 
 export interface VaultEntry {
   id: number
+  workspaceId: string
   name: string
   username: string
   url: string
@@ -18,6 +19,7 @@ export interface VaultEntry {
 
 export interface VaultCategory {
   id: number
+  workspaceId: string
   name: string
   sortOrder: number
 }

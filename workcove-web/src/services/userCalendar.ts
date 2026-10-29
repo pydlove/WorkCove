@@ -76,8 +76,11 @@ function normalizeLegacyEvent(value: unknown): CalendarEvent | null {
   }
 }
 
-export async function loadUserCalendar(email: string) {
-  const remote = await listCalendarEvents()
+export async function loadUserCalendar(
+  email: string,
+  workspaceId: string,
+) {
+  const remote = await listCalendarEvents(workspaceId)
   if (remote.length > 0) {
     const staleLegacy = readUserScopedValue<CalendarEvent[]>(
       LEGACY_EVENTS_KEY,
@@ -97,6 +100,7 @@ export async function loadUserCalendar(email: string) {
     ? legacy
         .map(normalizeLegacyEvent)
         .filter((event): event is CalendarEvent => Boolean(event))
+        .filter((event) => event.workspaceId === workspaceId)
     : []
   if (events.length === 0) return []
 
@@ -115,8 +119,9 @@ export async function loadUserCalendar(email: string) {
 
 export async function loadCalendarReminderSettings(
   email: string,
+  workspaceId: string,
 ): Promise<CalendarReminderSettings> {
-  const stored = await getCalendarReminderSettings()
+  const stored = await getCalendarReminderSettings(workspaceId)
   if (stored.configured) {
     return {
       defaultInApp: stored.defaultInApp,
@@ -144,7 +149,10 @@ export async function loadCalendarReminderSettings(
       ? Number(legacy?.defaultMinutesBefore)
       : 10,
   }
-  const saved = await updateCalendarReminderSettings(settings)
+  const saved = await updateCalendarReminderSettings(
+    workspaceId,
+    settings,
+  )
   return {
     defaultInApp: saved.defaultInApp,
     defaultEmail: saved.defaultEmail,
@@ -153,7 +161,8 @@ export async function loadCalendarReminderSettings(
 }
 
 export function saveCalendarReminderSettings(
+  workspaceId: string,
   settings: CalendarReminderSettings,
 ) {
-  return updateCalendarReminderSettings(settings)
+  return updateCalendarReminderSettings(workspaceId, settings)
 }

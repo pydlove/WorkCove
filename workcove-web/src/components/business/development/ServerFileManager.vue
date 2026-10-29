@@ -26,6 +26,7 @@ import {
 } from '@/api/sftp'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiConfirmDialog from '@/components/ui/UiConfirmDialog.vue'
+import UiFidgetSpinner from '@/components/ui/UiFidgetSpinner.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
 import { usePagination } from '@/composables/usePagination'
@@ -79,7 +80,11 @@ async function loadFiles(path = currentPath.value) {
   loading.value = true
   errorMessage.value = ''
   try {
-    files.value = await listRemoteFiles(props.server.id, path)
+    files.value = await listRemoteFiles(
+      props.server.id,
+      props.server.workspaceId,
+      path,
+    )
     currentPath.value = path
   } catch (error) {
     errorMessage.value = errorText(error)
@@ -134,7 +139,12 @@ async function handleUpload(event: Event) {
   errorMessage.value = ''
   try {
     for (const file of selected) {
-      await uploadRemoteFile(props.server.id, currentPath.value, file)
+      await uploadRemoteFile(
+        props.server.id,
+        props.server.workspaceId,
+        currentPath.value,
+        file,
+      )
     }
     emit('notify', `已上传 ${selected.length} 个文件`)
     await loadFiles()
@@ -163,7 +173,11 @@ async function createFolder() {
       ? `/${name}`
       : `${currentPath.value.replace(/\/+$/, '')}/${name}`
   try {
-    await createRemoteDirectory(props.server.id, path)
+    await createRemoteDirectory(
+      props.server.id,
+      props.server.workspaceId,
+      path,
+    )
     creatingFolder.value = false
     newFolderName.value = ''
     emit('notify', `已创建目录 ${name}`)
@@ -179,7 +193,11 @@ function download(file: RemoteFile) {
     return
   }
   const link = document.createElement('a')
-  link.href = remoteDownloadUrl(props.server.id, file.path)
+  link.href = remoteDownloadUrl(
+    props.server.id,
+    props.server.workspaceId,
+    file.path,
+  )
   link.download = file.name
   document.body.append(link)
   link.click()
@@ -192,7 +210,12 @@ async function confirmDelete() {
   deleting.value = true
   errorMessage.value = ''
   try {
-    await deleteRemoteFile(props.server.id, file.path, file.directory)
+    await deleteRemoteFile(
+      props.server.id,
+      props.server.workspaceId,
+      file.path,
+      file.directory,
+    )
     pendingDelete.value = null
     emit('notify', `已删除 ${file.name}`)
     await loadFiles()
@@ -219,8 +242,13 @@ onMounted(() => loadFiles())
         </div>
       </div>
       <div class="file-manager__header-actions">
-        <UiButton size="sm" :disabled="uploading" @click="chooseUpload">
-          <Upload :size="14" />
+        <UiButton
+          size="sm"
+          :loading="uploading"
+          :disabled="uploading"
+          @click="chooseUpload"
+        >
+          <Upload v-if="!uploading" :size="14" />
           {{ uploading ? '上传中…' : '上传' }}
         </UiButton>
         <UiButton size="sm" @click="startCreateFolder">
@@ -269,9 +297,11 @@ onMounted(() => loadFiles())
         class="file-manager__nav-button"
         type="button"
         aria-label="刷新"
+        :disabled="loading"
         @click="loadFiles()"
       >
-        <RefreshCw :size="14" />
+        <UiFidgetSpinner v-if="loading" :size="14" />
+        <RefreshCw v-else :size="14" />
       </button>
     </div>
 
@@ -303,7 +333,12 @@ onMounted(() => loadFiles())
         <span>修改时间</span>
         <span />
       </div>
-      <div v-if="loading" class="file-manager__empty">正在读取远程目录…</div>
+      <div v-if="loading" class="file-manager__empty">
+        <span class="file-manager__loading">
+          <UiFidgetSpinner :size="18" />
+          正在读取远程目录…
+        </span>
+      </div>
       <div v-else-if="files.length === 0" class="file-manager__empty">
         这个目录是空的
       </div>
@@ -644,6 +679,12 @@ onMounted(() => loadFiles())
   color: var(--text-subtle);
   font-size: var(--font-caption);
   place-items: center;
+}
+
+.file-manager__loading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .file-remove-target {

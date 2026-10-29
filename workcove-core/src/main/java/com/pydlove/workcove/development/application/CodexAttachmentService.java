@@ -11,11 +11,14 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.regex.Pattern;
 
 public final class CodexAttachmentService {
 
     public static final int MAX_ATTACHMENTS = 8;
     public static final long MAX_ATTACHMENT_BYTES = 20L * 1024 * 1024;
+    private static final Pattern WORKSPACE_ID =
+            Pattern.compile("[A-Za-z0-9._-]{1,64}");
 
     private final CodexAttachmentStore store;
 
@@ -25,6 +28,7 @@ public final class CodexAttachmentService {
 
     public CodexAttachment upload(
             long ownerId,
+            String workspaceId,
             String originalName,
             String contentType,
             long size,
@@ -41,6 +45,7 @@ public final class CodexAttachmentService {
         try {
             return store.store(
                     ownerId,
+                    safeWorkspaceId(workspaceId),
                     safeName(originalName),
                     safeContentType(contentType),
                     size,
@@ -50,10 +55,14 @@ public final class CodexAttachmentService {
         }
     }
 
-    public List<CodexAttachment> resolve(long ownerId, List<String> attachmentIds) {
+    public List<CodexAttachment> resolve(
+            long ownerId,
+            String workspaceId,
+            List<String> attachmentIds) {
         if (ownerId <= 0) {
             throw new DomainException("用户会话无效");
         }
+        String scope = safeWorkspaceId(workspaceId);
         if (attachmentIds == null || attachmentIds.isEmpty()) {
             return List.of();
         }
@@ -69,7 +78,7 @@ public final class CodexAttachmentService {
 
         List<CodexAttachment> attachments = new ArrayList<>(uniqueIds.size());
         for (String id : uniqueIds) {
-            attachments.add(store.find(ownerId, id)
+            attachments.add(store.find(ownerId, scope, id)
                     .orElseThrow(() ->
                             new DomainException("附件不存在或无权访问")));
         }
@@ -96,5 +105,15 @@ public final class CodexAttachmentService {
             return "application/octet-stream";
         }
         return contentType;
+    }
+
+    private String safeWorkspaceId(String value) {
+        String workspaceId = value == null ? "" : value.trim();
+        if (!WORKSPACE_ID.matcher(workspaceId).matches()
+                || ".".equals(workspaceId)
+                || "..".equals(workspaceId)) {
+            throw new DomainException("工作空间无效");
+        }
+        return workspaceId;
     }
 }

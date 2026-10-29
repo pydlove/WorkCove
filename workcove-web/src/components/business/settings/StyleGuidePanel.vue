@@ -114,7 +114,7 @@ const colors = [
       <section class="guide-section">
         <header>
           <h4>字体层级</h4>
-          <p>系统字体，正文 13px，辅助信息最低 11px。</p>
+          <p>跟随全局字体设置，正文 13px，辅助信息最低 11px。</p>
         </header>
         <div class="type-list">
           <div>
@@ -154,7 +154,7 @@ const colors = [
               id="style-guide-input"
               v-model="sampleInput"
               size="lg"
-              placeholder="13px 系统字体"
+              placeholder="13px 全局字体"
             />
           </UiFormField>
         </div>

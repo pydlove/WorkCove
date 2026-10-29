@@ -22,38 +22,45 @@ export const useManagedServerStore = defineStore('managedServers', {
     loading: false,
     loaded: false,
     loadedWorkspaceId: '',
+    loadSequence: 0,
   }),
   actions: {
     async load(force = false) {
       const workspaces = useWorkspaceStore()
       const workspaceId = workspaces.activeWorkspaceId
       if (
-        this.loading ||
-        (this.loaded &&
-          !force &&
-          this.loadedWorkspaceId === workspaceId)
+        this.loaded &&
+        !force &&
+        this.loadedWorkspaceId === workspaceId
       ) {
         return
       }
+      const sequence = ++this.loadSequence
       this.loading = true
       if (this.loadedWorkspaceId !== workspaceId) this.servers = []
       try {
-        this.servers = await listManagedServers(workspaceId)
+        const servers = await listManagedServers(workspaceId)
+        if (sequence !== this.loadSequence) return
+        this.servers = servers
         this.loaded = true
         this.loadedWorkspaceId = workspaceId
       } finally {
-        this.loading = false
+        if (sequence === this.loadSequence) {
+          this.loading = false
+        }
       }
     },
     async save(input: ManagedServerInput) {
       const workspaces = useWorkspaceStore()
+      const workspaceId = workspaces.activeWorkspaceId
       const nextInput = {
         ...input,
-        workspaceId: workspaces.activeWorkspaceId,
+        workspaceId,
       }
       const saved = input.id
         ? await updateManagedServer(nextInput)
         : await createManagedServer(nextInput)
+      if (workspaces.activeWorkspaceId !== workspaceId) return saved
       this.servers = [
         saved,
         ...this.servers.filter((server) => server.id !== saved.id),
@@ -61,7 +68,10 @@ export const useManagedServerStore = defineStore('managedServers', {
       return saved
     },
     async remove(id: number) {
-      await deleteManagedServer(id)
+      const workspaces = useWorkspaceStore()
+      const workspaceId = workspaces.activeWorkspaceId
+      await deleteManagedServer(id, workspaceId)
+      if (workspaces.activeWorkspaceId !== workspaceId) return
       this.servers = this.servers.filter((server) => server.id !== id)
     },
     async copyToWorkspace(id: number, targetWorkspaceId: string) {
@@ -74,15 +84,22 @@ export const useManagedServerStore = defineStore('managedServers', {
     },
     async moveToWorkspace(id: number, targetWorkspaceId: string) {
       const workspaces = useWorkspaceStore()
+      const sourceWorkspaceId = workspaces.activeWorkspaceId
       await moveManagedServer(
         id,
-        workspaces.activeWorkspaceId,
+        sourceWorkspaceId,
         targetWorkspaceId,
       )
+      if (workspaces.activeWorkspaceId !== sourceWorkspaceId) return
       this.servers = this.servers.filter((server) => server.id !== id)
     },
     open(id: number, tool: ServerTool) {
-      return openManagedServer(id, tool)
+      const workspaces = useWorkspaceStore()
+      return openManagedServer(
+        id,
+        workspaces.activeWorkspaceId,
+        tool,
+      )
     },
   },
 })

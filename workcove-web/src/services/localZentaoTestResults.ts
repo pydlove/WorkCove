@@ -56,6 +56,14 @@ function normalizeResult(value: unknown): ZentaoTestResult | null {
       typeof result.createdAt === 'string'
         ? result.createdAt
         : new Date().toISOString(),
+    zentaoNoteAt:
+      typeof result.zentaoNoteAt === 'string'
+        ? result.zentaoNoteAt
+        : null,
+    zentaoNoteError:
+      typeof result.zentaoNoteError === 'string'
+        ? result.zentaoNoteError
+        : '',
   }
 }
 

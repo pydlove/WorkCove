@@ -4,7 +4,6 @@ import {
   CheckCircle2,
   Filter,
   Folder,
-  LoaderCircle,
   Pencil,
   Plus,
   RefreshCw,
@@ -22,6 +21,7 @@ import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiConfirmDialog from '@/components/ui/UiConfirmDialog.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
 import UiFormField from '@/components/ui/UiFormField.vue'
+import UiFidgetSpinner from '@/components/ui/UiFidgetSpinner.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiSegmentedControl from '@/components/ui/UiSegmentedControl.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
@@ -300,12 +300,13 @@ function folderDescription(role: MailFolderRole) {
           <div>
             <UiButton
               size="sm"
+              :loading="loading"
               :disabled="loading"
               @click="loadRules"
             >
               <RefreshCw
+                v-if="!loading"
                 :size="13"
-                :class="{ 'mail-rules-spin': loading }"
               />
               刷新
             </UiButton>
@@ -326,7 +327,7 @@ function folderDescription(role: MailFolderRole) {
         </p>
 
         <div v-if="loading && rules.length === 0" class="mail-rules__state">
-          <LoaderCircle class="mail-rules-spin" :size="22" />
+          <UiFidgetSpinner :size="22" />
           <span>正在读取规则…</span>
         </div>
 
@@ -515,6 +516,7 @@ function folderDescription(role: MailFolderRole) {
           size="lg"
           type="submit"
           form="mail-rule-form"
+          :loading="saving"
           :disabled="saving || folderOptions.length === 0"
         >
           {{ saving ? '保存中…' : '保存规则' }}

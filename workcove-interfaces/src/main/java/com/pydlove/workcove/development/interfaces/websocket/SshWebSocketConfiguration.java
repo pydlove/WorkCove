@@ -65,6 +65,13 @@ public class SshWebSocketConfiguration implements WebSocketConfigurer {
 
             ServletServerHttpRequest servletRequest =
                     (ServletServerHttpRequest) request;
+            String workspaceId = servletRequest.getServletRequest()
+                    .getParameter("workspaceId");
+            if (workspaceId == null
+                    || workspaceId.isBlank()
+                    || workspaceId.length() > 64) {
+                return false;
+            }
             long userId = authService.currentSession(
                     sessionCookieReader.readToken(
                             servletRequest.getServletRequest()))
@@ -74,6 +81,7 @@ public class SshWebSocketConfiguration implements WebSocketConfigurer {
             int columns = queryInt(request.getURI(), "cols", 120, 20, 500);
             int rows = queryInt(request.getURI(), "rows", 32, 5, 200);
             attributes.put("userId", userId);
+            attributes.put("workspaceId", workspaceId.trim());
             attributes.put("serverId", serverId);
             attributes.put("columns", columns);
             attributes.put("rows", rows);

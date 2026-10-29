@@ -8,7 +8,6 @@ import {
   Play,
   Plus,
   Power,
-  Search,
   Trash2,
 } from '@lucide/vue'
 import {
@@ -30,6 +29,7 @@ import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiConfirmDialog from '@/components/ui/UiConfirmDialog.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
+import UiSearchInput from '@/components/ui/UiSearchInput.vue'
 import { usePagination } from '@/composables/usePagination'
 import {
   forceQuitHostApplication,
@@ -116,8 +116,14 @@ watch(
 watch(
   () => workspaces.activeWorkspaceId,
   () => {
+    dialogOpen.value = false
+    editingApplication.value = null
+    forceQuitTarget.value = null
+    transferApplication.value = null
+    batchTransferMode.value = null
     selectionMode.value = false
     selectedApplicationIds.value = []
+    deleteTargets.value = []
   },
 )
 
@@ -485,15 +491,11 @@ onBeforeUnmount(() => {
           · {{ runningApplicationCount }} 个已打开
         </span>
       </span>
-      <label class="application-search">
-        <Search :size="15" aria-hidden="true" />
-        <input
-          v-model="searchQuery"
-          type="search"
-          aria-label="搜索应用"
-          placeholder="搜索应用名称或路径"
-        />
-      </label>
+      <UiSearchInput
+        v-model="searchQuery"
+        label="搜索应用"
+        placeholder="搜索应用名称或路径"
+      />
       <UiButton @click="toggleSelectionMode">
         <ListChecks :size="14" />
         {{ selectionMode ? '退出批量' : '批量' }}
@@ -822,39 +824,6 @@ onBeforeUnmount(() => {
 
 .application-toolbar__running {
   color: var(--system-green);
-}
-
-.application-search {
-  display: flex;
-  width: min(100%, 240px);
-  height: var(--control-md);
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px;
-  color: var(--text-subtle);
-  background: var(--control-bg);
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-control);
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / 4%);
-}
-
-.application-search:focus-within {
-  border-color: var(--system-blue);
-  box-shadow: var(--focus-ring);
-}
-
-.application-search input {
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-  color: var(--text);
-  font-size: var(--font-body);
-  background: transparent;
-  border: 0;
-}
-
-.application-search input:focus-visible {
-  outline: none;
 }
 
 .application-list {
@@ -1201,11 +1170,6 @@ onBeforeUnmount(() => {
     display: flex;
     flex-basis: 100%;
     align-items: center;
-  }
-
-  .application-search {
-    width: auto;
-    flex: 1;
   }
 
   .application-list {

@@ -38,8 +38,11 @@ public class CalendarService {
         this.clock = Objects.requireNonNull(clock);
     }
 
-    public List<CalendarEventView> events(long ownerId) {
-        return repository.findEvents(ownerId).stream()
+    public List<CalendarEventView> events(
+            long ownerId,
+            String workspaceId) {
+        String scope = required(workspaceId, "工作空间", 64);
+        return repository.findEvents(ownerId, scope).stream()
                 .map(CalendarEventView::from)
                 .toList();
     }
@@ -79,7 +82,10 @@ public class CalendarService {
                 || input.eventKey().isBlank()
                 ? UUID.randomUUID().toString()
                 : input.eventKey().trim();
-        CalendarEvent existing = repository.findEvent(ownerId, eventKey)
+        CalendarEvent existing = repository.findEvent(
+                        ownerId,
+                        workspaceId,
+                        eventKey)
                 .orElse(null);
         if (input.eventKey() != null
                 && !input.eventKey().isBlank()
@@ -111,15 +117,24 @@ public class CalendarService {
         return CalendarEventView.from(saved);
     }
 
-    public void deleteEvent(long ownerId, String eventKey) {
+    public void deleteEvent(
+            long ownerId,
+            String workspaceId,
+            String eventKey) {
         if (eventKey == null || eventKey.isBlank()) {
             throw new DomainException("日程标识不能为空");
         }
-        repository.deleteEvent(ownerId, eventKey.trim());
+        repository.deleteEvent(
+                ownerId,
+                required(workspaceId, "工作空间", 64),
+                eventKey.trim());
     }
 
-    public CalendarReminderSettingsView reminderSettings(long ownerId) {
-        return repository.findReminderSettings(ownerId)
+    public CalendarReminderSettingsView reminderSettings(
+            long ownerId,
+            String workspaceId) {
+        String scope = required(workspaceId, "工作空间", 64);
+        return repository.findReminderSettings(ownerId, scope)
                 .map((settings) -> CalendarReminderSettingsView.from(
                         settings,
                         true))
@@ -132,10 +147,12 @@ public class CalendarService {
 
     public CalendarReminderSettingsView saveReminderSettings(
             long ownerId,
+            String workspaceId,
             boolean defaultInApp,
             boolean defaultEmail,
             int defaultMinutesBefore) {
         validateReminderChannels(defaultInApp, defaultEmail, true);
+        String scope = required(workspaceId, "工作空间", 64);
         if (!REMINDER_MINUTES.contains(defaultMinutesBefore)) {
             throw new DomainException("默认提醒提前时间无效");
         }
@@ -143,6 +160,7 @@ public class CalendarService {
                 repository.saveReminderSettings(
                         new CalendarReminderSettings(
                                 ownerId,
+                                scope,
                                 defaultInApp,
                                 defaultEmail,
                                 defaultMinutesBefore,
@@ -150,29 +168,47 @@ public class CalendarService {
         return CalendarReminderSettingsView.from(saved, true);
     }
 
-    public List<NotificationView> notifications(long ownerId, int limit) {
+    public List<NotificationView> notifications(
+            long ownerId,
+            String workspaceId,
+            int limit) {
+        String scope = required(workspaceId, "工作空间", 64);
         int safeLimit = Math.max(1, Math.min(limit, MAX_NOTIFICATION_LIMIT));
-        return repository.findNotifications(ownerId, safeLimit).stream()
+        return repository.findNotifications(
+                        ownerId,
+                        scope,
+                        safeLimit).stream()
                 .map(NotificationView::from)
                 .toList();
     }
 
-    public int unreadNotificationCount(long ownerId) {
-        return repository.countUnreadNotifications(ownerId);
+    public int unreadNotificationCount(long ownerId, String workspaceId) {
+        return repository.countUnreadNotifications(
+                ownerId,
+                required(workspaceId, "工作空间", 64));
     }
 
-    public void markNotificationRead(long ownerId, long notificationId) {
+    public void markNotificationRead(
+            long ownerId,
+            String workspaceId,
+            long notificationId) {
         if (notificationId <= 0) {
             throw new DomainException("通知标识无效");
         }
         repository.markNotificationRead(
                 ownerId,
+                required(workspaceId, "工作空间", 64),
                 notificationId,
                 clock.instant());
     }
 
-    public void markAllNotificationsRead(long ownerId) {
-        repository.markAllNotificationsRead(ownerId, clock.instant());
+    public void markAllNotificationsRead(
+            long ownerId,
+            String workspaceId) {
+        repository.markAllNotificationsRead(
+                ownerId,
+                required(workspaceId, "工作空间", 64),
+                clock.instant());
     }
 
     private List<CalendarReminder> scheduledReminders(

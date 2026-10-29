@@ -95,7 +95,7 @@ async function create() {
         size="lg"
         type="submit"
         form="mail-folder-create-form"
-        :disabled="creating"
+        :loading="creating"
       >
         {{ creating ? '创建中…' : '创建文件夹' }}
       </UiButton>

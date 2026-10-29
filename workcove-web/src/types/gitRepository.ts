@@ -97,3 +97,65 @@ export interface GitOperationResult {
   mergeInProgress: boolean
   conflictFiles: string[]
 }
+
+export interface GitMonthStatistics {
+  month: string
+  commits: number
+  additions: number
+  deletions: number
+}
+
+export interface GitHourStatistics {
+  hour: number
+  commits: number
+}
+
+export interface GitAuthorStatistics {
+  name: string
+  email: string
+  commits: number
+  additions: number
+  deletions: number
+}
+
+export interface GitRepositoryStatistics {
+  since: string
+  until: string
+  totalCommits: number
+  activeAuthors: number
+  changedFiles: number
+  additions: number
+  deletions: number
+  netLines: number
+  totalLines: number
+  trackedFiles: number
+  months: GitMonthStatistics[]
+  hours: GitHourStatistics[]
+  authors: GitAuthorStatistics[]
+}
+
+export interface GitReviewContext {
+  branch: string
+  baseBranch: string
+  baseCommit: string
+  headCommit: string
+  fromCommit: string
+  commitCount: number
+  fileCount: number
+  additions: number
+  deletions: number
+  commits: GitCommitInfo[]
+  changedFiles: string[]
+}
+
+export interface GitFileContent {
+  revision: string
+  filePath: string
+  requestedLine: number
+  startLine: number
+  endLine: number
+  totalLines: number
+  lines: string[]
+  truncatedBefore: boolean
+  truncatedAfter: boolean
+}

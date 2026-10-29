@@ -16,12 +16,16 @@ const props = withDefaults(
     placeholder?: string
     ariaLabel?: string
     placement?: 'top' | 'bottom'
+    emptyText?: string
+    maxlength?: number
   }>(),
   {
     id: undefined,
     placeholder: '',
     ariaLabel: '选择或输入',
     placement: 'bottom',
+    emptyText: '可直接输入新内容',
+    maxlength: undefined,
   },
 )
 
@@ -172,6 +176,7 @@ onBeforeUnmount(() => {
       role="combobox"
       :value="model"
       :placeholder="placeholder"
+      :maxlength="maxlength"
       :aria-label="ariaLabel"
       :aria-expanded="open"
       :aria-controls="listId"
@@ -222,7 +227,7 @@ onBeforeUnmount(() => {
         <span>{{ option }}</span>
       </button>
       <p v-if="filteredOptions.length === 0" class="ui-combobox__empty">
-        可直接输入新分类
+        {{ emptyText }}
       </p>
     </div>
   </div>

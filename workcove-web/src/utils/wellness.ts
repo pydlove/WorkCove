@@ -3,6 +3,7 @@ import type {
   WellnessActionType,
   WellnessData,
   WellnessDaySummary,
+  WellnessReminderSettings,
   WellnessRestSession,
 } from '@/types/wellness'
 
@@ -36,6 +37,95 @@ export function localDateKey(value: Date | string) {
     String(date.getMonth() + 1).padStart(2, '0'),
     String(date.getDate()).padStart(2, '0'),
   ].join('-')
+}
+
+export type WellnessClockMode = 'clockIn' | 'clockOut' | 'update'
+
+export function wellnessClockMode(
+  data: WellnessData,
+  now: Date = new Date(),
+): WellnessClockMode {
+  const date = localDateKey(now)
+  if (
+    data.activeWork &&
+    localDateKey(data.activeWork.startedAt) === date
+  ) {
+    return 'clockOut'
+  }
+  return data.workSessions.some(
+    (work) => localDateKey(work.startedAt) === date,
+  )
+    ? 'update'
+    : 'clockIn'
+}
+
+export interface WellnessClockOutConfirmation {
+  early: boolean
+  scheduledEndTime: string
+  warning: string
+}
+
+export function wellnessClockOutConfirmation(
+  settings: WellnessReminderSettings,
+  now: Date = new Date(),
+): WellnessClockOutConfirmation {
+  const workday = ((now.getDay() + 6) % 7) + 1
+  const schedule = settings.workdays.find(
+    (item) => item.day === workday,
+  )
+  if (!schedule?.enabled || !schedule.endTime) {
+    return {
+      early: false,
+      scheduledEndTime: '',
+      warning:
+        '今天未设置有效的计划下班时间。确认后将结束今天的工作计时。',
+    }
+  }
+
+  const [hour, minute] = schedule.endTime.split(':').map(Number)
+  const scheduledEnd = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    hour,
+    minute,
+  )
+  const early = now.getTime() < scheduledEnd.getTime()
+  return {
+    early,
+    scheduledEndTime: schedule.endTime,
+    warning: early
+      ? `还未到计划下班时间 ${schedule.endTime}。提前下班会立即结束今天的工作计时。`
+      : `计划下班时间 ${schedule.endTime} 已到。确认后将结束今天的工作计时。`,
+  }
+}
+
+export function wellnessReminderBaseline(
+  data: WellnessData,
+  types: WellnessActionType[],
+  now: Date = new Date(),
+) {
+  const active = data.activeWork
+  if (!active || localDateKey(active.startedAt) !== localDateKey(now)) {
+    return null
+  }
+  const workStartedAt = new Date(active.startedAt).getTime()
+  const allowed = new Set(types)
+  const latestAction = data.actions
+    .filter(
+      (action) =>
+        allowed.has(action.type) &&
+        localDateKey(action.occurredAt) === localDateKey(now) &&
+        new Date(action.occurredAt).getTime() >= workStartedAt,
+    )
+    .sort(
+      (left, right) =>
+        new Date(right.occurredAt).getTime() -
+        new Date(left.occurredAt).getTime(),
+    )[0]
+  return latestAction
+    ? new Date(latestAction.occurredAt).getTime()
+    : workStartedAt
 }
 
 export function formatWellnessDuration(value: number) {

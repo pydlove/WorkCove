@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
@@ -78,6 +79,7 @@ public class CodexController {
             @RequestHeader(
                     value = "X-WorkCove-Action",
                     required = false) String action,
+            @RequestParam String workspaceId,
             @RequestPart("file") MultipartFile file,
             HttpServletRequest request) {
         if (!ATTACHMENT_ACTION.equals(action)) {
@@ -87,6 +89,7 @@ public class CodexController {
         try {
             CodexAttachment attachment = attachmentService.upload(
                     ownerId,
+                    workspaceId,
                     file.getOriginalFilename(),
                     file.getContentType(),
                     file.getSize(),
@@ -127,7 +130,10 @@ public class CodexController {
             HttpServletRequest request) {
         long ownerId = currentUserId(request);
         List<CodexAttachment> attachments =
-                attachmentService.resolve(ownerId, body.attachmentIds());
+                attachmentService.resolve(
+                        ownerId,
+                        body.workspaceId(),
+                        body.attachmentIds());
         return codexGateway.startTurn(
                 body.threadId(),
                 body.text(),
@@ -144,6 +150,23 @@ public class CodexController {
             HttpServletRequest request) {
         authenticate(request);
         return codexGateway.interruptTurn(body.threadId(), body.turnId());
+    }
+
+    @PostMapping("/turns/steer")
+    public Map<String, Object> steerTurn(
+            @RequestBody SteerTurnRequest body,
+            HttpServletRequest request) {
+        long ownerId = currentUserId(request);
+        List<CodexAttachment> attachments =
+                attachmentService.resolve(
+                        ownerId,
+                        body.workspaceId(),
+                        body.attachmentIds());
+        return codexGateway.steerTurn(
+                body.threadId(),
+                body.expectedTurnId(),
+                body.text(),
+                attachments);
     }
 
     @PostMapping("/threads/name")
@@ -220,6 +243,7 @@ public class CodexController {
     }
 
     public record StartTurnRequest(
+            String workspaceId,
             String threadId,
             String text,
             String cwd,
@@ -230,6 +254,14 @@ public class CodexController {
     }
 
     public record InterruptTurnRequest(String threadId, String turnId) {
+    }
+
+    public record SteerTurnRequest(
+            String workspaceId,
+            String threadId,
+            String expectedTurnId,
+            String text,
+            List<String> attachmentIds) {
     }
 
     public record SetThreadNameRequest(String threadId, String name) {

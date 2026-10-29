@@ -1,12 +1,18 @@
 package com.pydlove.workcove.development.infrastructure;
 
 import com.pydlove.workcove.development.domain.model.GitBranchInfo;
+import com.pydlove.workcove.development.domain.model.GitAuthorStatistics;
 import com.pydlove.workcove.development.domain.model.GitChangedFile;
 import com.pydlove.workcove.development.domain.model.GitCommitInfo;
+import com.pydlove.workcove.development.domain.model.GitFileContent;
+import com.pydlove.workcove.development.domain.model.GitHourStatistics;
+import com.pydlove.workcove.development.domain.model.GitMonthStatistics;
 import com.pydlove.workcove.development.domain.model.GitOperationCommand;
 import com.pydlove.workcove.development.domain.model.GitOperationResult;
 import com.pydlove.workcove.development.domain.model.GitOperationType;
+import com.pydlove.workcove.development.domain.model.GitRepositoryStatistics;
 import com.pydlove.workcove.development.domain.model.GitRepositoryStatus;
+import com.pydlove.workcove.development.domain.model.GitReviewContext;
 import com.pydlove.workcove.development.domain.port.GitRepositoryGateway;
 import com.pydlove.workcove.shared.domain.DomainException;
 
@@ -16,9 +22,19 @@ import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.YearMonth;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -28,7 +44,15 @@ import java.util.regex.Pattern;
 public final class ProcessGitRepositoryGateway implements GitRepositoryGateway {
 
     private static final int MAX_OUTPUT_BYTES = 1024 * 1024;
+    private static final int MAX_STATISTICS_OUTPUT_BYTES = 64 * 1024 * 1024;
     private static final int COMMAND_TIMEOUT_SECONDS = 8;
+    private static final int STATISTICS_TIMEOUT_SECONDS = 120;
+    private static final int REVIEW_TIMEOUT_SECONDS = 30;
+    private static final int MAX_REVIEW_OUTPUT_BYTES = 16 * 1024 * 1024;
+    private static final int MAX_FILE_CONTENT_OUTPUT_BYTES =
+            4 * 1024 * 1024;
+    private static final int FILE_CONTEXT_LINES = 80;
+    private static final long MAX_TRACKED_FILE_BYTES = 20L * 1024 * 1024;
     private static final Set<String> CONFLICT_CODES = Set.of(
             "DD", "AU", "UD", "UA", "DU", "AA", "UU");
     private static final Pattern AHEAD_PATTERN =
@@ -130,9 +154,52 @@ public final class ProcessGitRepositoryGateway implements GitRepositoryGateway {
         if (result.exitCode() != 0) {
             throw new DomainException("无法读取 Git 提交历史");
         }
+        return parseCommitLog(result.output());
+    }
 
+    @Override
+    public List<GitCommitInfo> authorCommits(
+            String path,
+            String authorName,
+            String authorEmail) {
+        String rootPath = repositoryRoot(path);
+        CommandResult head = run(
+                rootPath,
+                "rev-parse",
+                "--verify",
+                "HEAD");
+        if (head.exitCode() != 0) return List.of();
+
+        LocalDate since = LocalDate.now().minusYears(1);
+        CommandResult result = runWithin(
+                rootPath,
+                STATISTICS_TIMEOUT_SECONDS,
+                MAX_STATISTICS_OUTPUT_BYTES,
+                "-c",
+                "core.quotepath=false",
+                "log",
+                "--since=" + since,
+                "--no-merges",
+                "--no-show-signature",
+                "--format=%H%x00%h%x00%P%x00%an%x00%ae%x00%aI%x00%s%x1e");
+        if (result.exitCode() != 0 || result.truncated()) {
+            throw new DomainException(
+                    result.truncated()
+                            ? "Git 提交历史过大，无法读取作者记录"
+                            : "无法读取该作者的 Git 提交记录");
+        }
+        String email = authorEmail.trim();
+        String name = authorName.trim();
+        return parseCommitLog(result.output()).stream()
+                .filter(commit -> email.isBlank()
+                        ? name.equalsIgnoreCase(commit.authorName().trim())
+                        : email.equalsIgnoreCase(commit.authorEmail().trim()))
+                .toList();
+    }
+
+    private static List<GitCommitInfo> parseCommitLog(String output) {
         List<GitCommitInfo> commits = new ArrayList<>();
-        for (String record : result.output().split("\u001e")) {
+        for (String record : output.split("\u001e")) {
             String value = record.strip();
             if (value.isEmpty()) continue;
             String[] fields = value.split("\u0000", -1);
@@ -147,6 +214,498 @@ public final class ProcessGitRepositoryGateway implements GitRepositoryGateway {
                     fields[6]));
         }
         return commits;
+    }
+
+    private static String mergeBase(
+            String rootPath,
+            String baseCommit,
+            String headCommit) {
+        CommandResult result = run(
+                rootPath,
+                "merge-base",
+                baseCommit,
+                headCommit);
+        String value = result.output().trim();
+        if (result.exitCode() != 0 || value.isEmpty()) {
+            throw new DomainException(
+                    "两个分支没有共同祖先，无法发起代码评审");
+        }
+        return value;
+    }
+
+    private static String resolveCommit(
+            String rootPath,
+            String ref,
+            String errorMessage) {
+        CommandResult result = run(
+                rootPath,
+                "rev-parse",
+                "--verify",
+                "--end-of-options",
+                ref + "^{commit}");
+        String value = result.output().trim();
+        if (result.exitCode() != 0 || value.isEmpty()) {
+            throw new DomainException(errorMessage);
+        }
+        return value;
+    }
+
+    private static List<String> splitFileLines(String output) {
+        String normalized = output
+                .replace("\r\n", "\n")
+                .replace('\r', '\n');
+        if (normalized.endsWith("\n")) {
+            normalized = normalized.substring(
+                    0,
+                    normalized.length() - 1);
+        }
+        if (normalized.isEmpty()) return List.of();
+        return Arrays.asList(normalized.split("\n", -1));
+    }
+
+    private static DiffSummary parseDiffSummary(String output) {
+        int fileCount = 0;
+        long additions = 0;
+        long deletions = 0;
+        for (String line : output.split("\\R")) {
+            if (line.isBlank()) continue;
+            String[] values = line.split("\t", -1);
+            if (values.length < 3) continue;
+            fileCount += 1;
+            additions += parseStat(values[0]);
+            deletions += parseStat(values[1]);
+        }
+        return new DiffSummary(fileCount, additions, deletions);
+    }
+
+    @Override
+    public GitRepositoryStatistics statistics(String path) {
+        String rootPath = repositoryRoot(path);
+        LocalDate until = LocalDate.now();
+        LocalDate since = until.minusYears(1);
+        List<YearMonth> monthValues = new ArrayList<>();
+        Map<String, Integer> monthIndexes = new HashMap<>();
+        for (int offset = 11; offset >= 0; offset -= 1) {
+            YearMonth value = YearMonth.from(until).minusMonths(offset);
+            monthIndexes.put(value.toString(), monthValues.size());
+            monthValues.add(value);
+        }
+        long[][] monthTotals = new long[monthValues.size()][3];
+        long[] hourTotals = new long[24];
+        Map<String, AuthorAccumulator> authors = new HashMap<>();
+        Set<String> changedFiles = new HashSet<>();
+        long totalCommits = 0;
+        long additions = 0;
+        long deletions = 0;
+
+        CommandResult head = run(rootPath, "rev-parse", "--verify", "HEAD");
+        if (head.exitCode() == 0) {
+            CommandResult result = runWithin(
+                    rootPath,
+                    STATISTICS_TIMEOUT_SECONDS,
+                    MAX_STATISTICS_OUTPUT_BYTES,
+                    "-c",
+                    "core.quotepath=false",
+                    "log",
+                    "--since=" + since,
+                    "--no-merges",
+                    "--numstat",
+                    "--no-renames",
+                    "--format=%x1e%H%x00%an%x00%ae%x00%aI");
+            if (result.exitCode() != 0 || result.truncated()) {
+                throw new DomainException(
+                        result.truncated()
+                                ? "Git 统计数据过大，请缩小仓库范围"
+                                : "无法统计 Git 提交历史");
+            }
+
+            for (String rawRecord : result.output().split("\u001e", -1)) {
+                String record = rawRecord.strip();
+                if (record.isEmpty()) continue;
+                String[] sections = record.split("\\R", 2);
+                String[] fields = sections[0].split("\u0000", -1);
+                if (fields.length < 4) continue;
+
+                OffsetDateTime committedAt;
+                try {
+                    committedAt = OffsetDateTime.parse(fields[3].trim());
+                } catch (Exception ignored) {
+                    continue;
+                }
+                String name = fields[1].isBlank()
+                        ? "未知作者"
+                        : fields[1].trim();
+                String email = fields[2].trim().toLowerCase(Locale.ROOT);
+                String authorKey = email.isBlank()
+                        ? name.toLowerCase(Locale.ROOT)
+                        : email;
+                AuthorAccumulator author = authors.computeIfAbsent(
+                        authorKey,
+                        ignored -> new AuthorAccumulator(name, email));
+                author.commits += 1;
+                totalCommits += 1;
+                hourTotals[committedAt.getHour()] += 1;
+
+                Integer monthIndex = monthIndexes.get(
+                        YearMonth.from(committedAt).toString());
+                if (monthIndex != null) {
+                    monthTotals[monthIndex][0] += 1;
+                }
+
+                if (sections.length < 2) continue;
+                for (String line : sections[1].split("\\R")) {
+                    if (line.isBlank()) continue;
+                    String[] values = line.split("\t", -1);
+                    if (values.length < 3) continue;
+                    long fileAdditions = parseStat(values[0]);
+                    long fileDeletions = parseStat(values[1]);
+                    additions += fileAdditions;
+                    deletions += fileDeletions;
+                    author.additions += fileAdditions;
+                    author.deletions += fileDeletions;
+                    changedFiles.add(values[2]);
+                    if (monthIndex != null) {
+                        monthTotals[monthIndex][1] += fileAdditions;
+                        monthTotals[monthIndex][2] += fileDeletions;
+                    }
+                }
+            }
+        }
+
+        List<GitMonthStatistics> months = new ArrayList<>();
+        for (int index = 0; index < monthValues.size(); index += 1) {
+            months.add(new GitMonthStatistics(
+                    monthValues.get(index).toString(),
+                    monthTotals[index][0],
+                    monthTotals[index][1],
+                    monthTotals[index][2]));
+        }
+        List<GitHourStatistics> hours = new ArrayList<>();
+        for (int hour = 0; hour < hourTotals.length; hour += 1) {
+            hours.add(new GitHourStatistics(hour, hourTotals[hour]));
+        }
+        List<GitAuthorStatistics> authorRanking = authors.values().stream()
+                .map(AuthorAccumulator::toStatistics)
+                .sorted(Comparator
+                        .comparingLong(GitAuthorStatistics::commits)
+                        .reversed()
+                        .thenComparing(
+                                GitAuthorStatistics::name,
+                                String.CASE_INSENSITIVE_ORDER))
+                .limit(20)
+                .toList();
+        CodeVolume codeVolume = codeVolume(rootPath);
+        return new GitRepositoryStatistics(
+                since.toString(),
+                until.toString(),
+                totalCommits,
+                authors.size(),
+                changedFiles.size(),
+                additions,
+                deletions,
+                additions - deletions,
+                codeVolume.lines(),
+                codeVolume.trackedFiles(),
+                List.copyOf(months),
+                List.copyOf(hours),
+                authorRanking);
+    }
+
+    @Override
+    public GitReviewContext reviewContext(
+            String path,
+            String branch,
+            String baseBranch,
+            String fromCommit) {
+        return reviewContext(
+                path,
+                branch,
+                baseBranch,
+                fromCommit,
+                "",
+                "");
+    }
+
+    @Override
+    public GitReviewContext reviewContext(
+            String path,
+            String branch,
+            String baseBranch,
+            String fromCommit,
+            String since,
+            String until) {
+        String rootPath = repositoryRoot(path);
+        String headCommit = resolveCommit(
+                rootPath,
+                branch,
+                "评审分支不存在");
+        String baseHeadCommit = resolveCommit(
+                rootPath,
+                baseBranch,
+                "对比分支不存在");
+        String mergeBase = mergeBase(
+                rootPath,
+                baseHeadCommit,
+                headCommit);
+        String startCommit = fromCommit == null || fromCommit.isBlank()
+                ? mergeBase
+                : resolveCommit(
+                        rootPath,
+                        fromCommit,
+                        "评审起始提交不存在");
+        CommandResult ancestor = run(
+                rootPath,
+                "merge-base",
+                "--is-ancestor",
+                startCommit,
+                headCommit);
+        if (ancestor.exitCode() != 0) {
+            throw new DomainException(
+                    "评审起始提交不在当前分支历史中");
+        }
+
+        boolean dateFiltered = !since.isBlank() || !until.isBlank();
+        List<String> rangeCommits = List.of();
+        String rangeStart = startCommit;
+        String rangeHead = headCommit;
+        if (dateFiltered) {
+            rangeCommits = reviewRangeCommits(
+                    rootPath,
+                    startCommit,
+                    headCommit,
+                    since,
+                    until);
+            if (rangeCommits.isEmpty()) {
+                return new GitReviewContext(
+                        branch,
+                        baseBranch,
+                        mergeBase,
+                        headCommit,
+                        startCommit,
+                        0,
+                        0,
+                        0,
+                        0,
+                        List.of(),
+                        List.of());
+            }
+            rangeStart = parentCommit(
+                    rootPath,
+                    rangeCommits.get(0),
+                    startCommit);
+            rangeHead = rangeCommits.get(rangeCommits.size() - 1);
+        }
+
+        int commitCount;
+        if (dateFiltered) {
+            commitCount = rangeCommits.size();
+        } else {
+            CommandResult countResult = run(
+                    rootPath,
+                    "rev-list",
+                    "--count",
+                    startCommit + ".." + headCommit);
+            if (countResult.exitCode() != 0) {
+                throw new DomainException("无法统计评审提交数量");
+            }
+            try {
+                commitCount = Integer.parseInt(
+                        countResult.output().trim());
+            } catch (NumberFormatException exception) {
+                throw new DomainException("无法统计评审提交数量");
+            }
+        }
+
+        CommandResult numstat = runWithin(
+                rootPath,
+                REVIEW_TIMEOUT_SECONDS,
+                MAX_REVIEW_OUTPUT_BYTES,
+                "-c",
+                "core.quotepath=false",
+                "diff",
+                "--numstat",
+                "--no-renames",
+                rangeStart,
+                rangeHead);
+        if (numstat.exitCode() != 0 || numstat.truncated()) {
+            throw new DomainException(
+                    numstat.truncated()
+                            ? "代码差异过大，请缩小评审范围"
+                            : "无法计算代码评审差异");
+        }
+        DiffSummary diff = parseDiffSummary(numstat.output());
+
+        CommandResult changedFileResult = runWithin(
+                rootPath,
+                REVIEW_TIMEOUT_SECONDS,
+                MAX_REVIEW_OUTPUT_BYTES,
+                "-c",
+                "core.quotepath=false",
+                "diff",
+                "--name-only",
+                "--no-renames",
+                "-z",
+                rangeStart,
+                rangeHead);
+        if (changedFileResult.exitCode() != 0
+                || changedFileResult.truncated()) {
+            throw new DomainException(
+                    changedFileResult.truncated()
+                            ? "代码差异文件过多，请缩小评审范围"
+                            : "无法读取代码评审文件列表");
+        }
+        List<String> changedFiles =
+                parseChangedFiles(changedFileResult.output());
+
+        CommandResult commitLog = runWithin(
+                rootPath,
+                REVIEW_TIMEOUT_SECONDS,
+                MAX_OUTPUT_BYTES,
+                "-c",
+                "core.quotepath=false",
+                "log",
+                "--max-count=200",
+                "--no-show-signature",
+                "--format=%H%x00%h%x00%P%x00%an%x00%ae%x00%aI%x00%s%x1e",
+                rangeStart + ".." + rangeHead);
+        if (commitLog.exitCode() != 0 || commitLog.truncated()) {
+            throw new DomainException(
+                    commitLog.truncated()
+                            ? "分支提交过多，请缩小评审范围"
+                            : "无法读取评审提交记录");
+        }
+        return new GitReviewContext(
+                branch,
+                baseBranch,
+                mergeBase,
+                rangeHead,
+                rangeStart,
+                commitCount,
+                diff.fileCount(),
+                diff.additions(),
+                diff.deletions(),
+                parseCommitLog(commitLog.output()),
+                changedFiles);
+    }
+
+    private static List<String> reviewRangeCommits(
+            String rootPath,
+            String startCommit,
+            String headCommit,
+            String since,
+            String until) {
+        List<String> arguments = new ArrayList<>();
+        arguments.add("rev-list");
+        arguments.add("--reverse");
+        if (!since.isBlank()) {
+            arguments.add("--since=" + since + " 00:00:00");
+        }
+        if (!until.isBlank()) {
+            arguments.add("--until=" + until + " 23:59:59");
+        }
+        arguments.add(startCommit + ".." + headCommit);
+        CommandResult result = runWithin(
+                rootPath,
+                REVIEW_TIMEOUT_SECONDS,
+                MAX_REVIEW_OUTPUT_BYTES,
+                arguments.toArray(String[]::new));
+        if (result.exitCode() != 0 || result.truncated()) {
+            throw new DomainException(
+                    result.truncated()
+                            ? "评审时间范围内的提交过多，请缩小范围"
+                            : "无法读取评审时间范围内的提交");
+        }
+        return result.output()
+                .lines()
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .toList();
+    }
+
+    private static String parentCommit(
+            String rootPath,
+            String commit,
+            String fallback) {
+        CommandResult result = run(
+                rootPath,
+                "rev-list",
+                "--parents",
+                "-n",
+                "1",
+                commit);
+        if (result.exitCode() != 0) return fallback;
+        String[] fields = result.output().trim().split("\\s+");
+        return fields.length > 1 ? fields[1] : fallback;
+    }
+
+    @Override
+    public GitFileContent fileContent(
+            String path,
+            String revision,
+            String filePath,
+            int line) {
+        String rootPath = repositoryRoot(path);
+        String commit = resolveCommit(
+                rootPath,
+                revision,
+                "评审提交不存在");
+        CommandResult result = runWithin(
+                rootPath,
+                REVIEW_TIMEOUT_SECONDS,
+                MAX_FILE_CONTENT_OUTPUT_BYTES,
+                "-c",
+                "core.quotepath=false",
+                "show",
+                commit + ":" + filePath);
+        if (result.exitCode() != 0) {
+            throw new DomainException(
+                    "无法读取文件内容，该文件可能已删除或路径发生变化");
+        }
+        if (result.truncated()) {
+            throw new DomainException("文件过大，无法在客户端中预览");
+        }
+        if (result.output().indexOf('\0') >= 0) {
+            throw new DomainException("暂不支持预览二进制文件");
+        }
+
+        List<String> allLines = splitFileLines(result.output());
+        int totalLines = allLines.size();
+        if (totalLines == 0) {
+            return new GitFileContent(
+                    commit,
+                    filePath,
+                    0,
+                    0,
+                    0,
+                    0,
+                    List.of(),
+                    false,
+                    false);
+        }
+
+        int requestedLine = line >= 1 && line <= totalLines
+                ? line
+                : 0;
+        int anchor = requestedLine > 0 ? requestedLine : 1;
+        int startLine = requestedLine > 0
+                ? Math.max(1, anchor - FILE_CONTEXT_LINES)
+                : 1;
+        int endLine = requestedLine > 0
+                ? Math.min(totalLines, anchor + FILE_CONTEXT_LINES)
+                : Math.min(totalLines, FILE_CONTEXT_LINES * 2 + 1);
+        List<String> visibleLines = allLines.subList(
+                startLine - 1,
+                endLine);
+        return new GitFileContent(
+                commit,
+                filePath,
+                requestedLine,
+                startLine,
+                endLine,
+                totalLines,
+                List.copyOf(visibleLines),
+                startLine > 1,
+                endLine < totalLines);
     }
 
     @Override
@@ -488,6 +1047,86 @@ public final class ProcessGitRepositoryGateway implements GitRepositoryGateway {
         return output.strip();
     }
 
+    private static long parseStat(String value) {
+        if (value == null || value.isBlank() || "-".equals(value)) return 0;
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
+    private static List<String> parseChangedFiles(String output) {
+        return java.util.Arrays.stream(output.split("\u0000", -1))
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .distinct()
+                .limit(5000)
+                .toList();
+    }
+
+    private static CodeVolume codeVolume(String rootPath) {
+        CommandResult result = runWithin(
+                rootPath,
+                STATISTICS_TIMEOUT_SECONDS,
+                MAX_STATISTICS_OUTPUT_BYTES,
+                "-c",
+                "core.quotepath=false",
+                "ls-files",
+                "-z");
+        if (result.exitCode() != 0 || result.truncated()) {
+            throw new DomainException("无法读取 Git 跟踪文件");
+        }
+        Path root = Path.of(rootPath);
+        long lines = 0;
+        int trackedFiles = 0;
+        for (String filename : result.output().split("\u0000", -1)) {
+            if (filename.isEmpty()) continue;
+            trackedFiles += 1;
+            Path file = root.resolve(filename).normalize();
+            if (!file.startsWith(root)
+                    || !Files.isRegularFile(
+                            file,
+                            LinkOption.NOFOLLOW_LINKS)) {
+                continue;
+            }
+            try {
+                if (Files.size(file) > MAX_TRACKED_FILE_BYTES) continue;
+                long count = textLineCount(file);
+                if (count >= 0) lines += count;
+            } catch (IOException ignored) {
+                // Unreadable or disappearing working tree files are skipped.
+            }
+        }
+        return new CodeVolume(trackedFiles, lines);
+    }
+
+    private static long textLineCount(Path file) {
+        long lines = 0;
+        int last = -1;
+        boolean hasContent = false;
+        byte[] buffer = new byte[8192];
+        try (InputStream input = Files.newInputStream(file)) {
+            int read;
+            while ((read = input.read(buffer)) >= 0) {
+                if (read == 0) continue;
+                for (int index = 0; index < read; index += 1) {
+                    int value = buffer[index] & 0xff;
+                    if (value == 0) return -1;
+                    if (!Character.isWhitespace((char) value)) {
+                        hasContent = true;
+                    }
+                    if (value == '\n') lines += 1;
+                    last = value;
+                }
+            }
+        } catch (IOException ignored) {
+            return -1;
+        }
+        if (!hasContent) return 0;
+        return last == '\n' ? lines : lines + 1;
+    }
+
     private static StatusSummary parseStatus(String output) {
         String branch = "HEAD";
         int ahead = 0;
@@ -696,6 +1335,18 @@ public final class ProcessGitRepositoryGateway implements GitRepositoryGateway {
             String directory,
             int timeoutSeconds,
             String... arguments) {
+        return runWithin(
+                directory,
+                timeoutSeconds,
+                MAX_OUTPUT_BYTES,
+                arguments);
+    }
+
+    private static CommandResult runWithin(
+            String directory,
+            int timeoutSeconds,
+            int maxOutputBytes,
+            String... arguments) {
         List<String> command = new ArrayList<>();
         command.add("git");
         command.add("-C");
@@ -719,7 +1370,9 @@ public final class ProcessGitRepositoryGateway implements GitRepositoryGateway {
 
         AtomicReference<CollectedOutput> outputRef = new AtomicReference<>();
         Thread reader = new Thread(
-                () -> outputRef.set(readLimited(process.getInputStream())),
+                () -> outputRef.set(readLimited(
+                        process.getInputStream(),
+                        maxOutputBytes)),
                 "workcove-git-reader");
         reader.setDaemon(true);
         reader.start();
@@ -742,7 +1395,9 @@ public final class ProcessGitRepositoryGateway implements GitRepositoryGateway {
         }
     }
 
-    private static CollectedOutput readLimited(InputStream input) {
+    private static CollectedOutput readLimited(
+            InputStream input,
+            int maxOutputBytes) {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         byte[] buffer = new byte[4096];
         boolean truncated = false;
@@ -751,7 +1406,7 @@ public final class ProcessGitRepositoryGateway implements GitRepositoryGateway {
             int read;
             while ((read = input.read(buffer)) >= 0) {
                 if (read == 0) continue;
-                int remaining = MAX_OUTPUT_BYTES - total;
+                int remaining = maxOutputBytes - total;
                 if (remaining > 0) {
                     int accepted = Math.min(remaining, read);
                     output.write(buffer, 0, accepted);
@@ -781,6 +1436,12 @@ public final class ProcessGitRepositoryGateway implements GitRepositoryGateway {
             List<String> conflictFiles) {
     }
 
+    private record DiffSummary(
+            int fileCount,
+            long additions,
+            long deletions) {
+    }
+
     private record RemoteInfo(String name, String url) {
         private static final RemoteInfo EMPTY = new RemoteInfo("", "");
     }
@@ -801,5 +1462,30 @@ public final class ProcessGitRepositoryGateway implements GitRepositoryGateway {
     }
 
     private record CollectedOutput(String value, boolean truncated) {
+    }
+
+    private record CodeVolume(int trackedFiles, long lines) {
+    }
+
+    private static final class AuthorAccumulator {
+        private final String name;
+        private final String email;
+        private long commits;
+        private long additions;
+        private long deletions;
+
+        private AuthorAccumulator(String name, String email) {
+            this.name = name.isBlank() ? "未知作者" : name.trim();
+            this.email = email;
+        }
+
+        private GitAuthorStatistics toStatistics() {
+            return new GitAuthorStatistics(
+                    name,
+                    email,
+                    commits,
+                    additions,
+                    deletions);
+        }
     }
 }

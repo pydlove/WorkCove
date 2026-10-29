@@ -44,7 +44,7 @@ public class JdbcCalendarRepository implements CalendarRepository {
     }
 
     @Override
-    public List<CalendarEvent> findEvents(long ownerId) {
+    public List<CalendarEvent> findEvents(long ownerId, String workspaceId) {
         return jdbc.query(
                 """
                 SELECT id, owner_id, event_key, workspace_id, title,
@@ -52,15 +52,19 @@ public class JdbcCalendarRepository implements CalendarRepository {
                        reminder_in_app, reminder_email,
                        reminder_minutes_before, created_at, updated_at
                 FROM calendar_event
-                WHERE owner_id = ?
+                WHERE owner_id = ? AND workspace_id = ?
                 ORDER BY event_date, start_time, id
                 """,
                 EVENT_MAPPER,
-                ownerId);
+                ownerId,
+                workspaceId);
     }
 
     @Override
-    public Optional<CalendarEvent> findEvent(long ownerId, String eventKey) {
+    public Optional<CalendarEvent> findEvent(
+            long ownerId,
+            String workspaceId,
+            String eventKey) {
         return jdbc.query(
                 """
                 SELECT id, owner_id, event_key, workspace_id, title,
@@ -68,10 +72,11 @@ public class JdbcCalendarRepository implements CalendarRepository {
                        reminder_in_app, reminder_email,
                        reminder_minutes_before, created_at, updated_at
                 FROM calendar_event
-                WHERE owner_id = ? AND event_key = ?
+                WHERE owner_id = ? AND workspace_id = ? AND event_key = ?
                 """,
                 EVENT_MAPPER,
                 ownerId,
+                workspaceId,
                 eventKey).stream().findFirst();
     }
 
@@ -92,7 +97,7 @@ public class JdbcCalendarRepository implements CalendarRepository {
                         start_time = ?, end_time = ?, notes = ?, color = ?,
                         reminder_in_app = ?, reminder_email = ?,
                         reminder_minutes_before = ?, updated_at = ?
-                    WHERE id = ? AND owner_id = ?
+                    WHERE id = ? AND owner_id = ? AND workspace_id = ?
                     """,
                     event.workspaceId(),
                     event.title(),
@@ -106,7 +111,8 @@ public class JdbcCalendarRepository implements CalendarRepository {
                     event.reminderMinutesBefore(),
                     timestamp(event.updatedAt()),
                     event.id(),
-                    event.ownerId());
+                    event.ownerId(),
+                    event.workspaceId());
             if (updated != 1) {
                 throw new IllegalStateException("日程更新失败");
             }
@@ -138,34 +144,48 @@ public class JdbcCalendarRepository implements CalendarRepository {
                     timestamp(now),
                     timestamp(now));
         }
-        return findEvent(event.ownerId(), event.eventKey())
+        return findEvent(
+                event.ownerId(),
+                event.workspaceId(),
+                event.eventKey())
                 .orElseThrow(() -> new IllegalStateException("日程保存失败"));
     }
 
     @Override
-    public void deleteEvent(long ownerId, String eventKey) {
+    public void deleteEvent(
+            long ownerId,
+            String workspaceId,
+            String eventKey) {
         jdbc.update(
-                "DELETE FROM calendar_event WHERE owner_id = ? AND event_key = ?",
+                """
+                DELETE FROM calendar_event
+                WHERE owner_id = ? AND workspace_id = ? AND event_key = ?
+                """,
                 ownerId,
+                workspaceId,
                 eventKey);
     }
 
     @Override
-    public Optional<CalendarReminderSettings> findReminderSettings(long ownerId) {
+    public Optional<CalendarReminderSettings> findReminderSettings(
+            long ownerId,
+            String workspaceId) {
         return jdbc.query(
                 """
-                SELECT owner_id, default_in_app, default_email,
+                SELECT owner_id, workspace_id, default_in_app, default_email,
                        default_minutes_before, updated_at
                 FROM calendar_reminder_settings
-                WHERE owner_id = ?
+                WHERE owner_id = ? AND workspace_id = ?
                 """,
                 (result, rowNumber) -> new CalendarReminderSettings(
                         result.getLong("owner_id"),
+                        result.getString("workspace_id"),
                         result.getBoolean("default_in_app"),
                         result.getBoolean("default_email"),
                         result.getInt("default_minutes_before"),
                         instant(result, "updated_at")),
-                ownerId).stream().findFirst();
+                ownerId,
+                workspaceId).stream().findFirst();
     }
 
     @Override
@@ -174,10 +194,10 @@ public class JdbcCalendarRepository implements CalendarRepository {
         jdbc.update(
                 """
                 INSERT INTO calendar_reminder_settings (
-                    owner_id, default_in_app, default_email,
+                    owner_id, workspace_id, default_in_app, default_email,
                     default_minutes_before, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE
                     default_in_app = VALUES(default_in_app),
                     default_email = VALUES(default_email),
@@ -185,11 +205,14 @@ public class JdbcCalendarRepository implements CalendarRepository {
                     updated_at = VALUES(updated_at)
                 """,
                 settings.ownerId(),
+                settings.workspaceId(),
                 settings.defaultInApp(),
                 settings.defaultEmail(),
                 settings.defaultMinutesBefore(),
                 timestamp(settings.updatedAt()));
-        return findReminderSettings(settings.ownerId())
+        return findReminderSettings(
+                settings.ownerId(),
+                settings.workspaceId())
                 .orElseThrow(() -> new IllegalStateException("提醒设置保存失败"));
     }
 
@@ -297,60 +320,76 @@ public class JdbcCalendarRepository implements CalendarRepository {
     }
 
     @Override
-    public List<InAppNotification> findNotifications(long ownerId, int limit) {
+    public List<InAppNotification> findNotifications(
+            long ownerId,
+            String workspaceId,
+            int limit) {
         return jdbc.query(
                 """
                 SELECT id, owner_id, workspace_id, event_id, title, body,
                        link_view, dedupe_key, read_at_utc, created_at
                 FROM in_app_notification
-                WHERE owner_id = ?
+                WHERE owner_id = ? AND workspace_id = ?
                 ORDER BY created_at DESC, id DESC
                 LIMIT ?
                 """,
                 NOTIFICATION_MAPPER,
                 ownerId,
+                workspaceId,
                 Math.max(1, limit));
     }
 
     @Override
-    public int countUnreadNotifications(long ownerId) {
+    public int countUnreadNotifications(
+            long ownerId,
+            String workspaceId) {
         Integer count = jdbc.queryForObject(
                 """
                 SELECT COUNT(*)
                 FROM in_app_notification
-                WHERE owner_id = ? AND read_at_utc IS NULL
+                WHERE owner_id = ? AND workspace_id = ?
+                  AND read_at_utc IS NULL
                 """,
                 Integer.class,
-                ownerId);
+                ownerId,
+                workspaceId);
         return count == null ? 0 : count;
     }
 
     @Override
     public void markNotificationRead(
             long ownerId,
+            String workspaceId,
             long notificationId,
             Instant readAt) {
         jdbc.update(
                 """
                 UPDATE in_app_notification
                 SET read_at_utc = ?
-                WHERE id = ? AND owner_id = ? AND read_at_utc IS NULL
+                WHERE id = ? AND owner_id = ? AND workspace_id = ?
+                  AND read_at_utc IS NULL
                 """,
                 timestamp(readAt),
                 notificationId,
-                ownerId);
+                ownerId,
+                workspaceId);
     }
 
     @Override
-    public void markAllNotificationsRead(long ownerId, Instant readAt) {
+    public void markAllNotificationsRead(
+            long ownerId,
+            String workspaceId,
+            Instant readAt) {
         jdbc.update(
                 """
                 UPDATE in_app_notification
                 SET read_at_utc = ?
-                WHERE owner_id = ? AND read_at_utc IS NULL
+                WHERE owner_id = ? AND workspace_id = ?
+                  AND read_at_utc IS NULL
                 """,
                 timestamp(readAt),
-                ownerId);
+                ownerId,
+                workspaceId);
     }
 
     private long insertEvent(CalendarEvent event) {

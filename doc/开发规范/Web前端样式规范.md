@@ -44,9 +44,10 @@ system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
 ```
 
 - 必须通过 `var(--font-sans)` 使用。
-- 设置页允许在“系统”“Codex”“Avenir”之间切换，偏好按登录账号保存。
+- 设置页允许在“苹方系统字体”“MiSans”“思源黑体”“冬青黑体”“霞鹜文楷”“思源宋体”“Codex Inter”“Avenir”之间切换，偏好按登录账号保存并全局生效。
 - Codex 风格使用本地内置的 Inter 字体和苹方中文回退，不依赖网络加载。
 - Avenir 风格使用 macOS 自带的 Avenir Next，并以苹方作为中文回退。
+- MiSans、思源黑体、霞鹜文楷和思源宋体仅在首次选择时从 jsDelivr 加载对应字重，后续使用浏览器缓存；加载失败时回退到苹方。
 - 代码、时间、ID、路径等需要等宽对齐的内容使用 `var(--font-mono)`。
 - 不在业务组件里直接写 `"SF Pro Display"`、`"Helvetica Neue"` 或第二套字体。
 - 不打包专有字体冒充 SF Pro；可打包许可清晰的 Inter。
@@ -476,6 +477,7 @@ macOS 对话框内使用左右排布：
 - 按钮按下最多 `scale(0.98)`。
 - 禁止 Material 涟漪、弹跳、持续呼吸和装饰性粒动效。
 - 尊重 `prefers-reduced-motion`。
+- 保存、查询等按钮内加载统一使用 `UiFidgetSpinner`，以 720ms 匀速旋转的三叶指尖陀螺表达处理中状态。
 - 成功提示说明“发生了什么”，失败提示说明“为什么”和“下一步”。
 
 ## 13. 焦点、滚动条与可访问性
@@ -543,11 +545,14 @@ pnpm build
 | Select | `components/ui/UiSelect.vue` | 已落地 |
 | CategorySelect | `components/ui/UiCategorySelect.vue` | 已落地 |
 | Input | `components/ui/UiInput.vue` | 已落地 |
+| SearchInput | `components/ui/UiSearchInput.vue` | 已落地 |
+| ActionMenu | `components/ui/UiActionMenu.vue` | 已落地 |
 | FormField | `components/ui/UiFormField.vue` | 已落地 |
 | SegmentedControl | `components/ui/UiSegmentedControl.vue` | 已落地 |
 | Dialog | `components/ui/UiDialog.vue` | 已落地 |
 | TrafficLights | `components/ui/TrafficLights.vue` | 已落地 |
 | BrandMark | `components/ui/BrandMark.vue` | 已落地 |
+| FidgetSpinner | `components/ui/UiFidgetSpinner.vue` | 已落地 |
 
 后续需要新增 Checkbox、Switch、Toast、Table、Tabs、Menu 等组件时，继续放在 `components/ui/`，并沿用本规范的尺寸、变体和可访问性要求。
 

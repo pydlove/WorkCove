@@ -1,6 +1,7 @@
 package com.pydlove.workcove.development.domain.repository;
 
 import com.pydlove.workcove.development.domain.model.ZentaoBug;
+import com.pydlove.workcove.development.domain.model.ZentaoBuild;
 import com.pydlove.workcove.development.domain.model.ZentaoConnection;
 
 import java.util.List;
@@ -43,4 +44,16 @@ public interface ZentaoRepository {
             String resolution,
             String solution,
             String reason);
+
+    List<ZentaoBuild> findBuilds(long ownerId, String workspaceId);
+
+    Optional<ZentaoBuild> findBuildByRemote(
+            long ownerId,
+            String workspaceId,
+            String projectId,
+            String remoteId);
+
+    ZentaoBuild saveBuild(ZentaoBuild build);
+
+    void deleteBuilds(long ownerId, String workspaceId);
 }

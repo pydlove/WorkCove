@@ -4,7 +4,11 @@ import com.pydlove.workcove.development.domain.model.GitBranchInfo;
 import com.pydlove.workcove.development.domain.model.GitOperationCommand;
 import com.pydlove.workcove.development.domain.model.GitOperationResult;
 import com.pydlove.workcove.development.domain.model.GitOperationType;
+import com.pydlove.workcove.development.domain.model.GitFileContent;
+import com.pydlove.workcove.development.domain.model.GitRepositoryStatistics;
 import com.pydlove.workcove.development.domain.model.GitRepositoryStatus;
+import com.pydlove.workcove.development.domain.model.GitReviewContext;
+import com.pydlove.workcove.shared.domain.DomainException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -15,6 +19,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ProcessGitRepositoryGatewayTest {
@@ -219,6 +224,246 @@ class ProcessGitRepositoryGatewayTest {
         assertTrue(continued.conflictFiles().isEmpty());
     }
 
+    @Test
+    void filtersAuthorCommitsByExactEmail() throws Exception {
+        initializeRepository();
+        runGit(temporaryDirectory, "config", "user.name", "Alice");
+        runGit(
+                temporaryDirectory,
+                "config",
+                "user.email",
+                "alice@example.com");
+        Files.writeString(temporaryDirectory.resolve("alice.txt"), "alice\n");
+        runGit(temporaryDirectory, "add", "alice.txt");
+        runGit(temporaryDirectory, "commit", "-m", "Alice exact commit");
+
+        runGit(temporaryDirectory, "config", "user.name", "Malice");
+        runGit(
+                temporaryDirectory,
+                "config",
+                "user.email",
+                "malice@example.com");
+        Files.writeString(temporaryDirectory.resolve("malice.txt"), "malice\n");
+        runGit(temporaryDirectory, "add", "malice.txt");
+        runGit(temporaryDirectory, "commit", "-m", "Malice commit");
+
+        assertEquals(
+                List.of("Alice exact commit"),
+                gateway.authorCommits(
+                                temporaryDirectory.toString(),
+                                "Alice",
+                                "alice@example.com")
+                        .stream()
+                        .map(commit -> commit.subject())
+                        .toList());
+    }
+
+    @Test
+    void buildsIncrementalReviewContextFromBranchMergeBase() throws Exception {
+        initializeRepository();
+        Files.writeString(temporaryDirectory.resolve("common.txt"), "base\n");
+        runGit(temporaryDirectory, "add", "common.txt");
+        runGit(temporaryDirectory, "commit", "-m", "Base");
+        runGit(temporaryDirectory, "switch", "-c", "feature");
+
+        Files.writeString(temporaryDirectory.resolve("feature.txt"), "one\n");
+        runGit(temporaryDirectory, "add", "feature.txt");
+        runGit(temporaryDirectory, "commit", "-m", "Feature file");
+        String firstFeatureCommit = gateway.inspect(
+                temporaryDirectory.toString()).latestCommitHash();
+
+        Files.writeString(
+                temporaryDirectory.resolve("common.txt"),
+                "base\nfeature\n");
+        runGit(temporaryDirectory, "add", "common.txt");
+        runGit(temporaryDirectory, "commit", "-m", "Update common");
+
+        GitReviewContext full = gateway.reviewContext(
+                temporaryDirectory.toString(),
+                "feature",
+                "main",
+                "");
+        GitReviewContext incremental = gateway.reviewContext(
+                temporaryDirectory.toString(),
+                "feature",
+                "main",
+                firstFeatureCommit);
+
+        assertEquals(2, full.commitCount());
+        assertEquals(2, full.fileCount());
+        assertEquals(2, full.additions());
+        assertEquals(0, full.deletions());
+        assertEquals(2, full.commits().size());
+        assertEquals(
+                List.of("common.txt", "feature.txt"),
+                full.changedFiles());
+        assertEquals(firstFeatureCommit, incremental.fromCommit());
+        assertEquals(1, incremental.commitCount());
+        assertEquals(1, incremental.fileCount());
+        assertEquals(List.of("common.txt"), incremental.changedFiles());
+    }
+
+    @Test
+    void filtersReviewContextByCommitDateRange() throws Exception {
+        initializeRepository();
+        runGitAt(
+                temporaryDirectory,
+                "2026-10-27T10:00:00+08:00",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "Base");
+        runGit(temporaryDirectory, "switch", "-c", "feature");
+
+        Files.writeString(temporaryDirectory.resolve("yesterday.txt"), "one\n");
+        runGit(temporaryDirectory, "add", "yesterday.txt");
+        runGitAt(
+                temporaryDirectory,
+                "2026-10-28T10:00:00+08:00",
+                "commit",
+                "-m",
+                "Yesterday");
+
+        Files.writeString(temporaryDirectory.resolve("today.txt"), "two\n");
+        runGit(temporaryDirectory, "add", "today.txt");
+        runGitAt(
+                temporaryDirectory,
+                "2026-10-29T10:00:00+08:00",
+                "commit",
+                "-m",
+                "Today");
+
+        GitReviewContext today = gateway.reviewContext(
+                temporaryDirectory.toString(),
+                "feature",
+                "main",
+                "",
+                "2026-10-29",
+                "2026-10-29");
+        GitReviewContext empty = gateway.reviewContext(
+                temporaryDirectory.toString(),
+                "feature",
+                "main",
+                "",
+                "2026-10-30",
+                "2026-10-30");
+
+        assertEquals(1, today.commitCount());
+        assertEquals(1, today.fileCount());
+        assertEquals(1, today.additions());
+        assertEquals(List.of("today.txt"), today.changedFiles());
+        assertEquals(0, empty.commitCount());
+        assertEquals(0, empty.fileCount());
+    }
+
+    @Test
+    void readsFileContentAroundTheRequestedLine() throws Exception {
+        initializeRepository();
+        Path source = temporaryDirectory.resolve("src/main/Example.java");
+        Files.createDirectories(source.getParent());
+        StringBuilder value = new StringBuilder();
+        for (int line = 1; line <= 300; line += 1) {
+            value.append("line ").append(line).append('\n');
+        }
+        Files.writeString(source, value);
+        runGit(temporaryDirectory, "add", ".");
+        runGit(temporaryDirectory, "commit", "-m", "Add source");
+        String commit = gateway.inspect(
+                temporaryDirectory.toString()).latestCommitHash();
+
+        GitFileContent content = gateway.fileContent(
+                temporaryDirectory.toString(),
+                commit,
+                "src/main/Example.java",
+                150);
+
+        assertEquals(commit, content.revision());
+        assertEquals("src/main/Example.java", content.filePath());
+        assertEquals(150, content.requestedLine());
+        assertEquals(70, content.startLine());
+        assertEquals(230, content.endLine());
+        assertEquals(300, content.totalLines());
+        assertEquals("line 150", content.lines().get(80));
+        assertTrue(content.truncatedBefore());
+        assertTrue(content.truncatedAfter());
+        assertThrows(
+                DomainException.class,
+                () -> gateway.fileContent(
+                        temporaryDirectory.toString(),
+                        commit,
+                        "src/main/Missing.java",
+                        1));
+    }
+
+    @Test
+    void aggregatesYearlyGitStatistics() throws Exception {
+        initializeRepository();
+        runGit(temporaryDirectory, "config", "user.name", "Alice");
+        runGit(
+                temporaryDirectory,
+                "config",
+                "user.email",
+                "alice@example.com");
+        Files.writeString(
+                temporaryDirectory.resolve("alice.txt"),
+                "one\ntwo\n");
+        runGit(temporaryDirectory, "add", "alice.txt");
+        runGit(temporaryDirectory, "commit", "-m", "Alice commit");
+
+        runGit(temporaryDirectory, "config", "user.name", "Bob");
+        runGit(
+                temporaryDirectory,
+                "config",
+                "user.email",
+                "bob@example.com");
+        Files.writeString(
+                temporaryDirectory.resolve("bob.txt"),
+                "three\n");
+        runGit(temporaryDirectory, "add", "bob.txt");
+        runGit(temporaryDirectory, "commit", "-m", "Bob commit");
+
+        GitRepositoryStatistics statistics = gateway.statistics(
+                temporaryDirectory.toString());
+
+        assertEquals(2, statistics.totalCommits());
+        assertEquals(2, statistics.activeAuthors());
+        assertEquals(2, statistics.changedFiles());
+        assertEquals(3, statistics.additions());
+        assertEquals(0, statistics.deletions());
+        assertEquals(3, statistics.totalLines());
+        assertEquals(2, statistics.trackedFiles());
+        assertEquals(12, statistics.months().size());
+        assertEquals(24, statistics.hours().size());
+        assertEquals(
+                2,
+                statistics.authors().stream()
+                        .mapToLong(author -> author.commits())
+                        .sum());
+        assertEquals(
+                3,
+                statistics.authors().stream()
+                        .mapToLong(author -> author.additions())
+                        .sum());
+        assertEquals(
+                List.of("Alice commit"),
+                gateway.authorCommits(
+                                temporaryDirectory.toString(),
+                                "Alice",
+                                "alice@example.com")
+                        .stream()
+                        .map(commit -> commit.subject())
+                        .toList());
+        assertEquals(
+                List.of("Bob commit"),
+                gateway.authorCommits(
+                                temporaryDirectory.toString(),
+                                "Bob",
+                                "bob@example.com")
+                        .stream()
+                        .map(commit -> commit.subject())
+                        .toList());
+    }
+
     private void initializeRepository() throws Exception {
         runGit(temporaryDirectory, "init", "-b", "main");
         runGit(temporaryDirectory, "config", "user.name", "WorkCove Test");
@@ -243,14 +488,25 @@ class ProcessGitRepositoryGatewayTest {
 
     private static void runGit(Path directory, String... arguments)
             throws Exception {
+        runGitAt(directory, null, arguments);
+    }
+
+    private static void runGitAt(
+            Path directory,
+            String date,
+            String... arguments) throws Exception {
         List<String> command = new java.util.ArrayList<>();
         command.add("git");
         command.add("-C");
         command.add(directory.toString());
         command.addAll(List.of(arguments));
-        Process process = new ProcessBuilder(command)
-                .redirectErrorStream(true)
-                .start();
+        ProcessBuilder builder = new ProcessBuilder(command)
+                .redirectErrorStream(true);
+        if (date != null) {
+            builder.environment().put("GIT_AUTHOR_DATE", date);
+            builder.environment().put("GIT_COMMITTER_DATE", date);
+        }
+        Process process = builder.start();
         assertTrue(
                 process.waitFor(10, TimeUnit.SECONDS),
                 () -> "Git command timed out: " + command);

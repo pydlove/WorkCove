@@ -5,6 +5,7 @@ import java.time.Instant;
 public record VaultEntry(
         Long id,
         long ownerId,
+        String workspaceId,
         String name,
         String username,
         String passwordCiphertext,
